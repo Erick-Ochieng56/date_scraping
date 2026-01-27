@@ -147,6 +147,7 @@ INSTALLED_APPS = [
     'leads',
     'scraper',
     'crm_integration',
+    'sheets_integration',
 ]
 
 MIDDLEWARE = [

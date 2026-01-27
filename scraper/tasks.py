@@ -32,6 +32,14 @@ def _enqueue_perfex_sync(lead_id: int) -> None:
     sync_lead_to_perfex.delay(lead_id=lead_id)
 
 
+def _enqueue_sheets_sync(lead_id: int) -> None:
+    if not _get_bool("GSHEETS_ENABLED", default=True):
+        return
+    from sheets_integration.tasks import append_lead_to_sheet
+
+    append_lead_to_sheet.delay(lead_id=lead_id)
+
+
 @shared_task
 def enqueue_enabled_targets() -> int:
     """
@@ -76,6 +84,10 @@ def scrape_target(self, target_id: int, trigger: str = ScrapeRunTrigger.MANUAL) 
                 else:
                     updated_count += 1
 
+                # Primary integration for now: Google Sheets
+                _enqueue_sheets_sync(lead.id)
+
+                # Perfex CRM sync is optional / later; disabled by default via env.
                 _enqueue_perfex_sync(lead.id)
 
                 # Minimal status transitions: keep NEW unless you want auto-review.
