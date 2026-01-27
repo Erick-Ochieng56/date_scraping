@@ -1,0 +1,65 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: date_scraping
+      POSTGRES_USER: date_scraping
+      POSTGRES_PASSWORD: date_scraping
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  web:
+    build: .
+    env_file:
+      - .env
+    environment:
+      DJANGO_DEBUG: "1"
+      DATABASE_URL: "postgresql://date_scraping:date_scraping@db:5432/date_scraping"
+      REDIS_URL: "redis://redis:6379/0"
+    depends_on:
+      - db
+      - redis
+    ports:
+      - "8000:8000"
+    command: >
+      sh -c "python manage.py migrate &&
+             gunicorn leads_app.wsgi:application --bind 0.0.0.0:8000 --workers 2 --threads 4 --timeout 60"
+
+  worker:
+    build: .
+    env_file:
+      - .env
+    environment:
+      DJANGO_DEBUG: "1"
+      DATABASE_URL: "postgresql://date_scraping:date_scraping@db:5432/date_scraping"
+      REDIS_URL: "redis://redis:6379/0"
+    depends_on:
+      - db
+      - redis
+    command: >
+      sh -c "celery -A leads_app worker -l info"
+
+  beat:
+    build: .
+    env_file:
+      - .env
+    environment:
+      DJANGO_DEBUG: "1"
+      DATABASE_URL: "postgresql://date_scraping:date_scraping@db:5432/date_scraping"
+      REDIS_URL: "redis://redis:6379/0"
+    depends_on:
+      - db
+      - redis
+    command: >
+      sh -c "celery -A leads_app beat -l info"
+
+volumes:
+  db_data:
+
