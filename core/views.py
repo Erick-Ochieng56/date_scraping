@@ -17,6 +17,18 @@ def _ops_authorized(request: HttpRequest) -> bool:
 
 
 @require_GET
+def home(_: HttpRequest) -> JsonResponse:
+    return JsonResponse({
+        "message": "Leads App API",
+        "endpoints": {
+            "health": "/healthz",
+            "readiness": "/readyz",
+            "admin": "/admin/",
+        }
+    })
+
+
+@require_GET
 def healthz(_: HttpRequest) -> JsonResponse:
     return JsonResponse({"status": "ok"})
 

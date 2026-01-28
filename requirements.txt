@@ -5,13 +5,16 @@ billiard==4.2.4
 cachetools==6.2.4
 celery==5.6.2
 certifi==2026.1.4
+cffi==2.0.0
 charset-normalizer==3.4.4
 click==8.3.1
 click-didyoumean==0.3.1
 click-plugins==1.1.1.2
 click-repl==0.3.0
 colorama==0.4.6
+cryptography==46.0.3
 Django==6.0
+django-extensions==4.1
 google-api-core==2.28.1
 google-api-python-client==2.187.0
 google-auth==2.41.1
@@ -19,10 +22,12 @@ google-auth-httplib2==0.3.0
 google-auth-oauthlib==1.2.3
 googleapis-common-protos==1.72.0
 greenlet==3.3.0
+gunicorn==24.1.1
 httplib2==0.31.0
 idna==3.11
 kombu==5.6.2
 lxml==6.0.2
+MarkupSafe==3.0.3
 numpy==2.4.0
 oauthlib==3.3.1
 packaging==25.0
@@ -36,7 +41,9 @@ psycopg2-binary==2.9.11
 pyasn1==0.6.1
 pyasn1_modules==0.4.2
 pycountry==24.6.1
+pycparser==3.0
 pyee==13.0.0
+pyOpenSSL==25.3.0
 pyparsing==3.3.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.1
@@ -60,5 +67,5 @@ uritemplate==4.2.0
 urllib3==2.6.2
 vine==5.1.0
 wcwidth==0.2.14
-gunicorn==24.1.1
+Werkzeug==3.1.5
 whitenoise==6.11.0
