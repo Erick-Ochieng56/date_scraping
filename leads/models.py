@@ -31,14 +31,34 @@ class Lead(models.Model):
     full_name = models.CharField(max_length=255, blank=True, default="")
     first_name = models.CharField(max_length=100, blank=True, default="")
     last_name = models.CharField(max_length=100, blank=True, default="")
+    position = models.CharField(
+        max_length=255, blank=True, default="", help_text="Job title/position"
+    )
     company = models.CharField(max_length=255, blank=True, default="")
     email = models.EmailField(blank=True, null=True)
+    website = models.URLField(
+        blank=True, default="", help_text="Website URL"
+    )
     phone_raw = models.CharField(max_length=64, blank=True, default="")
     phone_e164 = models.CharField(
         max_length=32, blank=True, default="", help_text="Normalized E.164 number"
     )
+    
+    # Address fields
+    address = models.CharField(max_length=255, blank=True, default="")
+    city = models.CharField(max_length=100, blank=True, default="")
+    state = models.CharField(max_length=100, blank=True, default="")
     country_code = models.CharField(
         max_length=2, blank=True, default="", help_text="ISO-3166 alpha-2"
+    )
+    zip_code = models.CharField(max_length=20, blank=True, default="")
+    
+    # Additional fields for translation events
+    default_language = models.CharField(
+        max_length=10, blank=True, default="", help_text="Default language code (e.g., 'en', 'es')"
+    )
+    lead_value = models.DecimalField(
+        max_digits=10, decimal_places=2, blank=True, null=True, help_text="Estimated lead value"
     )
 
     # “Date scraping” payload fields (kept generic)

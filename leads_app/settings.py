@@ -335,6 +335,18 @@ CELERY_TASK_ACKS_LATE = True
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_TASK_DEFAULT_QUEUE = _get_env("CELERY_DEFAULT_QUEUE", "default") or "default"
 
+# Windows compatibility: Use 'solo' pool on Windows (single-threaded)
+# On Linux/Unix, use 'prefork' (multiprocessing) for better performance
+import sys
+if sys.platform == "win32":
+    CELERY_WORKER_POOL = "solo"
+    # Alternative: use threads pool for better concurrency on Windows
+    # CELERY_WORKER_POOL = "threads"
+    # CELERY_WORKER_CONCURRENCY = 4
+else:
+    # Use prefork on Linux/Unix for better performance
+    CELERY_WORKER_POOL = _get_env("CELERY_WORKER_POOL", "prefork") or "prefork"
+
 # Periodic tasks (can be tuned via env)
 CELERY_BEAT_SCHEDULE = {
     "scrape-enabled-targets": {
@@ -350,3 +362,24 @@ CELERY_BEAT_SCHEDULE = {
         ),
     },
 }
+
+# Add target sync task if enabled
+# Default: daily at midnight (0:00), configurable via TARGETS_SYNC_SCHEDULE_HOUR
+if _get_bool("TARGETS_SYNC_ENABLED", default=False):
+    try:
+        from celery.schedules import crontab
+        
+        sync_hour = int(_get_env("TARGETS_SYNC_SCHEDULE_HOUR", "0") or "0")
+        sync_minute = int(_get_env("TARGETS_SYNC_SCHEDULE_MINUTE", "0") or "0")
+        
+        CELERY_BEAT_SCHEDULE["sync-targets-from-config"] = {
+            "task": "scraper.tasks.sync_targets_from_config",
+            "schedule": crontab(hour=sync_hour, minute=sync_minute),
+        }
+    except ImportError:
+        # Fallback to timedelta if crontab not available
+        sync_interval = int(_get_env("TARGETS_SYNC_INTERVAL_SECONDS", "86400") or "86400")  # 24 hours
+        CELERY_BEAT_SCHEDULE["sync-targets-from-config"] = {
+            "task": "scraper.tasks.sync_targets_from_config",
+            "schedule": timedelta(seconds=sync_interval),
+        }

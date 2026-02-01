@@ -47,6 +47,31 @@ def run_target(target: ScrapeTarget) -> list[dict]:
             html = fetch_html(url, headers=headers, timeout=timeout_seconds)
 
         items = extract_items(html, item_selector=item_selector, fields=fields)
+        
+        # Log extraction results for debugging
+        if items:
+            logger.info(
+                f"ScrapeTarget {target.id} page {page_num}: extracted {len(items)} items. "
+                f"Sample item keys: {list(items[0].keys()) if items else []}"
+            )
+            # Log a sample item (first non-empty field) for debugging
+            if items:
+                sample = items[0]
+                non_empty = {k: v for k, v in sample.items() if v and str(v).strip()}
+                if non_empty:
+                    logger.debug(f"Sample item (non-empty fields): {non_empty}")
+                else:
+                    logger.warning(
+                        f"ScrapeTarget {target.id}: Extracted {len(items)} items but all fields are empty! "
+                        f"Check if selectors match the HTML structure. "
+                        f"Item selector: {item_selector}, Fields: {list(fields.keys())}"
+                    )
+        else:
+            logger.warning(
+                f"ScrapeTarget {target.id} page {page_num}: No items extracted. "
+                f"Item selector '{item_selector}' may not match any elements."
+            )
+        
         for it in items:
             it.setdefault("_page_url", url)
             it.setdefault("_target_id", target.id)

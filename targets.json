@@ -1,0 +1,63 @@
+[
+  {
+    "name": "Eventbrite - Tech Events",
+    "start_url": "https://www.eventbrite.com/d/united-states/tech/events/",
+    "enabled": true,
+    "target_type": "html",
+    "run_every_minutes": 120,
+    "config": {
+      "item_selector": ".event-card, .search-event-card-wrapper, [data-testid='search-result']",
+      "fields": {
+        "full_name": ".event-title, .event-card-title, [data-testid='event-title']",
+        "event_date": ".event-date, [data-testid='event-date'], .event-card-date",
+        "event_text": ".event-description, .event-card-description",
+        "source_url": "a.event-card-link@href, a[data-testid='event-link']@href, a.event-link@href"
+      },
+      "next_page_selector": "a.pagination-next, a[aria-label='Next'], [data-testid='pagination-next']",
+      "max_pages": 5,
+      "timeout_seconds": 30
+    }
+  },
+  {
+    "name": "Meetup - Local Events",
+    "start_url": "https://www.meetup.com/find/events/",
+    "enabled": true,
+    "target_type": "playwright",
+    "run_every_minutes": 180,
+    "config": {
+      "item_selector": ".eventCard, [data-testid='event-card'], .event-listing",
+      "fields": {
+        "full_name": ".eventCard-title, [data-testid='event-title'], .event-title",
+        "event_date": ".eventCard-date, [data-testid='event-date'], .event-date",
+        "event_text": ".eventCard-description, .event-description",
+        "source_url": "a.eventCard-link@href, a[data-testid='event-link']@href"
+      },
+      "next_page_selector": "a[data-testid='pagination-next'], .pagination-next",
+      "max_pages": 3,
+      "timeout_seconds": 45,
+      "wait_until": "networkidle"
+    }
+  },
+  {
+    "name": "Generic Event Site Example",
+    "start_url": "https://example.com/events",
+    "enabled": false,
+    "target_type": "html",
+    "run_every_minutes": 60,
+    "config": {
+      "item_selector": ".event-item, .event, .listing",
+      "fields": {
+        "full_name": ".event-name, .title, h2, h3",
+        "email": ".event-email, [type='email']",
+        "phone": ".event-phone, .phone",
+        "event_date": ".event-date, .date, [datetime]",
+        "event_text": ".event-description, .description",
+        "source_url": "a.event-link@href, a@href"
+      },
+      "next_page_selector": ".pagination .next, a.next-page",
+      "max_pages": 10,
+      "timeout_seconds": 30
+    }
+  }
+]
+

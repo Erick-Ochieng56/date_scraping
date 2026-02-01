@@ -26,8 +26,28 @@ def _map_item_to_lead_fields(target: ScrapeTarget, item: dict[str, Any]) -> dict
     email = _get_first(item, ["email", "email_address"])
     phone = _get_first(item, ["phone", "phone_number", "phonenumber"])
     company = _get_first(item, ["company", "organization"])
+    position = _get_first(item, ["position", "title", "job_title", "role"])
+    website = _get_first(item, ["website", "url", "website_url", "site"])
+    
+    # Address fields
+    address = _get_first(item, ["address", "street", "street_address"])
+    city = _get_first(item, ["city", "location_city"])
+    state = _get_first(item, ["state", "province", "region", "location_state"])
+    zip_code = _get_first(item, ["zip_code", "zip", "postal_code", "postcode"])
+    country_code = _get_first(item, ["country_code", "country", "location_country"])
+    
+    # Translation event specific fields
+    default_language = _get_first(item, ["default_language", "language", "lang", "preferred_language"])
+    lead_value = item.get("lead_value") or item.get("value")
+    if lead_value:
+        try:
+            lead_value = float(lead_value)
+        except (ValueError, TypeError):
+            lead_value = None
+    else:
+        lead_value = None
 
-    event_text = _get_first(item, ["event_text", "date_text", "date", "datetime"])
+    event_text = _get_first(item, ["event_text", "date_text", "event_description", "description"])
     event_dt = None
     event_date = None
     if item.get("event_datetime"):
@@ -42,6 +62,9 @@ def _map_item_to_lead_fields(target: ScrapeTarget, item: dict[str, Any]) -> dict
         event_date = event_dt.date()
 
     normalized = normalize_phone(phone, default_region=None) if phone else None
+    
+    # Use normalized country code if available, otherwise use extracted
+    final_country_code = normalized.country_code if normalized else (country_code[:2].upper() if country_code else "")
 
     return {
         "source_name": target.name,
@@ -51,8 +74,16 @@ def _map_item_to_lead_fields(target: ScrapeTarget, item: dict[str, Any]) -> dict
         "email": email or None,
         "phone_raw": phone,
         "phone_e164": normalized.e164 if normalized else "",
-        "country_code": normalized.country_code if normalized else "",
+        "country_code": final_country_code,
         "company": company,
+        "position": position,
+        "website": website,
+        "address": address,
+        "city": city,
+        "state": state,
+        "zip_code": zip_code,
+        "default_language": default_language,
+        "lead_value": lead_value,
         "event_text": event_text,
         "event_datetime": event_dt,
         "event_date": event_date,
