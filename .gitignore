@@ -23,5 +23,6 @@ env/
 .vscode/
 
 *.log
+docs/
 cert.crt
 cert.key
