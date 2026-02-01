@@ -61,7 +61,8 @@ def sync_pending_to_perfex(limit: int = 100) -> int:
     """
     Periodic entrypoint: enqueue sync tasks for pending/error leads due for retry.
     """
-    if not _get_bool("PERFEX_SYNC_ENABLED", default=True):
+    # DISABLED by default - enable only when API key is available
+    if not _get_bool("PERFEX_SYNC_ENABLED", default=False):
         return 0
 
     now = timezone.now()
@@ -79,6 +80,15 @@ def sync_pending_to_perfex(limit: int = 100) -> int:
 
 @shared_task(bind=True, max_retries=8)
 def sync_lead_to_perfex(self, lead_id: int, force: bool = False) -> str:
+    # Check if Perfex sync is enabled and configured
+    if not _get_bool("PERFEX_SYNC_ENABLED", default=False):
+        return "disabled"
+    
+    base_url = _get_env("PERFEX_BASE_URL")
+    if not base_url:
+        logger.warning(f"Perfex sync attempted but PERFEX_BASE_URL not configured for lead_id={lead_id}")
+        return "not_configured"
+    
     lead = Lead.objects.get(id=lead_id)
     sync, _ = PerfexLeadSync.objects.get_or_create(lead=lead)
 

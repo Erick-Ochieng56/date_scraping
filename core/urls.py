@@ -9,5 +9,6 @@ urlpatterns = [
     path("readyz", views.readyz, name="readyz"),
     path("ops/trigger-scrape", views.trigger_scrape, name="trigger-scrape"),
     path("ops/trigger-sync", views.trigger_sync, name="trigger-sync"),
+    path("ops/auto-create-target", views.auto_create_target, name="auto-create-target"),
 ]
 
