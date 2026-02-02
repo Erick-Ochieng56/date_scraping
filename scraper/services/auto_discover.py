@@ -50,7 +50,7 @@ def get_platform_config(platform: str, base_url: str) -> dict[str, Any] | None:
             "fields": {
                 "full_name": ".event-title, .event-card-title, [data-testid='event-title'], h2.event-title",
                 "event_date": ".event-date, [data-testid='event-date'], .event-card-date, time",
-                "event_text": ".event-description, .event-card-description, .event-summary",
+                "event_name": ".event-description, .event-card-description, .event-summary",
                 "source_url": "a.event-card-link@href, a[data-testid='event-link']@href, a.event-link@href"
             },
             "next_page_selector": "a.pagination-next, a[aria-label='Next'], [data-testid='pagination-next'], .pagination a:contains('Next')",
@@ -63,7 +63,7 @@ def get_platform_config(platform: str, base_url: str) -> dict[str, Any] | None:
             "fields": {
                 "full_name": ".eventCard-title, [data-testid='event-title'], .event-title, h3.eventCard-title",
                 "event_date": ".eventCard-date, [data-testid='event-date'], .event-date, time",
-                "event_text": ".eventCard-description, .event-description, .event-summary",
+                "event_name": ".eventCard-description, .event-description, .event-summary",
                 "source_url": "a.eventCard-link@href, a[data-testid='event-link']@href, a.event-link@href"
             },
             "next_page_selector": "a[data-testid='pagination-next'], .pagination-next, a.pagination-link:contains('Next')",
@@ -77,7 +77,7 @@ def get_platform_config(platform: str, base_url: str) -> dict[str, Any] | None:
             "fields": {
                 "full_name": "[data-testid='event-title'], .event-title, h2, h3",
                 "event_date": "[data-testid='event-date'], .event-date, time",
-                "event_text": "[data-testid='event-description'], .event-description",
+                "event_name": "[data-testid='event-description'], .event-description",
                 "source_url": "a[data-testid='event-link']@href, a.event-link@href"
             },
             "next_page_selector": "a[aria-label='Next'], .pagination-next",
@@ -91,7 +91,7 @@ def get_platform_config(platform: str, base_url: str) -> dict[str, Any] | None:
             "fields": {
                 "full_name": ".event-title, h2, h3",
                 "event_date": ".event-date, .date, time",
-                "event_text": ".event-description, .description",
+                "event_name": ".event-description, .description",
                 "source_url": "a.event-link@href, a@href"
             },
             "next_page_selector": ".pagination .next, a.next",
@@ -104,7 +104,7 @@ def get_platform_config(platform: str, base_url: str) -> dict[str, Any] | None:
             "fields": {
                 "full_name": ".event-title, .title, h2",
                 "event_date": ".event-date, .date",
-                "event_text": ".event-description",
+                "event_name": ".event-description",
                 "source_url": "a.event-link@href"
             },
             "next_page_selector": ".pagination .next",
@@ -117,7 +117,7 @@ def get_platform_config(platform: str, base_url: str) -> dict[str, Any] | None:
             "fields": {
                 "full_name": ".event-title, [data-testid='event-title'], h3",
                 "event_date": ".event-date, [data-testid='event-date'], time",
-                "event_text": ".event-description",
+                "event_name": ".event-description",
                 "source_url": "a.event-link@href, a[data-testid='event-link']@href"
             },
             "next_page_selector": ".pagination-next, a[aria-label='Next']",
@@ -166,7 +166,7 @@ def auto_create_target(url: str, name: str | None = None) -> dict[str, Any]:
             "fields": {
                 "full_name": ".title, .name, h2, h3, .event-title",
                 "event_date": ".date, .time, [datetime], .event-date",
-                "event_text": ".description, .event-description",
+                "event_name": ".description, .event-description",
                 "source_url": "a@href, a.event-link@href"
             },
             "max_pages": 3,

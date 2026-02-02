@@ -8,9 +8,11 @@
     "config": {
       "item_selector": ".event-card, .search-event-card-wrapper, [data-testid='search-result']",
       "fields": {
-        "full_name": ".event-title, .event-card-title, [data-testid='event-title']",
-        "event_date": ".event-date, [data-testid='event-date'], .event-card-date",
-        "event_text": ".event-description, .event-card-description",
+        "event_name": ".event-title, .event-card-title, [data-testid='event-title'], h2.event-title",
+        "company": ".event-organizer, .organizer-name, [data-testid='organizer-name'], .event-card-organizer",
+        "email": ".event-email, [data-testid='event-email'], .contact-email",
+        "phone": ".event-phone, [data-testid='event-phone'], .contact-phone",
+        "website": ".event-website, [data-testid='event-website'], .organizer-website, a.organizer-link@href",
         "source_url": "a.event-card-link@href, a[data-testid='event-link']@href, a.event-link@href"
       },
       "next_page_selector": "a.pagination-next, a[aria-label='Next'], [data-testid='pagination-next']",
@@ -29,7 +31,7 @@
       "fields": {
         "full_name": ".eventCard-title, [data-testid='event-title'], .event-title",
         "event_date": ".eventCard-date, [data-testid='event-date'], .event-date",
-        "event_text": ".eventCard-description, .event-description",
+        "event_name": ".eventCard-description, .event-description",
         "source_url": "a.eventCard-link@href, a[data-testid='event-link']@href"
       },
       "next_page_selector": "a[data-testid='pagination-next'], .pagination-next",
@@ -51,7 +53,7 @@
         "email": ".event-email, [type='email']",
         "phone": ".event-phone, .phone",
         "event_date": ".event-date, .date, [datetime]",
-        "event_text": ".event-description, .description",
+        "event_name": ".event-description, .description",
         "source_url": "a.event-link@href, a@href"
       },
       "next_page_selector": ".pagination .next, a.next-page",

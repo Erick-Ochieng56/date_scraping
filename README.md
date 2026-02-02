@@ -1,10 +1,11 @@
 # date_scraping
 
 Production-ready Django service that:
-- Scrapes lead/date data on a schedule (Celery + Redis)
-- Stores normalized leads in Postgres (Django models)
-- Syncs leads to Google Sheets automatically
-- Optional: Syncs to Perfex CRM (when API key available)
+- Scrapes event/meeting data on a schedule (Celery + Redis)
+- Creates Prospects (pre-contact discovery) automatically
+- Syncs Prospects to Google Sheets for team review
+- Converts Prospects to Leads (post-contact) for full CRM workflow
+- Optional: Syncs Leads to Perfex CRM (when API key available)
 
 **📖 For detailed setup and running instructions, see [HOW_TO_RUN.md](HOW_TO_RUN.md)**
 
@@ -30,7 +31,7 @@ celery -A leads_app beat -l info
 The system will automatically:
 - Check for enabled targets every 5 minutes
 - Scrape targets based on their `run_every_minutes` schedule
-- Push leads to Google Sheets immediately
+- Create Prospects and push them to Google Sheets immediately
 
 ## Local development (venv)
 Create and activate a virtualenv, then:
@@ -176,9 +177,10 @@ The system will automatically sync targets daily (configurable via Celery Beat).
 
 **Current Process (No CRM API Key Yet):**
 1. **Scraping**: System scrapes event websites (Eventbrite, Meetup, etc.)
-2. **Auto-Sync to Google Sheets**: Leads are automatically pushed to Google Sheets immediately
-3. **Manual Review**: Review leads in Google Sheets
-4. **Manual CRM Entry**: Manually add reviewed leads to Perfex CRM
+2. **Auto-Sync to Google Sheets**: New leads are automatically pushed to Google Sheets for review
+3. **Manual Review**: Review leads in Google Sheets or Django Admin
+4. **Status Workflow**: Mark leads as Contacted → Interested → Rejected (or directly to Interested)
+5. **Manual CRM Entry**: Manually add interested leads to Perfex CRM
 
 **Future (When API Key Available):**
 - Set `PERFEX_SYNC_ENABLED=1` in `.env` to enable automatic CRM injection
@@ -200,28 +202,54 @@ Requires `OPS_TOKEN` and header `X-OPS-TOKEN: <token>`.
 - `POST /ops/trigger-sync` body `{"lead_id": 123}` (optional) to enqueue sync
 - `POST /ops/auto-create-target` body `{"url": "...", "name": "..."}` to auto-create target
 
-## Google Sheets Integration (Primary Output)
-**Leads are automatically pushed to Google Sheets for review and manual CRM entry.**
+## Workflow: Prospects → Leads
 
-Set in `.env`:
-- `GSHEETS_CREDENTIALS_FILE` - Path to service account JSON file, OR
-- `GSHEETS_CREDENTIALS_JSON` - JSON credentials as string (recommended for production)
-- `GSHEETS_ENABLED=1` - Enable Sheets sync (default: enabled)
-- `GSHEETS_SPREADSHEET_ID` - Your Google Sheet ID
-- `GSHEETS_LEADS_RANGE=Leads!A:Z` - Range to append data
+The system uses a two-stage workflow:
+
+### Stage 1: Prospects (Pre-Contact Discovery)
+- **Scraped automatically** from event websites
+- **Minimal fields**: Event Name, Company, Email, Phone, Website
+- **Auto-synced to "Prospects" sheet** in Google Sheets
+- **Status**: NEW → CONTACTED → CONVERTED/REJECTED
+
+### Stage 2: Leads (Post-Contact Qualification)
+- **Created manually** when Prospects are contacted
+- **Full CRM fields**: All contact info, address, position, etc.
+- **Status**: CONTACTED → INTERESTED → SYNCED/REJECTED
+- **Can be synced to Perfex CRM** when API key is available
+
+### Conversion Process:
+1. Review Prospects in Google Sheets or Django Admin
+2. Contact the organization
+3. In Django Admin: Select Prospects → "Convert to Leads" action
+4. Leads appear in separate admin section with full CRM workflow
+
+## Google Sheets Integration
+
+**Prospects Sheet (Primary Output):**
+- Automatically created and populated
+- **Columns**: Event Name, Company, Email, Phone, Website (5 columns)
+- **Sheet name**: "Prospects" (default)
+- **Range**: `Prospects!A:E`
+
+**Leads Sheet (Optional):**
+- For qualified Leads ready for CRM
+- **Columns**: Full CRM fields (24 columns)
+- **Sheet name**: "Leads" (default)
+- **Range**: `Leads!A:Z`
+
+**Environment Variables:**
+```env
+GSHEETS_ENABLED=1
+GSHEETS_CREDENTIALS_JSON={"type":"service_account",...}
+GSHEETS_SPREADSHEET_ID=your-spreadsheet-id
+GSHEETS_PROSPECTS_RANGE=Prospects!A:E  # Optional, defaults to Prospects!A:E
+GSHEETS_LEADS_RANGE=Leads!A:Z  # Optional, defaults to Leads!A:Z
+```
 
 **Setup:**
 1. Create Google Cloud service account and download JSON key
 2. Share your Google Sheet with the service account email
 3. Set environment variables
-4. Leads will automatically sync to Sheets when scraped
-
-**Google Sheets Columns:**
-The sheet includes all fields needed for manual CRM entry:
-- ID, Status, Created, Updated
-- Name, Position, Email, Website, Phone
-- Company, Address, City, State, Country, Zip Code
-- Default Language, Lead Value
-- Event Date, Event DateTime, Event Text
-- Source Name, Source URL, Notes
+4. Prospects will automatically sync to Sheets when scraped
 

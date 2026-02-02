@@ -253,10 +253,20 @@ class ScrapeRunAdmin(admin.ModelAdmin):
         "started_at",
         "finished_at",
         "item_count",
-        "created_leads",
-        "updated_leads",
+        "created_prospects_display",
+        "updated_prospects_display",
         "error_preview",
     )
+    
+    def created_prospects_display(self, obj):
+        """Display created prospects count (stored in created_leads field)."""
+        return obj.created_leads
+    created_prospects_display.short_description = "Created Prospects"
+    
+    def updated_prospects_display(self, obj):
+        """Display updated prospects count (stored in updated_leads field)."""
+        return obj.updated_leads
+    updated_prospects_display.short_description = "Updated Prospects"
     list_filter = ("status", "trigger", "target")
     search_fields = ("target__name", "error_text", "task_id")
     readonly_fields = ("created_at", "updated_at", "started_at", "finished_at", "task_id")
@@ -305,7 +315,8 @@ class ScrapeRunAdmin(admin.ModelAdmin):
             "fields": ("started_at", "finished_at")
         }),
         ("Results", {
-            "fields": ("item_count", "created_leads", "updated_leads", "stats")
+            "fields": ("item_count", "created_leads", "updated_leads", "stats"),
+            "description": "Note: created_leads and updated_leads fields store Prospect counts."
         }),
         ("Error Information", {
             "fields": ("error_text",),
