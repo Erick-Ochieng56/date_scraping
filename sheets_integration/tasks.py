@@ -4,9 +4,7 @@ import os
 
 from celery import shared_task
 
-from leads.models import Lead
 from sheets_integration.client import get_sheets_service
-from sheets_integration.rows import lead_to_row
 
 
 def _get_env(name: str, default: str | None = None) -> str | None:
@@ -95,13 +93,86 @@ def _extract_sheet_name(range_str: str) -> str:
 
 
 @shared_task
-def append_lead_to_sheet(lead_id: int) -> None:
+def append_prospect_to_sheet(prospect_id: int) -> None:
+    """Append a Prospect to Google Sheets for team review."""
     if not _get_bool("GSHEETS_ENABLED", default=True):
         return
 
     raw_spreadsheet_id = _get_env("GSHEETS_SPREADSHEET_ID")
     if not raw_spreadsheet_id:
-        # Misconfigured; nothing to do.
+        return
+    
+    spreadsheet_id = _extract_spreadsheet_id(raw_spreadsheet_id)
+    if not spreadsheet_id:
+        return
+    
+    value_range = _get_env("GSHEETS_PROSPECTS_RANGE", "Prospects!A:E")
+    
+    try:
+        from leads.models import Prospect
+        from sheets_integration.rows import prospect_to_row
+        
+        prospect = Prospect.objects.get(id=prospect_id)
+        service = get_sheets_service()
+        
+        # Extract sheet name and ensure it exists
+        sheet_name = _extract_sheet_name(value_range)
+        if not sheet_name:
+            sheet_name = "Prospects"
+            value_range = "Prospects!A:A"
+        
+        # Ensure sheet exists
+        sheet_exists = _ensure_sheet_exists(service, spreadsheet_id, sheet_name)
+        if not sheet_exists:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(
+                f"Cannot append prospect {prospect_id}: Sheet '{sheet_name}' does not exist "
+                f"and could not be created. Please create it manually in the spreadsheet."
+            )
+            return
+        
+        # For append operations, use just the sheet name or a simple range
+        if "!A:Z" in value_range.upper() or "!A:M" in value_range.upper() or "!A:E" in value_range.upper():
+            append_range = f"{sheet_name}!A:A"
+        elif "!" in value_range:
+            append_range = value_range
+        else:
+            append_range = f"{sheet_name}!"
+        
+        body = {"values": [prospect_to_row(prospect)]}
+        service.spreadsheets().values().append(
+            spreadsheetId=spreadsheet_id,
+            range=append_range,
+            valueInputOption="RAW",
+            insertDataOption="INSERT_ROWS",
+            body=body,
+        ).execute()
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        error_msg = str(e)
+        
+        if "Unable to parse range" in error_msg or "Requested entity was not found" in error_msg:
+            sheet_name = _extract_sheet_name(value_range) or "the specified sheet"
+            logger.error(
+                f"Failed to append prospect {prospect_id} to Google Sheets: "
+                f"Sheet '{sheet_name}' may not exist. "
+                f"Please create a sheet tab named '{sheet_name}' in your spreadsheet, "
+                f"or update GSHEETS_PROSPECTS_RANGE to use an existing sheet name."
+            )
+        else:
+            logger.error(f"Failed to append prospect {prospect_id} to Google Sheets: {e}")
+
+
+@shared_task
+def append_lead_to_sheet(lead_id: int) -> None:
+    """Append a Lead to Google Sheets (for manual review if needed)."""
+    if not _get_bool("GSHEETS_ENABLED", default=True):
+        return
+
+    raw_spreadsheet_id = _get_env("GSHEETS_SPREADSHEET_ID")
+    if not raw_spreadsheet_id:
         return
     
     spreadsheet_id = _extract_spreadsheet_id(raw_spreadsheet_id)
@@ -111,15 +182,17 @@ def append_lead_to_sheet(lead_id: int) -> None:
     value_range = _get_env("GSHEETS_LEADS_RANGE", "Leads!A:Z")
     
     try:
+        from leads.models import Lead
+        from sheets_integration.rows import lead_to_row
+        
         lead = Lead.objects.get(id=lead_id)
         service = get_sheets_service()
         
         # Extract sheet name and ensure it exists
         sheet_name = _extract_sheet_name(value_range)
         if not sheet_name:
-            # If no sheet name in range, default to "Leads"
             sheet_name = "Leads"
-            value_range = "Leads!A:A"  # Use A:A for append (will auto-expand)
+            value_range = "Leads!A:A"
         
         # Ensure sheet exists
         sheet_exists = _ensure_sheet_exists(service, spreadsheet_id, sheet_name)
@@ -133,15 +206,11 @@ def append_lead_to_sheet(lead_id: int) -> None:
             return
         
         # For append operations, use just the sheet name or a simple range
-        # "A:Z" ranges can cause parsing errors, so use "A:A" or just sheet name
         if "!A:Z" in value_range.upper():
-            # Replace A:Z with A:A for append (Google Sheets will auto-expand columns)
             append_range = f"{sheet_name}!A:A"
         elif "!" in value_range:
-            # Use the provided range as-is
             append_range = value_range
         else:
-            # Just sheet name - will append to first available row
             append_range = f"{sheet_name}!"
         
         body = {"values": [lead_to_row(lead)]}
@@ -157,7 +226,6 @@ def append_lead_to_sheet(lead_id: int) -> None:
         logger = logging.getLogger(__name__)
         error_msg = str(e)
         
-        # Provide helpful error messages for common issues
         if "Unable to parse range" in error_msg or "Requested entity was not found" in error_msg:
             sheet_name = _extract_sheet_name(value_range) or "the specified sheet"
             logger.error(
@@ -168,7 +236,4 @@ def append_lead_to_sheet(lead_id: int) -> None:
             )
         else:
             logger.error(f"Failed to append lead {lead_id} to Google Sheets: {e}")
-        
-        # Don't raise - we don't want to retry indefinitely for configuration errors
-        # The error is logged, and the lead will remain in the database
 

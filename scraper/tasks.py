@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from scraper.models import ScrapeRun, ScrapeRunStatus, ScrapeRunTrigger, ScrapeTarget
 from scraper.services.runner import run_target
-from scraper.services.upsert import upsert_lead_from_item
+from scraper.services.upsert import upsert_prospect_from_item
 
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ def _get_bool(name: str, default: bool = False) -> bool:
 
 
 def _enqueue_perfex_sync(lead_id: int) -> None:
-    if not _get_bool("PERFEX_SYNC_ENABLED", default=True):
+    if not _get_bool("PERFEX_SYNC_ENABLED", default=False):
         return
     # Lazy import to avoid cyclic imports at module import time.
     from crm_integration.models import PerfexLeadSync
@@ -41,12 +41,12 @@ def _enqueue_perfex_sync(lead_id: int) -> None:
     sync_lead_to_perfex.delay(lead_id=lead_id)
 
 
-def _enqueue_sheets_sync(lead_id: int) -> None:
+def _enqueue_sheets_sync(prospect_id: int, is_prospect: bool = True) -> None:
     if not _get_bool("GSHEETS_ENABLED", default=True):
         return
-    from sheets_integration.tasks import append_lead_to_sheet
+    from sheets_integration.tasks import append_prospect_to_sheet
 
-    append_lead_to_sheet.delay(lead_id=lead_id)
+    append_prospect_to_sheet.delay(prospect_id=prospect_id)
 
 
 @shared_task
@@ -96,28 +96,17 @@ def scrape_target(self, target_id: int, trigger: str = ScrapeRunTrigger.MANUAL) 
 
         with transaction.atomic():
             for item in items:
-                lead, created = upsert_lead_from_item(target=target, item=item)
+                prospect, created = upsert_prospect_from_item(target=target, item=item)
                 if created:
                     created_count += 1
+                    # Only push NEW prospects to Sheets. Do not re-push on updates.
+                    _enqueue_sheets_sync(prospect.id, is_prospect=True)
                 else:
                     updated_count += 1
+                    # Existing prospect re-scraped. Keep its current status. Do not touch Sheets.
 
-                # Primary integration: Google Sheets (always enabled if configured)
-                # Leads are reviewed in Sheets, then manually added to CRM
-                _enqueue_sheets_sync(lead.id)
-
-                # Perfex CRM sync is DISABLED by default
-                # Enable only when API key is available: set PERFEX_SYNC_ENABLED=1
-                # For now, leads are manually added to CRM after review in Google Sheets
-                _enqueue_perfex_sync(lead.id)
-
-                # Minimal status transitions: keep NEW unless you want auto-review.
-                if lead.status not in {"new", "reviewed", "error", "synced"}:
-                    lead.status = "new"
-                    lead.save(update_fields=["status"])
-
-        run.created_leads = created_count
-        run.updated_leads = updated_count
+        run.created_leads = created_count  # Note: stores prospect count
+        run.updated_leads = updated_count  # Note: stores prospect count
         run.status = ScrapeRunStatus.SUCCESS
         target.last_run_at = timezone.now()
         target.save(update_fields=["last_run_at"])

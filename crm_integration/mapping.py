@@ -20,8 +20,8 @@ def build_perfex_lead_payload(lead: Lead, *, defaults: dict[str, Any] | None = N
 
     # Build description with event information (important for translation events)
     description_parts = []
-    if lead.event_text:
-        description_parts.append(f"Event: {lead.event_text}")
+    if lead.event_name:
+        description_parts.append(f"Event: {lead.event_name}")
     if lead.event_date:
         description_parts.append(f"Event Date: {lead.event_date.isoformat()}")
     if lead.event_datetime:
