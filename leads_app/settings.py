@@ -27,6 +27,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
+
 def _get_env(name: str, default: str | None = None) -> str | None:
     value = os.getenv(name)
     if value is None or value == "":
@@ -136,51 +137,51 @@ ENVIRONMENT = _get_env("DJANGO_ENV", "development" if DEBUG else "production")
 # Application definition
 
 INSTALLED_APPS = [
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',  
-    'django_extensions',
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "django_extensions",
     # local apps
-    'core',
-    'leads',
-    'scraper',
-    'crm_integration',
-    'sheets_integration',
+    "core",
+    "leads",
+    "scraper",
+    "crm_integration",
+    "sheets_integration",
 ]
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
+    "django.middleware.security.SecurityMiddleware",
     # WhiteNoise is optional; enables simple static serving in production.
     # If not installed, we safely skip it.
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = 'leads_app.urls'
+ROOT_URLCONF = "leads_app.urls"
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
             ],
         },
     },
 ]
 
-WSGI_APPLICATION = 'leads_app.wsgi.application'
+WSGI_APPLICATION = "leads_app.wsgi.application"
 
 
 # Database
@@ -203,16 +204,16 @@ else:
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
 
@@ -220,7 +221,7 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/6.0/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = "en-us"
 
 TIME_ZONE = _get_env("DJANGO_TIME_ZONE", "UTC") or "UTC"
 
@@ -232,7 +233,7 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = "static/"
 
 STATIC_ROOT = _get_env("DJANGO_STATIC_ROOT", str(BASE_DIR / "staticfiles")) or str(
     BASE_DIR / "staticfiles"
@@ -324,7 +325,9 @@ if SENTRY_DSN:
         pass
 
 # --- Celery ---
-REDIS_URL = _get_env("REDIS_URL", "redis://localhost:6379/0") or "redis://localhost:6379/0"
+REDIS_URL = (
+    _get_env("REDIS_URL", "redis://localhost:6379/0") or "redis://localhost:6379/0"
+)
 CELERY_BROKER_URL = _get_env("CELERY_BROKER_URL", REDIS_URL) or REDIS_URL
 CELERY_RESULT_BACKEND = _get_env("CELERY_RESULT_BACKEND", REDIS_URL) or REDIS_URL
 
@@ -338,6 +341,7 @@ CELERY_TASK_DEFAULT_QUEUE = _get_env("CELERY_DEFAULT_QUEUE", "default") or "defa
 # Windows compatibility: Use 'solo' pool on Windows (single-threaded)
 # On Linux/Unix, use 'prefork' (multiprocessing) for better performance
 import sys
+
 if sys.platform == "win32":
     CELERY_WORKER_POOL = "solo"
     # Alternative: use threads pool for better concurrency on Windows
@@ -363,22 +367,35 @@ CELERY_BEAT_SCHEDULE = {
     },
 }
 
+# Add automatic enrichment task if enabled (Two-Stage Scraping - Stage 2)
+# Default: every 30 minutes, configurable via ENRICHMENT_INTERVAL_SECONDS
+if _get_bool("ENRICHMENT_ENABLED", default=False):
+    enrichment_interval = int(
+        _get_env("ENRICHMENT_INTERVAL_SECONDS", "1800") or "1800"
+    )  # 30 minutes
+    CELERY_BEAT_SCHEDULE["auto-enrich-prospects"] = {
+        "task": "scraper.tasks.auto_enrich_new_prospects",
+        "schedule": timedelta(seconds=enrichment_interval),
+    }
+
 # Add target sync task if enabled
 # Default: daily at midnight (0:00), configurable via TARGETS_SYNC_SCHEDULE_HOUR
 if _get_bool("TARGETS_SYNC_ENABLED", default=False):
     try:
         from celery.schedules import crontab
-        
+
         sync_hour = int(_get_env("TARGETS_SYNC_SCHEDULE_HOUR", "0") or "0")
         sync_minute = int(_get_env("TARGETS_SYNC_SCHEDULE_MINUTE", "0") or "0")
-        
+
         CELERY_BEAT_SCHEDULE["sync-targets-from-config"] = {
             "task": "scraper.tasks.sync_targets_from_config",
             "schedule": crontab(hour=sync_hour, minute=sync_minute),
         }
     except ImportError:
         # Fallback to timedelta if crontab not available
-        sync_interval = int(_get_env("TARGETS_SYNC_INTERVAL_SECONDS", "86400") or "86400")  # 24 hours
+        sync_interval = int(
+            _get_env("TARGETS_SYNC_INTERVAL_SECONDS", "86400") or "86400"
+        )  # 24 hours
         CELERY_BEAT_SCHEDULE["sync-targets-from-config"] = {
             "task": "scraper.tasks.sync_targets_from_config",
             "schedule": timedelta(seconds=sync_interval),
