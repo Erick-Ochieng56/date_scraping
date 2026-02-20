@@ -42,12 +42,52 @@ def _enqueue_perfex_sync(lead_id: int) -> None:
     sync_lead_to_perfex.delay(lead_id=lead_id)
 
 
+def _is_prospect_successful(prospect) -> bool:
+    """
+    Check if a prospect has meaningful data worth syncing to Google Sheets.
+
+    Returns True if prospect has at least event_name OR company filled.
+    Returns False if all key fields are blank/empty.
+    """
+    has_event = prospect.event_name and str(prospect.event_name).strip()
+    has_company = prospect.company and str(prospect.company).strip()
+
+    # At minimum, need event name or company to be considered successful
+    return has_event or has_company
+
+
 def _enqueue_sheets_sync(prospect_id: int, is_prospect: bool = True) -> None:
+    """
+    Enqueue Google Sheets sync only for successful prospects with actual data.
+
+    This ensures we only log prospects that have meaningful information,
+    not blank/empty records from failed scraping.
+    """
     if not _get_bool("GSHEETS_ENABLED", default=True):
         return
-    from sheets_integration.tasks import append_prospect_to_sheet
 
-    append_prospect_to_sheet.delay(prospect_id=prospect_id)
+    # Validate prospect has data before syncing
+    from leads.models import Prospect
+
+    try:
+        prospect = Prospect.objects.get(id=prospect_id)
+
+        # Only sync if prospect has meaningful data
+        if not _is_prospect_successful(prospect):
+            logger.debug(
+                f"Skipping Sheets sync for Prospect {prospect_id}: no meaningful data "
+                f"(event_name='{prospect.event_name}', company='{prospect.company}')"
+            )
+            return
+
+        # Prospect has data, sync to Sheets
+        from sheets_integration.tasks import append_prospect_to_sheet
+
+        append_prospect_to_sheet.delay(prospect_id=prospect_id)
+        logger.debug(f"Queued Sheets sync for Prospect {prospect_id}")
+
+    except Prospect.DoesNotExist:
+        logger.warning(f"Cannot sync Prospect {prospect_id} to Sheets: not found")
 
 
 @shared_task
