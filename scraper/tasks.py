@@ -151,6 +151,25 @@ def scrape_target(self, target_id: int, trigger: str = ScrapeRunTrigger.MANUAL) 
         run.status = ScrapeRunStatus.SUCCESS
         target.last_run_at = timezone.now()
         target.save(update_fields=["last_run_at"])
+        try:
+            from dashboard.utils import create_notification_for_all_users, log_activity
+            log_activity(
+                action="scrape_completed",
+                object_type="run",
+                object_id=run.id,
+                description=f'Run #{run.id} ({target.name}) completed: {created_count} new, {updated_count} updated',
+                user=None,
+                metadata={"target_id": target.id, "created": created_count, "updated": updated_count},
+            )
+            create_notification_for_all_users(
+                title="Scrape completed",
+                message=f'Target "{target.name}" completed: {created_count} new, {updated_count} updated.',
+                notification_type="success",
+                link_url=f"/dashboard/runs/{run.id}/",
+                metadata={"run_id": run.id, "target_id": target.id},
+            )
+        except Exception as notif_err:
+            logger.warning("Failed to create notification/log: %s", notif_err)
         return run.item_count
     except Exception as exc:
         error_msg = str(exc)
@@ -158,6 +177,25 @@ def scrape_target(self, target_id: int, trigger: str = ScrapeRunTrigger.MANUAL) 
         logger.exception("Scrape failed for target_id=%s: %s", target_id, error_msg)
         run.status = ScrapeRunStatus.FAILED
         run.error_text = error_msg
+        try:
+            from dashboard.utils import create_notification_for_all_users, log_activity
+            log_activity(
+                action="scrape_failed",
+                object_type="run",
+                object_id=run.id,
+                description=f'Run #{run.id} ({target.name}) failed: {error_msg[:150]}',
+                user=None,
+                metadata={"target_id": target.id},
+            )
+            create_notification_for_all_users(
+                title="Scrape failed",
+                message=f'Target "{target.name}" failed: {error_msg[:200]}',
+                notification_type="error",
+                link_url=f"/dashboard/runs/{run.id}/",
+                metadata={"run_id": run.id, "target_id": target.id},
+            )
+        except Exception as notif_err:
+            logger.warning("Failed to create notification/log: %s", notif_err)
 
         # Categorize errors for better handling
         is_network_error = (

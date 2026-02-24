@@ -1,0 +1,81 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Edit {{ target.name }}{% endblock %}
+
+{% block page_header %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Edit Target: {{ target.name }}</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a href="{% url 'dashboard:target_detail' target.pk %}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-eye"></i> View
+            </a>
+            <a href="{% url 'dashboard:targets' %}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back to List
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-10">
+        <div class="card">
+            <div class="card-body">
+                <form method="post" novalidate>
+                    {% csrf_token %}
+                    {% if form.non_field_errors %}
+                    <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+                    {% endif %}
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="id_name" class="form-label">Name *</label>
+                            <input type="text" name="name" value="{{ form.name.value|default:'' }}" class="form-control {% if form.name.errors %}is-invalid{% endif %}" id="id_name" required>
+                            {% if form.name.errors %}<div class="invalid-feedback">{{ form.name.errors.0 }}</div>{% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <label for="id_start_url" class="form-label">Start URL *</label>
+                            <input type="url" name="start_url" value="{{ form.start_url.value|default:'' }}" class="form-control {% if form.start_url.errors %}is-invalid{% endif %}" id="id_start_url" required>
+                            {% if form.start_url.errors %}<div class="invalid-feedback">{{ form.start_url.errors.0 }}</div>{% endif %}
+                        </div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label for="id_target_type" class="form-label">Type</label>
+                            <select name="target_type" class="form-select {% if form.target_type.errors %}is-invalid{% endif %}" id="id_target_type">
+                                {% for value, label in form.fields.target_type.choices %}
+                                <option value="{{ value }}" {% if form.target_type.value == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                            {% if form.target_type.errors %}<div class="invalid-feedback">{{ form.target_type.errors.0 }}</div>{% endif %}
+                        </div>
+                        <div class="col-md-4">
+                            <label for="id_run_every_minutes" class="form-label">Run interval (minutes)</label>
+                            <input type="number" name="run_every_minutes" value="{{ form.run_every_minutes.value|default:120 }}" min="1" class="form-control {% if form.run_every_minutes.errors %}is-invalid{% endif %}" id="id_run_every_minutes">
+                            {% if form.run_every_minutes.errors %}<div class="invalid-feedback">{{ form.run_every_minutes.errors.0 }}</div>{% endif %}
+                        </div>
+                        <div class="col-md-4 d-flex align-items-end">
+                            <div class="form-check mb-2">
+                                <input type="checkbox" name="enabled" class="form-check-input" id="id_enabled" {% if form.enabled.value %}checked{% endif %}>
+                                <label class="form-check-label" for="id_enabled">Enabled</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="id_config_json" class="form-label">Configuration (JSON)</label>
+                        <textarea name="config_json" class="form-control font-monospace {% if form.config_json.errors %}is-invalid{% endif %}" id="id_config_json" rows="12">{{ form.config_json.value|default:'{}' }}</textarea>
+                        {% if form.config_json.help_text %}<div class="form-text">{{ form.config_json.help_text }}</div>{% endif %}
+                        {% if form.config_json.errors %}<div class="invalid-feedback d-block">{{ form.config_json.errors.0 }}</div>{% endif %}
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle"></i> Save changes</button>
+                        <a href="{% url 'dashboard:target_detail' target.pk %}" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

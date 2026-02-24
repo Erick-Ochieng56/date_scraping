@@ -1,0 +1,433 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block page_header %}
+<div
+    class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom"
+>
+    <h1 class="h2">Dashboard</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-download"></i> Export
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- Stats Cards -->
+<div class="row mb-4">
+    <div class="col-md-3 mb-3">
+        <div class="card stat-card border-primary">
+            <div class="card-body">
+                <h6 class="text-muted text-uppercase mb-2">Total Prospects</h6>
+                <div class="stat-number text-primary">{{ prospect_total }}</div>
+                <small class="text-muted"
+                    >New: {{ prospect_new }}, Contacted: {{ prospect_contacted }}</small
+                >
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card stat-card border-success">
+            <div class="card-body">
+                <h6 class="text-muted text-uppercase mb-2">Total Leads</h6>
+                <div class="stat-number text-success">{{ lead_total }}</div>
+                <small class="text-muted"
+                    >Interested: {{ lead_interested }}, Synced: {{ lead_synced }}</small
+                >
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card stat-card border-info">
+            <div class="card-body">
+                <h6 class="text-muted text-uppercase mb-2">Active Targets</h6>
+                <div class="stat-number text-info">{{ target_total }}</div>
+                <small class="text-muted"
+                    >Enabled: {{ target_enabled }}, Disabled: {{ target_disabled }}</small
+                >
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card stat-card border-warning">
+            <div class="card-body">
+                <h6 class="text-muted text-uppercase mb-2">Recent Runs</h6>
+                <div class="stat-number text-warning">{{ runs_24h }}</div>
+                <small class="text-muted"
+                    >Success: {{ runs_success_24h }}, Failed: {{ runs_failed_24h }}</small
+                >
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Actions -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Quick Actions</h5>
+            </div>
+            <div class="card-body">
+                <div class="btn-group" role="group">
+                    <a
+                        href="{% url 'dashboard:target_wizard' %}"
+                        class="btn btn-primary"
+                    >
+                        <i class="bi bi-plus-circle"></i> Add New Target
+                    </a>
+                    <button
+                        type="button"
+                        class="btn btn-outline-primary"
+                        id="triggerScrapeBtn"
+                    >
+                        <i class="bi bi-play-fill"></i> Trigger Scrape (All)
+                    </button>
+                    <a
+                        href="{% url 'dashboard:prospects' %}"
+                        class="btn btn-outline-success"
+                    >
+                        <i class="bi bi-person-plus"></i> View Prospects
+                    </a>
+                    <a
+                        href="{% url 'dashboard:leads' %}"
+                        class="btn btn-outline-info"
+                    >
+                        <i class="bi bi-person-check"></i> View Leads
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Charts -->
+<div class="row mb-4">
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Prospect Status Distribution</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="prospectStatusChart" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Lead Status Distribution</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="leadStatusChart" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Scrape Runs (Last 7 Days)</h5>
+            </div>
+            <!-- Fix: wrap canvas in a sized container so Chart.js can respect the height -->
+            <div class="card-body" style="position: relative; height: 160px;">
+                <canvas id="runsChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Activity -->
+<div class="row">
+    <div class="col-md-4 mb-4">
+        <div class="card">
+            <div
+                class="card-header d-flex justify-content-between align-items-center"
+            >
+                <h5 class="mb-0">Recent Prospects</h5>
+                <a
+                    href="{% url 'dashboard:prospects' %}"
+                    class="btn btn-sm btn-outline-primary"
+                    >View All</a
+                >
+            </div>
+            <div class="card-body">
+                {% if recent_prospects %}
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Event Name</th>
+                                <th>Company</th>
+                                <th>Status</th>
+                                <th>Created</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for prospect in recent_prospects %}
+                            <tr>
+                                <td>
+                                    <a href="{% url 'dashboard:prospect_detail' prospect.id %}">{{ prospect.id }}</a>
+                                </td>
+                                <td>{{ prospect.event_name|truncatewords:5|default:"-" }}</td>
+                                <td>{{ prospect.company|truncatewords:3|default:"-" }}</td>
+                                <td>
+                                    <span
+                                        class="badge bg-{% if prospect.status == 'new' %}primary{% elif prospect.status == 'contacted' %}info{% elif prospect.status == 'converted' %}success{% else %}secondary{% endif %}"
+                                    >
+                                        {{ prospect.get_status_display }}
+                                    </span>
+                                </td>
+                                <td>{{ prospect.created_at|timesince }} ago</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">No prospects yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 mb-4">
+        <div class="card">
+            <div
+                class="card-header d-flex justify-content-between align-items-center"
+            >
+                <h5 class="mb-0">Recent Scrape Runs</h5>
+                <a
+                    href="{% url 'dashboard:runs' %}"
+                    class="btn btn-sm btn-outline-primary"
+                    >View All</a
+                >
+            </div>
+            <div class="card-body">
+                {% if recent_runs %}
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover">
+                        <thead>
+                            <tr>
+                                <th>Target</th>
+                                <th>Status</th>
+                                <th>Items</th>
+                                <th>Started</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for run in recent_runs %}
+                            <tr>
+                                <td>
+                                    <a href="{% url 'dashboard:target_detail' run.target.id %}">{{ run.target.name|truncatewords:3 }}</a>
+                                </td>
+                                <td>
+                                    <span
+                                        class="badge bg-{% if run.status == 'success' %}success{% elif run.status == 'failed' %}danger{% else %}warning{% endif %}"
+                                    >
+                                        {{ run.get_status_display }}
+                                    </span>
+                                </td>
+                                <td>{{ run.item_count }}</td>
+                                <td>{{ run.started_at|timesince }} ago</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">No runs yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 mb-4">
+        <div class="card">
+            <div
+                class="card-header d-flex justify-content-between align-items-center"
+            >
+                <h5 class="mb-0">Recent Activity</h5>
+                <a
+                    href="{% url 'dashboard:activity_log' %}"
+                    class="btn btn-sm btn-outline-primary"
+                    >View All</a
+                >
+            </div>
+            <div class="card-body">
+                {% if recent_activity %}
+                <ul class="list-unstyled mb-0">
+                    {% for entry in recent_activity %}
+                    <li class="mb-2 pb-2 border-bottom border-light">
+                        <span class="text-muted small">{{ entry.created_at|timesince }} ago</span>
+                        <br />
+                        <span class="badge bg-secondary">{{ entry.get_action_display }}</span>
+                        {{ entry.description|truncatewords:8 }}
+                        {% if entry.user %}<br /><small class="text-muted">{{ entry.user.get_username }}</small>{% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-muted mb-0">No activity yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<!-- Chart.js from cdnjs (consistent with project CDN policy) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+
+<!-- Chart Data (JSON) -->
+<script type="application/json" id="chart-data">
+{
+    "prospectLabels": {{ prospect_status_labels_json|safe }},
+    "prospectData": {{ prospect_status_data_json|safe }},
+    "leadLabels": {{ lead_status_labels_json|safe }},
+    "leadData": {{ lead_status_data_json|safe }},
+    "runsData": {{ runs_by_day_json|safe }}
+}
+</script>
+
+<script>
+    // Load chart data from JSON script tag
+    const chartDataEl = document.getElementById('chart-data');
+    const chartData = chartDataEl ? JSON.parse(chartDataEl.textContent) : {};
+
+    // Prospect Status Chart
+    const prospectCtx = document.getElementById('prospectStatusChart');
+    if (prospectCtx && chartData.prospectLabels) {
+        new Chart(prospectCtx, {
+            type: 'doughnut',
+            data: {
+                labels: chartData.prospectLabels,
+                datasets: [{
+                    data: chartData.prospectData,
+                    backgroundColor: [
+                        'rgba(13, 110, 253, 0.8)',
+                        'rgba(13, 202, 240, 0.8)',
+                        'rgba(25, 135, 84, 0.8)',
+                        'rgba(108, 117, 125, 0.8)'
+                    ],
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+    }
+
+    // Lead Status Chart
+    const leadCtx = document.getElementById('leadStatusChart');
+    if (leadCtx && chartData.leadLabels) {
+        new Chart(leadCtx, {
+            type: 'doughnut',
+            data: {
+                labels: chartData.leadLabels,
+                datasets: [{
+                    data: chartData.leadData,
+                    backgroundColor: [
+                        'rgba(13, 202, 240, 0.8)',
+                        'rgba(25, 135, 84, 0.8)',
+                        'rgba(13, 110, 253, 0.8)',
+                        'rgba(108, 117, 125, 0.8)',
+                        'rgba(220, 53, 69, 0.8)'
+                    ],
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+    }
+
+    // Runs Over Time Chart
+    // Fix: maintainAspectRatio: false so the chart fills the parent container height
+    const runsCtx = document.getElementById('runsChart');
+    if (runsCtx && chartData.runsData) {
+        new Chart(runsCtx, {
+            type: 'line',
+            data: {
+                labels: chartData.runsData.map(d => d.label),
+                datasets: [{
+                    label: 'Runs',
+                    data: chartData.runsData.map(d => d.count),
+                    borderColor: 'rgba(255, 193, 7, 1)',
+                    backgroundColor: 'rgba(255, 193, 7, 0.1)',
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,  // Fix: allow chart to fill parent container
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            stepSize: 1
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                }
+            }
+        });
+    }
+
+    // Trigger scrape button handler
+    // Fix: removed redundant try/catch wrapper — makeAjaxRequest handles errors
+    // and returns a result object consistently with the rest of the codebase.
+    document.getElementById('triggerScrapeBtn')?.addEventListener('click', async function () {
+        if (!confirm('Trigger scrape for all enabled targets?')) return;
+
+        const btn = this;
+        const originalText = btn.innerHTML;
+
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Triggering...';
+
+        const result = await makeAjaxRequest('{% url "dashboard:api_trigger_scrape" %}', {
+            method: 'POST',
+            body: {}
+        });
+
+        if (result.success) {
+            showToast(result.data.message || 'Scrape triggered successfully!', 'success');
+            setTimeout(() => window.location.reload(), 2000);
+        } else {
+            showToast(result.error || 'Failed to trigger scrape', 'error');
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    });
+</script>
+{% endblock %}
