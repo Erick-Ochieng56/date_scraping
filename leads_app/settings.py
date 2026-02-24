@@ -144,12 +144,16 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django_extensions",
+    "django_bootstrap5",
+    "django_tables2",
+    "django_filters",
     # local apps
     "core",
     "leads",
     "scraper",
     "crm_integration",
     "sheets_integration",
+    "dashboard",
 ]
 
 MIDDLEWARE = [
@@ -169,10 +173,11 @@ ROOT_URLCONF = "leads_app.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
+                "django.template.context_processors.debug",
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
@@ -235,9 +240,15 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 
+# Directory where collectstatic puts files (e.g. for production).
 STATIC_ROOT = _get_env("DJANGO_STATIC_ROOT", str(BASE_DIR / "staticfiles")) or str(
     BASE_DIR / "staticfiles"
 )
+
+# Project-level static sources (Bootstrap, dashboard.css). Not the same as STATIC_ROOT.
+STATICFILES_DIRS = [
+    BASE_DIR / "static",
+]
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -261,13 +272,16 @@ if not DEBUG:
 
 CSRF_TRUSTED_ORIGINS = _get_list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
 
-# --- Optional WhiteNoise ---
+# --- Optional WhiteNoise (production only) ---
+# In development, runserver serves from STATICFILES_DIRS; WhiteNoise would serve
+# only from STATIC_ROOT and would 404. So enable WhiteNoise only when DEBUG=False.
 try:
     import whitenoise  # type: ignore  # noqa: F401
 
-    if "whitenoise.middleware.WhiteNoiseMiddleware" not in MIDDLEWARE:
-        MIDDLEWARE.insert(1, "whitenoise.middleware.WhiteNoiseMiddleware")
-    STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+    if not DEBUG:
+        if "whitenoise.middleware.WhiteNoiseMiddleware" not in MIDDLEWARE:
+            MIDDLEWARE.insert(1, "whitenoise.middleware.WhiteNoiseMiddleware")
+        STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 except Exception:
     pass
 

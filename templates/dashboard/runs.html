@@ -1,0 +1,152 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Scrape Runs{% endblock %}
+
+{% block page_header %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Scrape Runs</h1>
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- Filters -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="get" class="row g-3">
+            <div class="col-md-3">
+                <label for="search" class="form-label">Search</label>
+                <input type="text" class="form-control" id="search" name="search"
+                       value="{{ request.GET.search }}" placeholder="Target name...">
+            </div>
+            <div class="col-md-3">
+                <label for="target" class="form-label">Target</label>
+                <select class="form-select" id="target" name="target">
+                    <option value="">All Targets</option>
+                    {% for target in targets %}
+                    <option value="{{ target.id }}" {% if request.GET.target == target.id|stringformat:"s" %}selected{% endif %}>
+                        {{ target.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label for="status" class="form-label">Status</label>
+                <select class="form-select" id="status" name="status">
+                    <option value="">All Statuses</option>
+                    {% for status_code, status_label in status_choices %}
+                    <option value="{{ status_code }}" {% if request.GET.status == status_code %}selected{% endif %}>
+                        {{ status_label }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <button type="submit" class="btn btn-primary me-2">Filter</button>
+                <a href="{% url 'dashboard:runs' %}" class="btn btn-outline-secondary">Clear</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Runs Table -->
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">All Runs ({{ page_obj.paginator.count }} total)</h5>
+    </div>
+    <div class="card-body">
+        {% if runs %}
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Target</th>
+                        <th>Status</th>
+                        <th>Started</th>
+                        <th>Finished</th>
+                        <th>Duration</th>
+                        <th>Items</th>
+                        <th>Created</th>
+                        <th>Updated</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for run in runs %}
+                    <tr>
+                        <td>{{ run.id }}</td>
+                        <td>
+                            <a href="{% url 'dashboard:target_detail' run.target.id %}">{{ run.target.name }}</a>
+                        </td>
+                        <td>
+                            <span class="badge bg-{% if run.status == 'success' %}success{% elif run.status == 'failed' %}danger{% else %}warning{% endif %}">
+                                {{ run.get_status_display }}
+                            </span>
+                        </td>
+                        <td>{{ run.started_at|date:"Y-m-d H:i:s" }}</td>
+                        <td>
+                            {% if run.finished_at %}
+                                {{ run.finished_at|date:"Y-m-d H:i:s" }}
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if run.finished_at %}
+                                {{ run.finished_at|timesince:run.started_at }}
+                            {% else %}
+                                <span class="text-muted">Running...</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ run.item_count }}</td>
+                        <td>{{ run.created_leads }}</td>
+                        <td>{{ run.updated_leads }}</td>
+                        <td>
+                            <a href="{% url 'dashboard:run_detail' run.id %}" class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-eye"></i> View
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Pagination -->
+        {% if is_paginated %}
+        <nav aria-label="Page navigation">
+            <ul class="pagination justify-content-center">
+                {% if page_obj.has_previous %}
+                <li class="page-item">
+                    <a class="page-link" href="?page=1{% if request.GET.target %}&target={{ request.GET.target }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}">First</a>
+                </li>
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% if request.GET.target %}&target={{ request.GET.target }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}">Previous</a>
+                </li>
+                {% endif %}
+                
+                <li class="page-item active">
+                    <span class="page-link">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+                </li>
+                
+                {% if page_obj.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.next_page_number }}{% if request.GET.target %}&target={{ request.GET.target }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}">Next</a>
+                </li>
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}{% if request.GET.target %}&target={{ request.GET.target }}{% endif %}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}">Last</a>
+                </li>
+                {% endif %}
+            </ul>
+        </nav>
+        {% endif %}
+        {% else %}
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i> No runs found.
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+

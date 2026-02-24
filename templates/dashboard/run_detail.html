@@ -1,0 +1,286 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Run #{{ run.id }}{% endblock %}
+
+{% block page_header %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Scrape Run #{{ run.id }}</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a href="{% url 'dashboard:runs' %}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back to List
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Main Info -->
+    <div class="col-md-8">
+        <!-- Run Details -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Run Details</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row">
+                    <dt class="col-sm-3">Target:</dt>
+                    <dd class="col-sm-9">
+                        <a href="{% url 'dashboard:target_detail' run.target.id %}">{{ run.target.name }}</a>
+                    </dd>
+                    
+                    <dt class="col-sm-3">Status:</dt>
+                    <dd class="col-sm-9">
+                        <span class="badge bg-{% if run.status == 'success' %}success{% elif run.status == 'failed' %}danger{% else %}warning{% endif %} badge-lg">
+                            {{ run.get_status_display }}
+                        </span>
+                    </dd>
+                    
+                    <dt class="col-sm-3">Trigger:</dt>
+                    <dd class="col-sm-9">
+                        <span class="badge bg-info">{{ run.get_trigger_display }}</span>
+                    </dd>
+                    
+                    <dt class="col-sm-3">Started:</dt>
+                    <dd class="col-sm-9">{{ run.started_at|date:"Y-m-d H:i:s" }}</dd>
+                    
+                    <dt class="col-sm-3">Finished:</dt>
+                    <dd class="col-sm-9">
+                        {% if run.finished_at %}
+                            {{ run.finished_at|date:"Y-m-d H:i:s" }}
+                        {% else %}
+                            <span class="text-muted">Still running...</span>
+                        {% endif %}
+                    </dd>
+                    
+                    <dt class="col-sm-3">Duration:</dt>
+                    <dd class="col-sm-9">
+                        {% if duration %}
+                            {{ duration }}
+                        {% else %}
+                            <span class="text-muted">-</span>
+                        {% endif %}
+                    </dd>
+                    
+                    <dt class="col-sm-3">Task ID:</dt>
+                    <dd class="col-sm-9">
+                        <code>{{ run.task_id|default:"-" }}</code>
+                    </dd>
+                </dl>
+            </div>
+        </div>
+
+        <!-- Statistics -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Statistics</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4 text-center mb-3">
+                        <div class="border rounded p-3">
+                            <h3 class="text-primary mb-0">{{ run.item_count }}</h3>
+                            <small class="text-muted">Items Scraped</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4 text-center mb-3">
+                        <div class="border rounded p-3">
+                            <h3 class="text-success mb-0">{{ run.created_leads }}</h3>
+                            <small class="text-muted">Prospects Created</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4 text-center mb-3">
+                        <div class="border rounded p-3">
+                            <h3 class="text-info mb-0">{{ run.updated_leads }}</h3>
+                            <small class="text-muted">Prospects Updated</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Error Details (if failed) -->
+        {% if run.status == 'failed' and run.error_text %}
+        <div class="card mb-4 border-danger">
+            <div class="card-header bg-danger text-white">
+                <h5 class="mb-0">Error Details</h5>
+            </div>
+            <div class="card-body">
+                <pre class="bg-light p-3 rounded"><code>{{ run.error_text }}</code></pre>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Stats JSON -->
+        {% if run.stats %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Additional Stats</h5>
+            </div>
+            <div class="card-body">
+                <pre class="bg-light p-3 rounded" style="max-height: 300px; overflow-y: auto;"><code>{{ stats_json }}</code></pre>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Sidebar -->
+    <div class="col-md-4">
+        <!-- Quick Actions -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Quick Actions</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <a href="{% url 'dashboard:target_detail' run.target.id %}" class="btn btn-outline-primary">
+                        <i class="bi bi-bullseye"></i> View Target
+                    </a>
+                    {% if run.status == 'failed' %}
+                    <button type="button" class="btn btn-outline-warning" id="retryRunBtn">
+                        <i class="bi bi-arrow-clockwise"></i> Retry Run
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Metadata -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Metadata</h5>
+            </div>
+            <div class="card-body">
+                <dl class="mb-0">
+                    <dt>Created:</dt>
+                    <dd class="mb-2">{{ run.created_at|date:"Y-m-d H:i:s" }}</dd>
+                    
+                    <dt>Updated:</dt>
+                    <dd class="mb-0">{{ run.updated_at|date:"Y-m-d H:i:s" }}</dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Real-time status polling for running scrapes
+    let statusPollInterval = null;
+    
+    function startStatusPolling() {
+        {% if run.status == 'running' %}
+        statusPollInterval = setInterval(async function() {
+            try {
+                const response = await fetch('{% url "dashboard:api_get_run_status" run.id %}');
+                const data = await response.json();
+                if (data.success) {
+                    const runData = data.data;
+                    
+                    // Update status badge
+                    const statusBadge = document.querySelector('.badge.badge-lg');
+                    if (statusBadge) {
+                        const statusClass = runData.status === 'success' ? 'success' : 
+                                          runData.status === 'failed' ? 'danger' : 'warning';
+                        statusBadge.className = `badge bg-${statusClass} badge-lg`;
+                        statusBadge.textContent = runData.status_display;
+                    }
+                    
+                    // Update finished time
+                    if (runData.finished_at) {
+                        const finishedEl = document.getElementById('finishedAt');
+                        if (finishedEl) {
+                            finishedEl.textContent = new Date(runData.finished_at).toLocaleString();
+                        }
+                    }
+                    
+                    // Update item count
+                    const itemCountEl = document.getElementById('itemCount');
+                    if (itemCountEl) {
+                        itemCountEl.textContent = runData.item_count;
+                    }
+                    
+                    // Update created/updated counts
+                    const createdEl = document.getElementById('createdCount');
+                    const updatedEl = document.getElementById('updatedCount');
+                    if (createdEl) createdEl.textContent = runData.created_leads || 0;
+                    if (updatedEl) updatedEl.textContent = runData.updated_leads || 0;
+                    
+                    // Show error if failed
+                    if (runData.status === 'failed' && runData.error_text) {
+                        const errorSection = document.getElementById('errorSection');
+                        if (errorSection) {
+                            errorSection.style.display = 'block';
+                            const errorText = document.getElementById('errorText');
+                            if (errorText) {
+                                errorText.textContent = runData.error_text;
+                            }
+                        }
+                    }
+                    
+                    // Stop polling if finished
+                    if (runData.status !== 'running') {
+                        clearInterval(statusPollInterval);
+                        statusPollInterval = null;
+                        showToast(`Run ${runData.id} completed: ${runData.status_display}`, 
+                                runData.status === 'success' ? 'success' : 'error');
+                        // Reload page after 2 seconds to show full details
+                        setTimeout(() => window.location.reload(), 2000);
+                    }
+                }
+            } catch (error) {
+                console.error('Status polling error:', error);
+            }
+        }, 3000); // Poll every 3 seconds
+        {% endif %}
+    }
+    
+    // Start polling on page load if run is running
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', startStatusPolling);
+    } else {
+        startStatusPolling();
+    }
+    
+    // Retry run button handler
+    document.getElementById('retryRunBtn')?.addEventListener('click', async function() {
+        const btn = this;
+        const originalText = btn.innerHTML;
+        
+        if (!confirm('Retry this failed scrape run?')) {
+            return;
+        }
+        
+        // Show loading state
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Retrying...';
+        
+        try {
+            const result = await makeAjaxRequest('{% url "dashboard:api_retry_run" run.id %}', {
+                method: 'POST'
+            });
+            
+            if (result.success) {
+                showToast(result.data.message || 'Retry triggered successfully!', 'success');
+                // Redirect to target detail or refresh
+                setTimeout(() => {
+                    window.location.href = '{% url "dashboard:target_detail" run.target.id %}';
+                }, 1500);
+            } else {
+                showToast(result.error || 'Failed to retry run', 'error');
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        } catch (error) {
+            showToast('Error: ' + error.message, 'error');
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    });
+</script>
+{% endblock %}
+

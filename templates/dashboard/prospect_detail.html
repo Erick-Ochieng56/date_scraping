@@ -1,0 +1,284 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Prospect #{{ prospect.id }}{% endblock %}
+
+{% block page_header %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Prospect #{{ prospect.id }}</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a href="{% url 'admin:leads_prospect_change' prospect.id %}" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-pencil"></i> Edit
+            </a>
+            <a href="{% url 'dashboard:prospects' %}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back to List
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Main Info -->
+    <div class="col-md-8">
+        <!-- Prospect Details -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Prospect Information</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row">
+                    <dt class="col-sm-3">Status:</dt>
+                    <dd class="col-sm-9">
+                        <span class="badge bg-{% if prospect.status == 'new' %}primary{% elif prospect.status == 'contacted' %}info{% elif prospect.status == 'converted' %}success{% else %}secondary{% endif %} badge-lg">
+                            {{ prospect.get_status_display }}
+                        </span>
+                    </dd>
+                    
+                    <dt class="col-sm-3">Event Name:</dt>
+                    <dd class="col-sm-9">{{ prospect.event_name|default:"-" }}</dd>
+                    
+                    <dt class="col-sm-3">Company:</dt>
+                    <dd class="col-sm-9">{{ prospect.company|default:"-" }}</dd>
+                    
+                    <dt class="col-sm-3">Email:</dt>
+                    <dd class="col-sm-9">
+                        {% if prospect.email %}
+                        <a href="mailto:{{ prospect.email }}">{{ prospect.email }}</a>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </dd>
+                    
+                    <dt class="col-sm-3">Phone:</dt>
+                    <dd class="col-sm-9">
+                        {% if prospect.phone_e164 %}
+                        <a href="tel:{{ prospect.phone_e164 }}">{{ prospect.phone_e164 }}</a>
+                        {% elif prospect.phone_raw %}
+                        {{ prospect.phone_raw }}
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </dd>
+                    
+                    <dt class="col-sm-3">Website:</dt>
+                    <dd class="col-sm-9">
+                        {% if prospect.website %}
+                        <a href="{{ prospect.website }}" target="_blank" rel="noopener">{{ prospect.website }}</a>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </dd>
+                </dl>
+            </div>
+        </div>
+
+        <!-- Source Information -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Source Information</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row">
+                    <dt class="col-sm-3">Source Name:</dt>
+                    <dd class="col-sm-9">{{ prospect.source_name|default:"-" }}</dd>
+                    
+                    <dt class="col-sm-3">Source URL:</dt>
+                    <dd class="col-sm-9">
+                        {% if prospect.source_url %}
+                        <a href="{{ prospect.source_url }}" target="_blank" rel="noopener">{{ prospect.source_url }}</a>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </dd>
+                    
+                    <dt class="col-sm-3">Source Ref:</dt>
+                    <dd class="col-sm-9">{{ prospect.source_ref|default:"-" }}</dd>
+                </dl>
+            </div>
+        </div>
+
+        <!-- Notes -->
+        {% if prospect.notes %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Notes</h5>
+            </div>
+            <div class="card-body">
+                <pre class="mb-0">{{ prospect.notes }}</pre>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Raw Payload -->
+        {% if raw_payload_json %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Raw Payload (Debug)</h5>
+            </div>
+            <div class="card-body">
+                <pre class="bg-light p-3 rounded" style="max-height: 400px; overflow-y: auto;"><code>{{ raw_payload_json }}</code></pre>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Converted Lead Link -->
+        {% if converted_lead %}
+        <div class="card mb-4 border-success">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0">Converted to Lead</h5>
+            </div>
+            <div class="card-body">
+                <p>This prospect has been converted to a Lead.</p>
+                <a href="{% url 'dashboard:lead_detail' converted_lead.id %}" class="btn btn-success">
+                    <i class="bi bi-person-check"></i> View Lead #{{ converted_lead.id }}
+                </a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Sidebar -->
+    <div class="col-md-4">
+        <!-- Quick Actions -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Quick Actions</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    {% if prospect.status != 'contacted' and prospect.status != 'converted' and prospect.status != 'rejected' %}
+                    <button type="button" class="btn btn-info" id="markContactedBtn">
+                        <i class="bi bi-check-circle"></i> Mark as Contacted
+                    </button>
+                    {% endif %}
+                    
+                    {% if prospect.status != 'converted' and prospect.status != 'rejected' %}
+                    <button type="button" class="btn btn-success" id="convertToLeadBtn">
+                        <i class="bi bi-arrow-right-circle"></i> Convert to Lead
+                    </button>
+                    {% endif %}
+                    
+                    {% if prospect.status != 'rejected' and prospect.status != 'converted' %}
+                    <button type="button" class="btn btn-danger" id="rejectBtn">
+                        <i class="bi bi-x-circle"></i> Reject
+                    </button>
+                    {% endif %}
+                    
+                    <a href="{% url 'admin:leads_prospect_change' prospect.id %}" class="btn btn-outline-primary">
+                        <i class="bi bi-pencil"></i> Edit Prospect
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Metadata -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Metadata</h5>
+            </div>
+            <div class="card-body">
+                <dl class="mb-0">
+                    <dt>Created:</dt>
+                    <dd class="mb-2">{{ prospect.created_at|date:"Y-m-d H:i:s" }}</dd>
+                    
+                    <dt>Updated:</dt>
+                    <dd class="mb-2">{{ prospect.updated_at|date:"Y-m-d H:i:s" }}</dd>
+                    
+                    {% if prospect.contacted_at %}
+                    <dt>Contacted:</dt>
+                    <dd class="mb-2">{{ prospect.contacted_at|date:"Y-m-d H:i:s" }}</dd>
+                    {% endif %}
+                    
+                    {% if prospect.converted_at %}
+                    <dt>Converted:</dt>
+                    <dd class="mb-2">{{ prospect.converted_at|date:"Y-m-d H:i:s" }}</dd>
+                    {% endif %}
+                    
+                    {% if prospect.rejected_at %}
+                    <dt>Rejected:</dt>
+                    <dd class="mb-0">{{ prospect.rejected_at|date:"Y-m-d H:i:s" }}</dd>
+                    {% endif %}
+                </dl>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Action buttons
+    document.getElementById('markContactedBtn')?.addEventListener('click', async function() {
+        if (!confirm('Mark this prospect as contacted?')) return;
+        
+        const btn = this;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Processing...';
+        
+        const result = await makeAjaxRequest('{% url "dashboard:api_prospect_mark_contacted" prospect.id %}', {
+            method: 'POST'
+        });
+        
+        if (result.success) {
+            showToast(result.data.message, 'success');
+            setTimeout(() => window.location.reload(), 1500);
+        } else {
+            showToast(result.error || 'Failed to mark prospect as contacted', 'error');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-circle"></i> Mark as Contacted';
+        }
+    });
+    
+    document.getElementById('convertToLeadBtn')?.addEventListener('click', async function() {
+        if (!confirm('Convert this prospect to a lead?')) return;
+        
+        const btn = this;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Converting...';
+        
+        const result = await makeAjaxRequest('{% url "dashboard:api_prospect_convert" prospect.id %}', {
+            method: 'POST'
+        });
+        
+        if (result.success) {
+            showToast(result.data.message, 'success');
+            setTimeout(() => {
+                window.location.href = '{% url "dashboard:lead_detail" 0 %}'.replace('0', result.data.lead_id);
+            }, 1500);
+        } else {
+            showToast(result.error || 'Failed to convert prospect', 'error');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-arrow-right-circle"></i> Convert to Lead';
+        }
+    });
+    
+    document.getElementById('rejectBtn')?.addEventListener('click', async function() {
+        const reason = prompt('Rejection reason (optional):');
+        if (reason === null) return; // User cancelled
+        
+        if (!confirm('Reject this prospect?')) return;
+        
+        const btn = this;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Rejecting...';
+        
+        const result = await makeAjaxRequest('{% url "dashboard:api_prospect_reject" prospect.id %}', {
+            method: 'POST',
+            body: { reason: reason || '' }
+        });
+        
+        if (result.success) {
+            showToast(result.data.message, 'success');
+            setTimeout(() => window.location.reload(), 1500);
+        } else {
+            showToast(result.error || 'Failed to reject prospect', 'error');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-x-circle"></i> Reject';
+        }
+    });
+</script>
+{% endblock %}
+

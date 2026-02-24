@@ -1,0 +1,433 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>
+            {% block title %}Scraper Dashboard{% endblock %} - Ateric
+            Translation
+        </title>
+
+        <!-- Bootstrap 5.3.8 CSS -->
+        <link
+            href="{% static 'bootstrap-5.3.8-dist/css/bootstrap.min.css' %}"
+            rel="stylesheet"
+        />
+
+        <!-- Dashboard Custom CSS -->
+        <link href="{% static 'css/dashboard.css' %}" rel="stylesheet" />
+
+        <!-- Custom CSS -->
+        <style>
+            :root {
+                --primary-color: #0d6efd;
+                --secondary-color: #6c757d;
+                --success-color: #198754;
+                --danger-color: #dc3545;
+                --warning-color: #ffc107;
+                --info-color: #0dcaf0;
+            }
+
+            body {
+                font-family:
+                    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                    "Helvetica Neue", Arial, sans-serif;
+                background-color: #f8f9fa;
+            }
+
+            .navbar-brand {
+                font-weight: 600;
+            }
+
+            .sidebar {
+                min-height: calc(100vh - 56px);
+                background-color: #fff;
+                box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            }
+
+            .sidebar .nav-link {
+                color: #495057;
+                padding: 0.75rem 1rem;
+                border-radius: 0.25rem;
+                margin: 0.25rem 0.5rem;
+            }
+
+            .sidebar .nav-link:hover {
+                background-color: #e9ecef;
+                color: var(--primary-color);
+            }
+
+            .sidebar .nav-link.active {
+                background-color: var(--primary-color);
+                color: #fff;
+            }
+
+            .main-content {
+                padding: 2rem;
+            }
+
+            .stat-card {
+                border: none;
+                border-radius: 0.5rem;
+                box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+                transition:
+                    transform 0.2s,
+                    box-shadow 0.2s;
+            }
+
+            .stat-card:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+            }
+
+            .stat-card .card-body {
+                padding: 1.5rem;
+            }
+
+            .stat-number {
+                font-size: 2rem;
+                font-weight: 700;
+                margin-bottom: 0.5rem;
+            }
+
+            .footer {
+                background-color: #f8f9fa;
+                padding: 1rem 0;
+                margin-top: auto;
+            }
+
+            /* Moved from inline styles */
+            .notification-dropdown {
+                max-width: 400px;
+            }
+
+            .toast-container-fixed {
+                z-index: 9999;
+            }
+        </style>
+
+        {% block extra_css %}{% endblock %}
+    </head>
+    <body>
+        <!-- Navigation -->
+        <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+            <div class="container-fluid">
+                <a class="navbar-brand" href="{% url 'dashboard:index' %}">
+                    <i class="bi bi-graph-up-arrow"></i> Scraper Dashboard
+                </a>
+                <button
+                    class="navbar-toggler"
+                    type="button"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#navbarNav"
+                    aria-controls="navbarNav"
+                    aria-expanded="false"
+                    aria-label="Toggle navigation"
+                >
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+                <div class="collapse navbar-collapse" id="navbarNav">
+                    <ul class="navbar-nav ms-auto">
+                        <li class="nav-item">
+                            <a
+                                class="nav-link"
+                                href="{% url 'dashboard:index' %}"
+                                >Dashboard</a
+                            >
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{% url 'admin:index' %}"
+                                >Admin</a
+                            >
+                        </li>
+                        {% if user.is_authenticated %}<li class="nav-item">
+                            <button
+                                type="button"
+                                class="btn btn-link nav-link position-relative text-white-50"
+                                id="notificationsBtn"
+                                data-bs-toggle="dropdown"
+                                aria-expanded="false"
+                                aria-label="Notifications"
+                                title="Notifications"
+                            >
+                                <i class="bi bi-bell" aria-hidden="true"></i>
+                                <span
+                                    class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger d-none"
+                                    id="notificationBadge"
+                                    aria-label="Unread notifications"
+                                >
+                                    0
+                                </span>
+                            </button>
+                            <ul
+                                class="dropdown-menu dropdown-menu-end notification-dropdown"
+                                id="notificationsDropdown"
+                            >
+                                <li>
+                                    <h6 class="dropdown-header">
+                                        Notifications
+                                    </h6>
+                                </li>
+                                <li><hr class="dropdown-divider" /></li>
+                                <li id="notificationsList">
+                                    <div class="px-3 py-2 text-muted">
+                                        Loading...
+                                    </div>
+                                </li>
+                            </ul>
+                        </li>
+                        <li class="nav-item dropdown">
+                            <a
+                                class="nav-link dropdown-toggle"
+                                href="#"
+                                id="userDropdown"
+                                role="button"
+                                data-bs-toggle="dropdown"
+                                aria-expanded="false"
+                            >
+                                {{ user.username }}
+                            </a>
+                            <ul
+                                class="dropdown-menu dropdown-menu-end"
+                                aria-labelledby="userDropdown"
+                            >
+                                <li>
+                                    <a
+                                        class="dropdown-item"
+                                        href="{% url 'admin:logout' %}"
+                                        >Logout</a
+                                    >
+                                </li>
+                            </ul>
+                        </li>
+                        {% else %}<li class="nav-item">
+                            <a class="nav-link" href="{% url 'admin:login' %}"
+                                >Login</a
+                            >
+                        </li>
+                        {% endif %}
+                    </ul>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Container -->
+        <div class="container-fluid">
+            <div class="row">
+                <!-- Sidebar -->
+                <nav class="col-md-3 col-lg-2 d-md-block sidebar collapse">
+                    <div class="position-sticky pt-3">
+                        <ul class="nav flex-column">
+                            <li class="nav-item">
+                                <a
+                                    class="nav-link {% if request.resolver_match.url_name == 'index' %}active{% endif %}"
+                                    href="{% url 'dashboard:index' %}"
+                                >
+                                    <i class="bi bi-speedometer2"></i> Dashboard
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a
+                                    class="nav-link {% if request.resolver_match.url_name == 'targets' or request.resolver_match.url_name == 'target_detail' or request.resolver_match.url_name == 'target_wizard' %}active{% endif %}"
+                                    href="{% url 'dashboard:targets' %}"
+                                >
+                                    <i class="bi bi-bullseye"></i> Scrape
+                                    Targets
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a
+                                    class="nav-link {% if request.resolver_match.url_name == 'runs' or request.resolver_match.url_name == 'run_detail' %}active{% endif %}"
+                                    href="{% url 'dashboard:runs' %}"
+                                >
+                                    <i class="bi bi-play-circle"></i> Scrape
+                                    Runs
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a
+                                    class="nav-link {% if request.resolver_match.url_name == 'prospects' or request.resolver_match.url_name == 'prospect_detail' %}active{% endif %}"
+                                    href="{% url 'dashboard:prospects' %}"
+                                >
+                                    <i class="bi bi-person-plus"></i> Prospects
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a
+                                    class="nav-link {% if request.resolver_match.url_name == 'leads' or request.resolver_match.url_name == 'lead_detail' %}active{% endif %}"
+                                    href="{% url 'dashboard:leads' %}"
+                                >
+                                    <i class="bi bi-person-check"></i> Leads
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a
+                                    class="nav-link {% if request.resolver_match.url_name == 'activity_log' %}active{% endif %}"
+                                    href="{% url 'dashboard:activity_log' %}"
+                                >
+                                    <i class="bi bi-journal-text"></i> Activity Log
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a
+                                    class="nav-link {% if request.resolver_match.url_name == 'error_monitoring' %}active{% endif %}"
+                                    href="{% url 'dashboard:error_monitoring' %}"
+                                >
+                                    <i class="bi bi-exclamation-triangle"></i> Error Monitoring
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                </nav>
+
+                <!-- Main Content -->
+                <main
+                    class="col-md-9 ms-sm-auto col-lg-10 px-md-4 main-content"
+                >
+                    <!-- Messages -->
+                    {% if messages %}
+                    <div class="mt-3">
+                        {% for message in messages %}
+                        <div
+                            class="alert alert-{{ message.tags }} alert-dismissible fade show"
+                            role="alert"
+                        >
+                            {{ message }}
+                            <button
+                                type="button"
+                                class="btn-close"
+                                data-bs-dismiss="alert"
+                                aria-label="Close"
+                            ></button>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    <!-- Page Header -->
+                    {% block page_header %}{% endblock %}
+
+                    <!-- Page Content -->
+                    {% block content %}{% endblock %}
+                </main>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer mt-auto py-3 bg-light">
+            <div class="container-fluid">
+                <div class="row">
+                    <div class="col-md-6">
+                        <span class="text-muted"
+                            >© 2026 Ateric Translation. All rights
+                            reserved.</span
+                        >
+                    </div>
+                    <div class="col-md-6 text-end">
+                        <span class="text-muted">Scraper Dashboard v1.0</span>
+                    </div>
+                </div>
+            </div>
+        </footer>
+
+        <!-- Bootstrap 5.3.8 JS Bundle (includes Popper) -->
+        <script src="{% static 'bootstrap-5.3.8-dist/js/bootstrap.bundle.min.js' %}"></script>
+
+        <!-- Toast Container -->
+        <div class="toast-container position-fixed top-0 end-0 p-3 toast-container-fixed">
+            <div id="toastContainer"></div>
+        </div>
+
+        <!-- Toast Notification Helper -->
+        <script>
+            // Toast notification system
+            function showToast(message, type = "info") {
+                const toastContainer =
+                    document.getElementById("toastContainer");
+                const toastId = "toast-" + Date.now();
+
+                const bgClass =
+                    {
+                        success: "bg-success",
+                        error: "bg-danger",
+                        warning: "bg-warning",
+                        info: "bg-info",
+                    }[type] || "bg-info";
+
+                const toastHtml = `
+                <div id="${toastId}" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+                    <div class="toast-header ${bgClass} text-white">
+                        <strong class="me-auto">${type.charAt(0).toUpperCase() + type.slice(1)}</strong>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+                    </div>
+                    <div class="toast-body">
+                        ${message}
+                    </div>
+                </div>
+            `;
+
+                toastContainer.insertAdjacentHTML("beforeend", toastHtml);
+                const toastElement = document.getElementById(toastId);
+                const toast = new bootstrap.Toast(toastElement, {
+                    autohide: true,
+                    delay: 5000,
+                });
+                toast.show();
+
+                // Remove element after it's hidden
+                toastElement.addEventListener("hidden.bs.toast", function () {
+                    toastElement.remove();
+                });
+            }
+
+            // CSRF token helper for AJAX
+            function getCsrfToken() {
+                const cookies = document.cookie.split(";");
+                for (let cookie of cookies) {
+                    const [name, value] = cookie.trim().split("=");
+                    if (name === "csrftoken") {
+                        return value;
+                    }
+                }
+                return "";
+            }
+
+            // AJAX helper function
+            async function makeAjaxRequest(url, options = {}) {
+                const defaultOptions = {
+                    method: "GET",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-CSRFToken": getCsrfToken(),
+                    },
+                    credentials: "same-origin",
+                };
+
+                const mergedOptions = { ...defaultOptions, ...options };
+                if (options.body && typeof options.body === "object") {
+                    mergedOptions.body = JSON.stringify(options.body);
+                }
+
+                try {
+                    const response = await fetch(url, mergedOptions);
+                    const data = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(
+                            data.error ||
+                                `HTTP error! status: ${response.status}`,
+                        );
+                    }
+
+                    return { success: true, data };
+                } catch (error) {
+                    return { success: false, error: error.message };
+                }
+            }
+        </script>
+
+        <!-- Custom JS -->
+        {% block extra_js %}{% endblock %}
+    </body>
+</html>
