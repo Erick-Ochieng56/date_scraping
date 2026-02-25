@@ -1,0 +1,215 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Create Scrape Target{% endblock %}
+
+{% block page_header %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Create Scrape Target</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a href="{% url 'dashboard:targets' %}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back to List
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Step 1: Enter URL</h5>
+            </div>
+            <div class="card-body">
+                <form id="wizardForm">
+                    <div class="mb-3">
+                        <label for="targetUrl" class="form-label">Target URL *</label>
+                        <input type="url" class="form-control" id="targetUrl" 
+                               placeholder="https://example.com/events" required>
+                        <div class="form-text">Enter the URL of the page you want to scrape</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="targetName" class="form-label">Target Name</label>
+                        <input type="text" class="form-control" id="targetName" 
+                               placeholder="Auto-generated from URL">
+                        <div class="form-text">Leave blank to auto-generate from URL</div>
+                    </div>
+                    
+                    <button type="button" class="btn btn-primary" id="detectBtn">
+                        <i class="bi bi-search"></i> Detect Platform & Continue
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Detection Results -->
+        <div class="card mt-4" id="detectionResults" style="display: none;">
+            <div class="card-header">
+                <h5 class="mb-0">Step 2: Review Configuration</h5>
+            </div>
+            <div class="card-body">
+                <div id="platformInfo" class="mb-3">
+                    <p><strong>Platform Detected:</strong> <span id="platformName" class="badge bg-info">-</span></p>
+                </div>
+                
+                <div class="mb-3">
+                    <label for="configEditor" class="form-label">Configuration (JSON)</label>
+                    <textarea class="form-control font-monospace" id="configEditor" rows="15" style="font-size: 12px;"></textarea>
+                    <div class="form-text">You can edit the configuration before creating the target</div>
+                </div>
+                
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="runInterval" class="form-label">Run Interval (minutes)</label>
+                        <input type="number" class="form-control" id="runInterval" value="120" min="1">
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-check mt-4">
+                            <input class="form-check-input" type="checkbox" id="targetEnabled" checked>
+                            <label class="form-check-label" for="targetEnabled">
+                                Enable target immediately
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                    <button type="button" class="btn btn-outline-secondary" id="backBtn">
+                        <i class="bi bi-arrow-left"></i> Back
+                    </button>
+                    <button type="button" class="btn btn-success" id="createBtn">
+                        <i class="bi bi-check-circle"></i> Create Target
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let currentConfig = null;
+    
+    // Detect platform button
+    document.getElementById('detectBtn')?.addEventListener('click', async function() {
+        const url = document.getElementById('targetUrl').value;
+        if (!url) {
+            showToast('Please enter a URL', 'error');
+            return;
+        }
+        
+        const btn = this;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Detecting...';
+        
+        try {
+            const result = await makeAjaxRequest(`{% url "dashboard:wizard_detect_platform" %}?url=${encodeURIComponent(url)}`);
+            
+            if (result.success) {
+                const data = result.data;
+                currentConfig = data.suggested_config;
+                
+                // Update UI
+                document.getElementById('platformName').textContent = data.platform;
+                document.getElementById('platformName').className = `badge bg-${data.detected ? 'success' : 'warning'}`;
+                
+                // Set config editor
+                document.getElementById('configEditor').value = JSON.stringify(currentConfig.config, null, 2);
+                
+                // Auto-fill name if empty
+                if (!document.getElementById('targetName').value) {
+                    document.getElementById('targetName').value = currentConfig.name;
+                }
+                
+                // Show results section
+                document.getElementById('detectionResults').style.display = 'block';
+                document.getElementById('detectionResults').scrollIntoView({ behavior: 'smooth' });
+                
+                if (!data.detected) {
+                    showToast('Platform not recognized. Using generic configuration. Please review and adjust.', 'warning');
+                } else {
+                    showToast(`Platform detected: ${data.platform}`, 'success');
+                }
+            } else {
+                showToast(result.error || 'Failed to detect platform', 'error');
+            }
+        } catch (error) {
+            showToast('Error: ' + error.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-search"></i> Detect Platform & Continue';
+        }
+    });
+    
+    // Back button
+    document.getElementById('backBtn')?.addEventListener('click', function() {
+        document.getElementById('detectionResults').style.display = 'none';
+    });
+    
+    // Create target button
+    document.getElementById('createBtn')?.addEventListener('click', async function() {
+        const url = document.getElementById('targetUrl').value;
+        const name = document.getElementById('targetName').value;
+        const runInterval = parseInt(document.getElementById('runInterval').value);
+        const enabled = document.getElementById('targetEnabled').checked;
+        
+        if (!url) {
+            showToast('Please enter a URL', 'error');
+            return;
+        }
+        
+        // Parse config from editor
+        let config = {};
+        try {
+            config = JSON.parse(document.getElementById('configEditor').value);
+        } catch (e) {
+            showToast('Invalid JSON in configuration editor', 'error');
+            return;
+        }
+        
+        const btn = this;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
+        
+        try {
+            const result = await makeAjaxRequest('{% url "dashboard:wizard_create_target" %}', {
+                method: 'POST',
+                body: {
+                    url: url,
+                    name: name || null,
+                    run_every_minutes: runInterval,
+                    enabled: enabled,
+                    config: config
+                }
+            });
+            
+            if (result.success) {
+                showToast(result.data.message, 'success');
+                setTimeout(() => {
+                    window.location.href = `{% url "dashboard:target_detail" 0 %}`.replace('0', result.data.target_id);
+                }, 1500);
+            } else {
+                if (result.data?.existing) {
+                    if (confirm(`${result.error}\n\nView existing target?`)) {
+                        window.location.href = `{% url "dashboard:target_detail" 0 %}`.replace('0', result.data.target_id);
+                    }
+                } else {
+                    showToast(result.error || 'Failed to create target', 'error');
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="bi bi-check-circle"></i> Create Target';
+                }
+            }
+        } catch (error) {
+            showToast('Error: ' + error.message, 'error');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-circle"></i> Create Target';
+        }
+    });
+</script>
+{% endblock %}
+

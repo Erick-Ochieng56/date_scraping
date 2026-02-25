@@ -1,0 +1,274 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}{{ target.name }}{% endblock %}
+
+{% block page_header %}
+<div
+    class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom"
+>
+    <h1 class="h2">{{ target.name }}</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a
+                href="{% url 'dashboard:target_edit' target.id %}"
+                class="btn btn-sm btn-outline-primary"
+            >
+                <i class="bi bi-pencil"></i> Edit
+            </a>
+            <a
+                href="{% url 'dashboard:targets' %}"
+                class="btn btn-sm btn-outline-secondary"
+            >
+                <i class="bi bi-arrow-left"></i> Back to List
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Main Info -->
+    <div class="col-md-8">
+        <!-- Target Details -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Target Details</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row">
+                    <dt class="col-sm-3">Name:</dt>
+                    <dd class="col-sm-9">{{ target.name }}</dd>
+
+                    <dt class="col-sm-3">Start URL:</dt>
+                    <dd class="col-sm-9">
+                        <a href="{{ target.start_url }}" target="_blank">{{ target.start_url }}</a>
+                    </dd>
+
+                    <dt class="col-sm-3">Type:</dt>
+                    <dd class="col-sm-9">
+                        <span class="badge bg-info">{{ target.get_target_type_display }}</span>
+                    </dd>
+
+                    <dt class="col-sm-3">Status:</dt>
+                    <dd class="col-sm-9">
+                        {% if target.enabled %}
+                        <span class="badge bg-success">Enabled</span>
+                        {% else %}
+                        <span class="badge bg-secondary">Disabled</span>
+                        {% endif %}
+                    </dd>
+
+                    <dt class="col-sm-3">Run Interval:</dt>
+                    <dd class="col-sm-9">Every {{ target.run_every_minutes }} minutes</dd>
+
+                    <dt class="col-sm-3">Last Run:</dt>
+                    <dd class="col-sm-9">
+                        {% if target.last_run_at %}
+                        {{ target.last_run_at|date:"Y-m-d H:i:s" }} ({{ target.last_run_at|timesince }} ago)
+                        {% else %}
+                        <span class="text-muted">Never</span>
+                        {% endif %}
+                    </dd>
+
+                    <dt class="col-sm-3">Created:</dt>
+                    <dd class="col-sm-9">{{ target.created_at|date:"Y-m-d H:i:s" }}</dd>
+                </dl>
+            </div>
+        </div>
+
+        <!-- Configuration -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Configuration</h5>
+            </div>
+            <div class="card-body">
+                <pre
+                    class="bg-light p-3 rounded"
+                    style="max-height: 400px; overflow-y: auto"
+                ><code id="config-json"></code></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats Sidebar -->
+    <div class="col-md-4">
+        <!-- Statistics -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Statistics</h5>
+            </div>
+            <div class="card-body">
+                <dl class="mb-0">
+                    <dt>Total Runs:</dt>
+                    <dd class="mb-2"><strong>{{ total_runs }}</strong></dd>
+
+                    <dt>Success Runs:</dt>
+                    <dd class="mb-2"><strong class="text-success">{{ success_runs }}</strong></dd>
+
+                    <dt>Failed Runs:</dt>
+                    <dd class="mb-2"><strong class="text-danger">{{ failed_runs }}</strong></dd>
+
+                    <dt>Success Rate:</dt>
+                    <dd class="mb-2"><strong>{{ success_rate }}%</strong></dd>
+
+                    <dt>Total Items Scraped:</dt>
+                    <dd class="mb-0"><strong>{{ total_items }}</strong></dd>
+                </dl>
+            </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Quick Actions</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <!-- Fix: added data-target-id so JS can read the correct target ID -->
+                    <button
+                        type="button"
+                        class="btn btn-primary"
+                        id="testScrapeBtn"
+                        data-target-id="{{ target.id }}"
+                    >
+                        <i class="bi bi-play-fill"></i> Test Scrape
+                    </button>
+                    <a
+                        href="{% url 'dashboard:target_edit' target.id %}"
+                        class="btn btn-outline-primary"
+                    >
+                        <i class="bi bi-pencil"></i> Edit Target
+                    </a>
+                    <a
+                        href="{% url 'dashboard:runs' %}?target={{ target.id }}"
+                        class="btn btn-outline-info"
+                    >
+                        <i class="bi bi-list-ul"></i> View All Runs
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Runs -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div
+                class="card-header d-flex justify-content-between align-items-center"
+            >
+                <h5 class="mb-0">Recent Runs</h5>
+                <a
+                    href="{% url 'dashboard:runs' %}?target={{ target.id }}"
+                    class="btn btn-sm btn-outline-primary"
+                    >View All</a
+                >
+            </div>
+            <div class="card-body">
+                {% if recent_runs %}
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover">
+                        <thead>
+                            <tr>
+                                <th>Started</th>
+                                <th>Status</th>
+                                <th>Items</th>
+                                <!-- Fix: column headers renamed to match the actual data being rendered -->
+                                <th>New Leads</th>
+                                <th>Updated Leads</th>
+                                <th>Duration</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for run in recent_runs %}
+                            <tr>
+                                <td>{{ run.started_at|date:"Y-m-d H:i:s" }}</td>
+                                <td>
+                                    <span
+                                        class="badge bg-{% if run.status == 'success' %}success{% elif run.status == 'failed' %}danger{% else %}warning{% endif %}"
+                                    >
+                                        {{ run.get_status_display }}
+                                    </span>
+                                </td>
+                                <td>{{ run.item_count }}</td>
+                                <td>{{ run.created_leads }}</td>
+                                <td>{{ run.updated_leads }}</td>
+                                <td>
+                                    {% if run.finished_at %}
+                                    {{ run.finished_at|timesince:run.started_at }}
+                                    {% else %}
+                                    <span class="text-muted">Running...</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <a
+                                        href="{% url 'dashboard:run_detail' run.id %}"
+                                        class="btn btn-sm btn-outline-primary"
+                                    >
+                                        <i class="bi bi-eye"></i> View
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">No runs yet for this target.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<!-- Config JSON data injected from template context -->
+<script type="application/json" id="target-config-data">{{ target.config_json|default:"{}"|safe }}</script>
+
+<script>
+    // Populate the config JSON block with pretty-printed JSON
+    const configDataEl = document.getElementById('target-config-data');
+    const configCodeEl = document.getElementById('config-json');
+    if (configDataEl && configCodeEl) {
+        try {
+            const parsed = JSON.parse(configDataEl.textContent);
+            configCodeEl.textContent = JSON.stringify(parsed, null, 2);
+        } catch (e) {
+            // If config is not valid JSON, display it as-is
+            configCodeEl.textContent = configDataEl.textContent;
+        }
+    }
+
+    // Test scrape button handler
+    // Fix: removed inconsistent try/catch; makeAjaxRequest handles errors internally.
+    // Fix: target ID now correctly read from data-target-id attribute on the button.
+    document.getElementById('testScrapeBtn')?.addEventListener('click', async function () {
+        if (!confirm('Trigger a test scrape for this target?')) return;
+
+        const btn = this;
+        const originalText = btn.innerHTML;
+        const targetId = parseInt(btn.dataset.targetId || '0');
+
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Running...';
+
+        const result = await makeAjaxRequest('{% url "dashboard:api_trigger_scrape" %}', {
+            method: 'POST',
+            body: { target_id: targetId }
+        });
+
+        if (result.success) {
+            showToast(result.data.message || 'Test scrape triggered successfully!', 'success');
+            setTimeout(() => window.location.reload(), 2000);
+        } else {
+            showToast(result.error || 'Failed to trigger test scrape', 'error');
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    });
+</script>
+{% endblock %}

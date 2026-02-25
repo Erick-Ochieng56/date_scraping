@@ -1,0 +1,442 @@
+{% extends 'base.html' %} {% load static %} {% block title %}Prospects{%
+{% endblock %}
+{% block page_header %}
+<div
+    class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom"
+>
+    <h1 class="h2">Prospects</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a
+                href="{% url 'admin:leads_prospect_add' %}"
+                class="btn btn-sm btn-primary"
+            >
+                <i class="bi bi-plus-circle"></i> Add Prospect
+            </a>
+            <a
+                href="{% url 'dashboard:export_prospects_csv' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}"
+                class="btn btn-sm btn-outline-success"
+            >
+                <i class="bi bi-download"></i> Export CSV
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %} {% block content %}
+<!-- Filters -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="get" class="row g-3">
+            <div class="col-md-3">
+                <label for="search" class="form-label">Search</label>
+                <input
+                    type="text"
+                    class="form-control"
+                    id="search"
+                    name="search"
+                    value="{{ request.GET.search }}"
+                    placeholder="Event, Company, Email, Phone..."
+                />
+            </div>
+            <div class="col-md-2">
+                <label for="status" class="form-label">Status</label>
+                <select class="form-select" id="status" name="status">
+                    <option value="">All Statuses</option>
+                    {% for status_code, status_label in status_choices %}
+                    <option
+                        value="{{ status_code }}"
+                        {%
+                        if
+                        request.GET.status=""
+                        ="status_code"
+                        %}selected{%
+                        endif
+                        %}
+                    >
+                        {{ status_label }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label for="source" class="form-label">Source</label>
+                <select class="form-select" id="source" name="source">
+                    <option value="">All Sources</option>
+                    {% for source in sources %}
+                    <option
+                        value="{{ source }}"
+                        {%
+                        if
+                        request.GET.source=""
+                        ="source"
+                        %}selected{%
+                        endif
+                        %}
+                    >
+                        {{ source }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label for="date_from" class="form-label">From Date</label>
+                <input
+                    type="date"
+                    class="form-control"
+                    id="date_from"
+                    name="date_from"
+                    value="{{ request.GET.date_from }}"
+                />
+            </div>
+            <div class="col-md-2">
+                <label for="date_to" class="form-label">To Date</label>
+                <input
+                    type="date"
+                    class="form-control"
+                    id="date_to"
+                    name="date_to"
+                    value="{{ request.GET.date_to }}"
+                />
+            </div>
+            <div class="col-md-1 d-flex align-items-end">
+                <button type="submit" class="btn btn-primary me-2">
+                    Filter
+                </button>
+            </div>
+        </form>
+        <div class="mt-2">
+            <a
+                href="{% url 'dashboard:prospects' %}"
+                class="btn btn-sm btn-outline-secondary"
+                >Clear Filters</a
+            >
+        </div>
+    </div>
+</div>
+
+<!-- Prospects Table -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">
+            All Prospects ({{ page_obj.paginator.count }} total)
+        </h5>
+        <div class="btn-group btn-group-sm">
+            <button
+                type="button"
+                class="btn btn-outline-primary"
+                id="bulkMarkContactedBtn"
+                disabled
+            >
+                Mark Contacted
+            </button>
+            <button
+                type="button"
+                class="btn btn-outline-success"
+                id="bulkConvertBtn"
+                disabled
+            >
+                Convert to Leads
+            </button>
+            <button
+                type="button"
+                class="btn btn-outline-danger"
+                id="bulkRejectBtn"
+                disabled
+            >
+                Reject
+            </button>
+        </div>
+    </div>
+    <div class="card-body">
+        {% if prospects %}
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>
+                            <input
+                                type="checkbox"
+                                id="selectAll"
+                                title="Select All"
+                                aria-label="Select all prospects"
+                            />
+                        </th>
+                        <th>ID</th>
+                        <th>Status</th>
+                        <th>Event Name</th>
+                        <th>Company</th>
+                        <th>Email</th>
+                        <th>Phone</th>
+                        <th>Website</th>
+                        <th>Source</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for prospect in prospects %}
+                    <tr>
+                        <td>
+                            <input
+                                type="checkbox"
+                                class="prospect-checkbox"
+                                value="{{ prospect.id }}"
+                                aria-label="Select prospect {{ prospect.id }}"
+                            />
+                        </td>
+                        <td>{{ prospect.id }}</td>
+                        <td>
+                            <span
+                                class="badge bg-{% if prospect.status == 'new' %}primary{% elif prospect.status == 'contacted' %}info{% elif prospect.status == 'converted' %}success{% else %}secondary{% endif %}"
+                            >
+                                {{ prospect.get_status_display }}
+                            </span>
+                        </td>
+                        <td>
+                            {{ prospect.event_name|truncatewords:5|default:"-"
+                            }}
+                        </td>
+                        <td>
+                            {{ prospect.company|truncatewords:3|default:"-" }}
+                        </td>
+                        <td>
+                            {% if prospect.email %}
+                            <a href="mailto:{{ prospect.email }}"
+                                >{{ prospect.email|truncatewords:1 }}</a
+                            >
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {{
+                            prospect.phone_e164|default:prospect.phone_raw|default:"-"
+                            }}
+                        </td>
+                        <td>
+                            {% if prospect.website %}
+                            <a
+                                href="{{ prospect.website }}"
+                                target="_blank"
+                                rel="noopener"
+                                aria-label="Visit website"
+                                title="Visit website"
+                            >
+                                <i class="bi bi-box-arrow-up-right"></i>
+                            </a>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ prospect.source_name|default:"-" }}</td>
+                        <td>{{ prospect.created_at|date:"Y-m-d" }}</td>
+                        <td>
+                            <a
+                                href="{% url 'dashboard:prospect_detail</td>' prospect.id %}"
+                                class="btn btn-sm btn-outline-primary"
+                            >
+                                <i class="bi bi-eye"></i> View
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Pagination -->
+        {% if is_paginated %}
+        <nav aria-label="Page navigation" class="mt-3">
+            <ul class="pagination justify-content-center">
+                {% if page_obj.has_previous %}
+                <li class="page-item">
+                    <a
+                        class="page-link"
+                        href="?page=1{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.source %}&source={{ request.GET.source }}{% endif %}{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}"
+                        >First</a
+                    >
+                </li>
+                <li class="page-item">
+                    <a
+                        class="page-link"
+                        href="?page={{ page_obj.previous_page_number }}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.source %}&source={{ request.GET.source }}{% endif %}{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}"
+                        >Previous</a
+                    >
+                </li>
+                {% endif %}
+                <li class="page-item active">
+                    <span class="page-link"
+                        >Page {{ page_obj.number }} of {{
+                        page_obj.paginator.num_pages }}</span
+                    >
+                </li>
+                {% if page_obj.has_next %}
+                <li class="page-item">
+                    <a
+                        class="page-link"
+                        href="?page={{ page_obj.next_page_number }}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.source %}&source={{ request.GET.source }}{% endif %}{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}"
+                        >Next</a
+                    >
+                </li>
+                <li class="page-item">
+                    <a
+                        class="page-link"
+                        href="?page={{ page_obj.paginator.num_pages }}{% if request.GET.status %}&status={{ request.GET.status }}{% endif %}{% if request.GET.source %}&source={{ request.GET.source }}{% endif %}{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}"
+                        >Last</a
+                    >
+                </li>
+                {% endif %}
+            </ul>
+        </nav>
+        {% endif %} {% else %}
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i> No prospects found.
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %} {% block extra_js %}
+<script>
+    // Bulk selection
+    const selectAll = document.getElementById("selectAll");
+    const checkboxes = document.querySelectorAll(".prospect-checkbox");
+    const bulkButtons = document.querySelectorAll('[id^="bulk"]');
+
+    selectAll?.addEventListener("change", function () {
+        checkboxes.forEach((cb) => (cb.checked = this.checked));
+        updateBulkButtons();
+    });
+
+    checkboxes.forEach((cb) => {
+        cb.addEventListener("change", updateBulkButtons);
+    });
+
+    function updateBulkButtons() {
+        const selected = Array.from(checkboxes)
+            .filter((cb) => cb.checked)
+            .map((cb) => cb.value);
+        bulkButtons.forEach((btn) => {
+            btn.disabled = selected.length === 0;
+        });
+    }
+
+    // Bulk actions
+    document
+        .getElementById("bulkMarkContactedBtn")
+        ?.addEventListener("click", async function () {
+            const selected = Array.from(checkboxes)
+                .filter((cb) => cb.checked)
+                .map((cb) => parseInt(cb.value));
+            if (selected.length === 0) return;
+
+            if (!confirm(`Mark ${selected.length} prospect(s) as contacted?`))
+                return;
+
+            const btn = this;
+            btn.disabled = true;
+            btn.innerHTML =
+                '<span class="spinner-border spinner-border-sm me-2"></span>Processing...';
+
+            const result = await makeAjaxRequest(
+                '{% url "dashboard:api_prospect_bulk_mark_contacted" %}',
+                {
+                    method: "POST",
+                    body: { prospect_ids: selected },
+                },
+            );
+
+            if (result.success) {
+                showToast(result.data.message, "success");
+                setTimeout(() => window.location.reload(), 1500);
+            } else {
+                showToast(
+                    result.error || "Failed to mark prospects as contacted",
+                    "error",
+                );
+                btn.disabled = false;
+                btn.innerHTML = "Mark Contacted";
+            }
+        });
+
+    document
+        .getElementById("bulkConvertBtn")
+        ?.addEventListener("click", async function () {
+            const selected = Array.from(checkboxes)
+                .filter((cb) => cb.checked)
+                .map((cb) => parseInt(cb.value));
+            if (selected.length === 0) return;
+
+            if (!confirm(`Convert ${selected.length} prospect(s) to leads?`))
+                return;
+
+            const btn = this;
+            btn.disabled = true;
+            btn.innerHTML =
+                '<span class="spinner-border spinner-border-sm me-2"></span>Converting...';
+
+            const result = await makeAjaxRequest(
+                '{% url "dashboard:api_prospect_bulk_convert" %}',
+                {
+                    method: "POST",
+                    body: { prospect_ids: selected },
+                },
+            );
+
+            if (result.success) {
+                showToast(result.data.message, "success");
+                if (result.data.errors) {
+                    result.data.errors.forEach((err) =>
+                        showToast(err, "warning"),
+                    );
+                }
+                setTimeout(() => window.location.reload(), 2000);
+            } else {
+                showToast(
+                    result.error || "Failed to convert prospects",
+                    "error",
+                );
+                btn.disabled = false;
+                btn.innerHTML = "Convert to Leads";
+            }
+        });
+
+    document
+        .getElementById("bulkRejectBtn")
+        ?.addEventListener("click", async function () {
+            const selected = Array.from(checkboxes)
+                .filter((cb) => cb.checked)
+                .map((cb) => parseInt(cb.value));
+            if (selected.length === 0) return;
+
+            const reason = prompt("Rejection reason (optional):");
+            if (reason === null) return; // User cancelled
+
+            if (!confirm(`Reject ${selected.length} prospect(s)?`)) return;
+
+            const btn = this;
+            btn.disabled = true;
+            btn.innerHTML =
+                '<span class="spinner-border spinner-border-sm me-2"></span>Rejecting...';
+
+            const result = await makeAjaxRequest(
+                '{% url "dashboard:api_prospect_bulk_reject" %}',
+                {
+                    method: "POST",
+                    body: { prospect_ids: selected, reason: reason || "" },
+                },
+            );
+
+            if (result.success) {
+                showToast(result.data.message, "success");
+                setTimeout(() => window.location.reload(), 1500);
+            } else {
+                showToast(
+                    result.error || "Failed to reject prospects",
+                    "error",
+                );
+                btn.disabled = false;
+                btn.innerHTML = "Reject";
+            }
+        });
+</script>
+{% endblock %}

@@ -1,0 +1,138 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Scrape Targets{% endblock %}
+
+{% block page_header %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Scrape Targets</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a href="{% url 'dashboard:target_wizard' %}" class="btn btn-sm btn-primary">
+                <i class="bi bi-plus-circle"></i> Add Target
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- Filters -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="get" class="row g-3">
+            <div class="col-md-4">
+                <label for="search" class="form-label">Search</label>
+                <input type="text" class="form-control" id="search" name="search" 
+                       value="{{ request.GET.search }}" placeholder="Search by name...">
+            </div>
+            <div class="col-md-3">
+                <label for="enabled" class="form-label">Status</label>
+                <select class="form-select" id="enabled" name="enabled">
+                    <option value="">All</option>
+                    <option value="true" {% if request.GET.enabled == 'true' %}selected{% endif %}>Enabled</option>
+                    <option value="false" {% if request.GET.enabled == 'false' %}selected{% endif %}>Disabled</option>
+                </select>
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+                <button type="submit" class="btn btn-primary me-2">Filter</button>
+                <a href="{% url 'dashboard:targets' %}" class="btn btn-outline-secondary">Clear</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Summary Stats -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <h6 class="text-muted">Total Targets: <strong>{{ targets|length }}</strong></h6>
+                <p class="mb-0">
+                    <span class="badge bg-success">Enabled: {{ enabled_count }}</span>
+                    <span class="badge bg-secondary">Disabled: {{ disabled_count }}</span>
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Targets Table -->
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">All Targets</h5>
+    </div>
+    <div class="card-body">
+        {% if targets %}
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Type</th>
+                        <th>Status</th>
+                        <th>Total Runs</th>
+                        <th>Success Rate</th>
+                        <th>Last Run</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for target in targets %}
+                    <tr>
+                        <td>
+                            <strong><a href="{% url 'dashboard:target_detail' target.id %}">{{ target.name }}</a></strong>
+                            <br>
+                            <small class="text-muted">{{ target.start_url|truncatewords:5 }}</small>
+                        </td>
+                        <td>
+                            <span class="badge bg-info">{{ target.get_target_type_display }}</span>
+                        </td>
+                        <td>
+                            {% if target.enabled %}
+                            <span class="badge bg-success">Enabled</span>
+                            {% else %}
+                            <span class="badge bg-secondary">Disabled</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ target.total_runs }}</td>
+                        <td>
+                            {% if target.total_runs > 0 %}
+                                {% widthratio target.success_runs target.total_runs 100 %}%
+                                <small class="text-muted">({{ target.success_runs }}/{{ target.total_runs }})</small>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if target.last_run_at %}
+                                {{ target.last_run_at|timesince }} ago
+                            {% else %}
+                                <span class="text-muted">Never</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="btn-group btn-group-sm" role="group">
+                                <a href="{% url 'dashboard:target_detail' target.id %}" class="btn btn-outline-primary" title="View Details">
+                                    <i class="bi bi-eye"></i>
+                                </a>
+                                <a href="{% url 'dashboard:target_edit' target.id %}" class="btn btn-outline-secondary" title="Edit">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i> No targets found.
+            <a href="{% url 'dashboard:target_wizard' %}">Add your first target</a>.
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+

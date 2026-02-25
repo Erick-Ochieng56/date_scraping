@@ -1,0 +1,124 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Error Monitoring{% endblock %}
+
+{% block page_header %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Error Monitoring</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="{% url 'dashboard:runs' %}?status=failed" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-play-circle"></i> All failed runs
+        </a>
+        <a href="{% url 'dashboard:index' %}" class="btn btn-sm btn-outline-secondary ms-2">
+            <i class="bi bi-arrow-left"></i> Dashboard
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- Summary cards -->
+<div class="row mb-4">
+    <div class="col-md-4 mb-3">
+        <div class="card stat-card border-danger">
+            <div class="card-body">
+                <h6 class="text-muted text-uppercase mb-2">Failed (last 24h)</h6>
+                <div class="stat-number text-danger">{{ failed_24h }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 mb-3">
+        <div class="card stat-card border-warning">
+            <div class="card-body">
+                <h6 class="text-muted text-uppercase mb-2">Failed (last 7 days)</h6>
+                <div class="stat-number text-warning">{{ failed_7d }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 mb-3">
+        <div class="card stat-card border-secondary">
+            <div class="card-body">
+                <h6 class="text-muted text-uppercase mb-2">Recent failures (shown)</h6>
+                <div class="stat-number text-secondary">{{ failed_runs|length }}</div>
+                <small class="text-muted">Latest 50</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Failed runs table -->
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">Recent failed scrape runs</h5>
+    </div>
+    <div class="card-body p-0">
+        {% if failed_runs %}
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0">
+                <thead>
+                    <tr>
+                        <th>Run</th>
+                        <th>Target</th>
+                        <th>Started</th>
+                        <th>Error</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for run in failed_runs %}
+                    <tr>
+                        <td>
+                            <a href="{% url 'dashboard:run_detail' run.pk %}">#{{ run.id }}</a>
+                        </td>
+                        <td>
+                            <a href="{% url 'dashboard:target_detail' run.target.id %}">{{ run.target.name }}</a>
+                        </td>
+                        <td class="text-nowrap text-muted">{{ run.started_at|date:"Y-m-d H:i" }}</td>
+                        <td>
+                            <span class="text-danger" title="{{ run.error_text }}">
+                                {{ run.error_text|truncatewords:15|default:"—" }}
+                            </span>
+                        </td>
+                        <td>
+                            <a href="{% url 'dashboard:run_detail' run.pk %}" class="btn btn-sm btn-outline-primary">Details</a>
+                            <button type="button" class="btn btn-sm btn-outline-warning ms-1 retry-run-btn" data-run-id="{{ run.id }}">
+                                Retry
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="p-4 text-center text-muted">
+            <i class="bi bi-check-circle fs-1 text-success"></i>
+            <p class="mb-0 mt-2">No failed runs in recent history.</p>
+            <a href="{% url 'dashboard:runs' %}">View all runs</a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if failed_runs %}
+<script>
+(function() {
+    document.querySelectorAll('.retry-run-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var runId = this.getAttribute('data-run-id');
+            if (!runId) return;
+            var url = '{% url "dashboard:api_retry_run" 0 %}'.replace('0', runId);
+            fetch(url, { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' }, credentials: 'same-origin' })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) { window.location.reload(); }
+                    else { alert(data.error || 'Retry failed'); }
+                })
+                .catch(function() { alert('Request failed'); });
+        });
+    });
+})();
+</script>
+{% endif %}
+{% endblock %}

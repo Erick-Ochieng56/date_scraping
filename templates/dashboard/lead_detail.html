@@ -1,0 +1,354 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Lead #{{ lead.id }}{% endblock %}
+
+{% block page_header %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Lead #{{ lead.id }}</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a href="{% url 'admin:leads_lead_change' lead.id %}" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-pencil"></i> Edit
+            </a>
+            <a href="{% url 'dashboard:leads' %}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back to List
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Main Info -->
+    <div class="col-md-8">
+        <!-- Lead Details -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Lead Information</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row">
+                    <dt class="col-sm-3">Status:</dt>
+                    <dd class="col-sm-9">
+                        <span class="badge bg-{% if lead.status == 'contacted' %}info{% elif lead.status == 'interested' %}success{% elif lead.status == 'synced' %}primary{% elif lead.status == 'rejected' %}secondary{% else %}warning{% endif %} badge-lg">
+                            {{ lead.get_status_display }}
+                        </span>
+                    </dd>
+                    
+                    <dt class="col-sm-3">Full Name:</dt>
+                    <dd class="col-sm-9">{{ lead.full_name|default:"-" }}</dd>
+                    
+                    {% if lead.first_name or lead.last_name %}
+                    <dt class="col-sm-3">First/Last Name:</dt>
+                    <dd class="col-sm-9">{{ lead.first_name }} {{ lead.last_name }}</dd>
+                    {% endif %}
+                    
+                    <dt class="col-sm-3">Position:</dt>
+                    <dd class="col-sm-9">{{ lead.position|default:"-" }}</dd>
+                    
+                    <dt class="col-sm-3">Company:</dt>
+                    <dd class="col-sm-9">{{ lead.company|default:"-" }}</dd>
+                    
+                    <dt class="col-sm-3">Email:</dt>
+                    <dd class="col-sm-9">
+                        {% if lead.email %}
+                        <a href="mailto:{{ lead.email }}">{{ lead.email }}</a>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </dd>
+                    
+                    <dt class="col-sm-3">Phone:</dt>
+                    <dd class="col-sm-9">
+                        {% if lead.phone_e164 %}
+                        <a href="tel:{{ lead.phone_e164 }}">{{ lead.phone_e164 }}</a>
+                        {% elif lead.phone_raw %}
+                        {{ lead.phone_raw }}
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </dd>
+                    
+                    <dt class="col-sm-3">Website:</dt>
+                    <dd class="col-sm-9">
+                        {% if lead.website %}
+                        <a href="{{ lead.website }}" target="_blank" rel="noopener">{{ lead.website }}</a>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </dd>
+                    
+                    <dt class="col-sm-3">Event Name:</dt>
+                    <dd class="col-sm-9">{{ lead.event_name|default:"-" }}</dd>
+                </dl>
+            </div>
+        </div>
+
+        <!-- Address Information -->
+        {% if lead.address or lead.city or lead.state or lead.country %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Address Information</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row">
+                    {% if lead.address %}
+                    <dt class="col-sm-3">Address:</dt>
+                    <dd class="col-sm-9">{{ lead.address }}</dd>
+                    {% endif %}
+                    
+                    {% if lead.city %}
+                    <dt class="col-sm-3">City:</dt>
+                    <dd class="col-sm-9">{{ lead.city }}</dd>
+                    {% endif %}
+                    
+                    {% if lead.state %}
+                    <dt class="col-sm-3">State:</dt>
+                    <dd class="col-sm-9">{{ lead.state }}</dd>
+                    {% endif %}
+                    
+                    {% if lead.country_code %}
+                    <dt class="col-sm-3">Country:</dt>
+                    <dd class="col-sm-9">{{ lead.country_code }}</dd>
+                    {% endif %}
+                    
+                    {% if lead.zip_code %}
+                    <dt class="col-sm-3">Zip Code:</dt>
+                    <dd class="col-sm-9">{{ lead.zip_code }}</dd>
+                    {% endif %}
+                </dl>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Additional Information -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Additional Information</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row">
+                    {% if lead.default_language %}
+                    <dt class="col-sm-3">Default Language:</dt>
+                    <dd class="col-sm-9">{{ lead.default_language }}</dd>
+                    {% endif %}
+                    
+                    {% if lead.lead_value %}
+                    <dt class="col-sm-3">Lead Value:</dt>
+                    <dd class="col-sm-9">${{ lead.lead_value }}</dd>
+                    {% endif %}
+                    
+                    {% if lead.description %}
+                    <dt class="col-sm-3">Description:</dt>
+                    <dd class="col-sm-9"><pre class="mb-0">{{ lead.description }}</pre></dd>
+                    {% endif %}
+                </dl>
+            </div>
+        </div>
+
+        <!-- Source Information -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Source Information</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row">
+                    <dt class="col-sm-3">Source Name:</dt>
+                    <dd class="col-sm-9">{{ lead.source_name|default:"-" }}</dd>
+                    
+                    <dt class="col-sm-3">Source URL:</dt>
+                    <dd class="col-sm-9">
+                        {% if lead.source_url %}
+                        <a href="{{ lead.source_url }}" target="_blank" rel="noopener">{{ lead.source_url }}</a>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </dd>
+                    
+                    {% if lead.prospect %}
+                    <dt class="col-sm-3">Source Prospect:</dt>
+                    <dd class="col-sm-9">
+                        <a href="{% url 'dashboard:prospect_detail' lead.prospect.id %}">
+                            Prospect #{{ lead.prospect.id }}
+                        </a>
+                    </dd>
+                    {% endif %}
+                </dl>
+            </div>
+        </div>
+
+        <!-- Notes -->
+        {% if lead.notes %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Notes</h5>
+            </div>
+            <div class="card-body">
+                <pre class="mb-0">{{ lead.notes }}</pre>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Raw Payload -->
+        {% if raw_payload_json %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Raw Payload (Debug)</h5>
+            </div>
+            <div class="card-body">
+                <pre class="bg-light p-3 rounded" style="max-height: 400px; overflow-y: auto;"><code>{{ raw_payload_json }}</code></pre>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Sidebar -->
+    <div class="col-md-4">
+        <!-- Quick Actions -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Quick Actions</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    {% if lead.status == 'contacted' %}
+                    <button type="button" class="btn btn-success" id="markInterestedBtn">
+                        <i class="bi bi-check-circle"></i> Mark as Interested
+                    </button>
+                    {% endif %}
+                    
+                    {% if lead.status == 'interested' and not perfex_synced %}
+                    <button type="button" class="btn btn-primary" id="syncToCrmBtn">
+                        <i class="bi bi-cloud-upload"></i> Sync to CRM
+                    </button>
+                    {% endif %}
+                    
+                    {% if lead.status != 'rejected' and lead.status != 'synced' %}
+                    <button type="button" class="btn btn-danger" id="rejectBtn">
+                        <i class="bi bi-x-circle"></i> Reject
+                    </button>
+                    {% endif %}
+                    
+                    <a href="{% url 'admin:leads_lead_change' lead.id %}" class="btn btn-outline-primary">
+                        <i class="bi bi-pencil"></i> Edit Lead
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- CRM Sync Status -->
+        {% if perfex_synced %}
+        <div class="card mb-4 border-success">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0">CRM Sync Status</h5>
+            </div>
+            <div class="card-body">
+                <p class="mb-0">
+                    <i class="bi bi-check-circle"></i> Synced to Perfex CRM
+                    {% if perfex_sync_date %}
+                    <br><small class="text-muted">{{ perfex_sync_date|date:"Y-m-d H:i:s" }}</small>
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Metadata -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Metadata</h5>
+            </div>
+            <div class="card-body">
+                <dl class="mb-0">
+                    <dt>Created:</dt>
+                    <dd class="mb-2">{{ lead.created_at|date:"Y-m-d H:i:s" }}</dd>
+                    
+                    <dt>Updated:</dt>
+                    <dd class="mb-2">{{ lead.updated_at|date:"Y-m-d H:i:s" }}</dd>
+                    
+                    {% if lead.contacted_at %}
+                    <dt>Contacted:</dt>
+                    <dd class="mb-2">{{ lead.contacted_at|date:"Y-m-d H:i:s" }}</dd>
+                    {% endif %}
+                    
+                    {% if lead.rejected_at %}
+                    <dt>Rejected:</dt>
+                    <dd class="mb-0">{{ lead.rejected_at|date:"Y-m-d H:i:s" }}</dd>
+                    {% endif %}
+                </dl>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Action buttons
+    document.getElementById('markInterestedBtn')?.addEventListener('click', async function() {
+        if (!confirm('Mark this lead as interested?')) return;
+        
+        const btn = this;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Processing...';
+        
+        const result = await makeAjaxRequest('{% url "dashboard:api_lead_mark_interested" lead.id %}', {
+            method: 'POST'
+        });
+        
+        if (result.success) {
+            showToast(result.data.message, 'success');
+            setTimeout(() => window.location.reload(), 1500);
+        } else {
+            showToast(result.error || 'Failed to mark lead as interested', 'error');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-circle"></i> Mark as Interested';
+        }
+    });
+    
+    document.getElementById('syncToCrmBtn')?.addEventListener('click', async function() {
+        if (!confirm('Sync this lead to CRM?')) return;
+        
+        const btn = this;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Syncing...';
+        
+        const result = await makeAjaxRequest('{% url "dashboard:api_lead_sync_crm" lead.id %}', {
+            method: 'POST'
+        });
+        
+        if (result.success) {
+            showToast(result.data.message, 'success');
+            setTimeout(() => window.location.reload(), 2000);
+        } else {
+            showToast(result.error || 'Failed to sync lead to CRM', 'error');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-cloud-upload"></i> Sync to CRM';
+        }
+    });
+    
+    document.getElementById('rejectBtn')?.addEventListener('click', async function() {
+        if (!confirm('Reject this lead?')) return;
+        
+        const btn = this;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Rejecting...';
+        
+        const result = await makeAjaxRequest('{% url "dashboard:api_lead_reject" lead.id %}', {
+            method: 'POST'
+        });
+        
+        if (result.success) {
+            showToast(result.data.message, 'success');
+            setTimeout(() => window.location.reload(), 1500);
+        } else {
+            showToast(result.error || 'Failed to reject lead', 'error');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-x-circle"></i> Reject';
+        }
+    });
+</script>
+{% endblock %}
+

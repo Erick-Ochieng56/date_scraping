@@ -2,6 +2,87 @@
 
 ## Common Issues and Solutions
 
+### Blank Data Being Scraped
+
+If your scrape runs succeed but all fields are empty/blank, this is a **CSS selector problem**.
+
+**Symptoms:**
+- ScrapeRun status: "Success"
+- Items extracted: 50+ items
+- Created prospects: 50+ prospects
+- **But all prospect fields are empty:**
+  - Event Name: "" (blank)
+  - Company: "" (blank)
+  - Email: None
+  - Website: "" (blank)
+
+**Root Cause:**
+Your CSS selectors in `targets.json` don't match the actual HTML structure of the website.
+
+**Example of broken config:**
+```json
+{
+  "fields": {
+    "event_name": ".event-title, .title",  // These classes don't exist!
+    "company": ".organizer-name"            // This class doesn't exist!
+  }
+}
+```
+
+**How to Fix:**
+
+1. **Test Your Selectors:**
+   ```bash
+   python test_config.py
+   ```
+   This will show you if selectors are working and what data is actually extracted.
+
+2. **Inspect the Actual HTML:**
+   ```bash
+   python test_selectors.py
+   ```
+   This shows you the real HTML structure of the target website.
+
+3. **Update Your Selectors:**
+   - Open the target website in your browser
+   - Right-click → Inspect Element
+   - Find the actual CSS classes/tags used
+   - Update `targets.json` with correct selectors
+
+4. **Sync the Fixed Config:**
+   ```bash
+   python manage.py sync_targets --file targets.json --update
+   ```
+
+5. **Test Again:**
+   - Use "Test Scrape" button in Django admin
+   - Or run: `python test_config.py`
+   - Verify data is now being extracted
+
+**Example of working config (Eventbrite):**
+```json
+{
+  "item_selector": ".event-card",
+  "fields": {
+    "event_name": "h3",
+    "source_url": "a.event-card-link@href"
+  }
+}
+```
+
+**Important Notes:**
+- Contact info (email, phone) is **rarely available** on listing pages
+- See `DATA_AVAILABILITY_GUIDE.md` for what data is actually available
+- See `BLANK_DATA_FIX.md` for detailed diagnosis steps
+
+**Quick Check:**
+```bash
+# View recent prospects to see if data is blank
+python manage.py shell --command "from leads.models import Prospect; p = Prospect.objects.order_by('-created_at').first(); print(f'Event: {p.event_name}'); print(f'Company: {p.company}'); print(f'Raw: {p.raw_payload}')"
+```
+
+---
+
 ### All Runs Failing
 
 If all your scrape runs are showing "Failed" status, check the error messages in the ScrapeRun admin.
@@ -198,4 +279,5 @@ If issues persist:
 3. **Test Network** connectivity
 4. **Verify Target URLs** work in browser
 5. **Review Target Configs** for syntax errors
+6. **For Blank Data:** Run `python test_config.py` and see `BLANK_DATA_FIX.md`
 
