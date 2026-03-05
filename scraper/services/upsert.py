@@ -42,7 +42,7 @@ def _map_item_to_prospect_fields(target: ScrapeTarget, item: dict[str, Any]) -> 
 
     return {
         "source_name": target.name,
-        "source_url": str(item.get("_page_url") or target.start_url or ""),
+        "source_url": _get_first(item, ["source_url", "_page_url"]) or target.start_url or "",
         "source_ref": _get_first(item, ["source_ref", "id", "ref", "listing_id"]),
         "email": email or None,
         "phone_raw": phone,

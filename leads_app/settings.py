@@ -154,6 +154,7 @@ INSTALLED_APPS = [
     "crm_integration",
     "sheets_integration",
     "dashboard",
+    "crawler",
 ]
 
 MIDDLEWARE = [
@@ -380,6 +381,14 @@ CELERY_BEAT_SCHEDULE = {
         ),
     },
 }
+
+# Add crawler discovery pipeline if enabled
+if _get_bool("CRAWLER_ENABLED", default=False):
+    crawler_interval = int(_get_env("CRAWLER_DISCOVERY_INTERVAL_SECONDS", "43200") or "43200")
+    CELERY_BEAT_SCHEDULE["crawler-discover-websites"] = {
+        "task": "tasks.crawler_tasks.discover_websites_task",
+        "schedule": timedelta(seconds=crawler_interval),
+    }
 
 # Add automatic enrichment task if enabled (Two-Stage Scraping - Stage 2)
 # Default: every 30 minutes, configurable via ENRICHMENT_INTERVAL_SECONDS
