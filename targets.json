@@ -9,7 +9,6 @@
       "item_selector": ".event-card",
       "fields": {
         "event_name": "h3",
-        "company": "a.event-card-link@aria-label",
         "source_url": "a.event-card-link@href"
       },
       "next_page_selector": "a.pagination-next, a[aria-label='Next'], [data-testid='pagination-next']",
@@ -24,17 +23,23 @@
     "target_type": "playwright",
     "run_every_minutes": 180,
     "config": {
-      "item_selector": ".eventCard, [data-testid='event-card'], .event-listing",
+      "item_selector": "[data-element-name='event-card'], li[data-testid='event-card'], .event-card",
       "fields": {
-        "full_name": ".eventCard-title, [data-testid='event-title'], .event-title",
-        "event_date": ".eventCard-date, [data-testid='event-date'], .event-date",
-        "event_name": ".eventCard-description, .event-description",
-        "source_url": "a.eventCard-link@href, a[data-testid='event-link']@href"
+        "full_name": "[data-element-name='event-title'], [data-testid='event-title'], h2, h3",
+        "event_date": "time[datetime], [data-element-name='event-date'], [data-testid='event-date']",
+        "event_name": "[data-element-name='event-description'], [data-testid='event-description'], p",
+        "source_url": "a@href"
       },
+      "wait_for_selector": "[data-element-name='event-card'], [data-testid='event-card']",
       "next_page_selector": "a[data-testid='pagination-next'], .pagination-next",
       "max_pages": 3,
-      "timeout_seconds": 45,
-      "wait_until": "networkidle"
+      "timeout_seconds": 90,
+      "wait_until": "domcontentloaded",
+      "playwright_headless": true,
+      "playwright_user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+      "playwright_extra_headers": {
+        "Accept-Language": "en-US,en;q=0.9"
+      }
     }
   },
   {

@@ -28,7 +28,6 @@ def test_eventbrite_selectors():
         "item_selector": ".event-card",
         "fields": {
             "event_name": "h3",
-            "company": "a.event-card-link@aria-label",
             "source_url": "a.event-card-link@href",
         },
     }

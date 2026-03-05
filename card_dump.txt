@@ -1,0 +1,141 @@
+CARD 1:
+<div class="Container_root__4i85v NestedActionContainer_root__1jtfr event-card event-card__vertical vertical-event-card__action-visibility" style="--ContainerBgColor:#fff;--ContainerBorderRadius:16px;--ContainerElevationFocusWithin:0px 2px 8px rgba(30, 10, 60, 0.06), 0px 4px 12px rgba(30, 10, 60, 0.08);--ContainerElevationHover:0px 2px 8px rgba(30, 10, 60, 0.06), 0px 4px 12px rgba(30, 10, 60, 0.08)">
+ <div data-testid="event-card-tracking-layer" style="position:absolute;top:0px;left:0px;height:100%;pointer-events:none;width:100%">
+ </div>
+ <a aria-label="View FOODEESFEST Charlotte, North Carolina (40+ food trucks and craft vendors!)" class="event-card-link" data-event-category="food-and-drink" data-event-has-bogo-label="false" data-event-has-promo-code="false" data-event-id="1977638722656" data-event-location="Charlotte, NC" data-event-paid-status="paid" href="https://www.eventbrite.com/e/foodeesfest-charlotte-north-carolina-40-food-trucks-and-craft-vendors-tickets-1977638722656?aff=ebdssbcitybrowse" rel="noopener" target="_blank">
+  <div class="event-card-image__aspect-container" data-testid="event-card-image-container" style="--image-aspect-ratio:2;--image-aspect-ratio-mobile:2;--image-width:100%;--image-width-mobile:100%;--image-background-color:#8cb6bf">
+   <img alt="FOODEESFEST Charlotte, North Carolina (40+ food trucks and craft vendors!) primary image" class="event-card-image" height="256" loading="lazy" src="https://img.evbuc.com/https%3A%2F%2Fcdn.evbuc.com%2Fimages%2F1172842275%2F1115940360553%2F1%2Foriginal.20251212-162110?crop=focalpoint&amp;fit=crop&amp;w=512&amp;auto=format%2Ccompress&amp;q=75&amp;sharp=10&amp;fp-x=0.5&amp;fp-y=0.5&amp;s=2a8da624e0d6709a4adcfe36d969d8c6" width="512"/>
+  </div>
+ </a>
+ <section class="event-card-details" style="--EventCardDetailsPadding:8px 8px 16px 12px;--EventCardDetailsFlexGrow:2;--EventCardDetailsPosition:relative">
+  <div class="Stack_root__1ksk7" style="--Space:4px">
+   <aside class="DiscoverVerticalEventCard-module__urgencySignals___7QVRD">
+    <div class="EventCardUrgencySignal--sales-end-soon EventCardUrgencySignal">
+     <p class="Typography_root__487rx #585163 Typography_body-md-bold__487rx EventCardUrgencySignal__label Typography_align-match-parent__487rx" style="--TypographyColor:#585163">
+      Sales end soon
+     </p>
+    </div>
+   </aside>
+   <a aria-label="View FOODEESFEST Charlotte, North Carolina (40+ food trucks and craft vendors!)" class="event-card-link" data-event-category="food-and-drink" data-event-has-bogo-label="false" data-event-has-promo-code="false" data-event-id="1977638722656" data-event-location="Charlotte, NC" data-event-paid-status="paid" href="https://www.eventbrite.com/e/foodeesfest-charlotte-north-carolina-40-food-trucks-and-craft-vendors-tickets-1977638722656?aff=ebdssbcitybrowse" rel="noopener" target="_blank">
+    <h3 class="Typography_root__487rx #3a3247 Typography_body-lg__487rx event-card__clamp-line--two Typography_align-match-parent__487rx" style="--TypographyColor:#3a3247">
+     FOODEESFEST Charlotte, North Carolina (40+ food trucks and craft vendors!)
+    </h3>
+   </a>
+   <p class="Typography_root__487rx #3a3247 Typography_body-md-bold__487rx Typography_align-match-parent__487rx" style="--TypographyColor:#3a3247">
+    Friday • 1:00 PM
+   </p>
+   <p class="Typography_root__487rx #585163 Typography_body-md__487rx event-card__clamp-line--one Typography_align-match-parent__487rx" style="--TypographyColor:#585163">
+    SouthPark
+   </p>
+   <span>
+   </span>
+   <div class="DiscoverVerticalEventCard-module__priceWrapper___usWo6">
+    <p class="Typography_root__487rx #716b7a Typography_body-md-bold__487rx Typography_align-match-parent__487rx" style="--TypographyColor:#716b7a">
+     Check ticket price on event
+    </p>
+   </div>
+   <section class="event-card-actions" data-event-category="food-and-drink" data-event-has-bogo-label="false" data-event-has-promo-code="false" data-event-id="1977638722656" data-event-location="Charlotte, NC" data-event-paid-status="paid" style="--EventCardActionsPosition:absolute;--EventCardActionsTop:-48px;--EventCardActionsRight:8px;--EventCardActionsGap:8px">
+    <span class="eds-icon-button eds-icon-button--outline" data-spec="icon-button">
+     <button aria-pressed="false" class="eds-btn--button eds-btn--none eds-btn--icon-only" data-event-id="1977638722656" type="button">
+      <i class="eds-vector-image eds-icon--small eds-vector-image--grey-700 eds-vector-image--block" data-spec="icon" data-testid="icon" title="">
+       <svg id="heart-chunky_svg__eds-icon--user-chunky_svg" viewbox="0 0 24 24" x="0" xml:space="preserve" y="0">
+        <path clip-rule="evenodd" d="M18.8 6.2C18.1 5.4 17 5 16 5c-1 0-2 .4-2.8 1.2L12 7.4l-1.2-1.2C10 5.4 9 5 8 5c-1 0-2 .4-2.8 1.2-1.5 1.6-1.5 4.2 0 5.8l6.8 7 6.8-7c1.6-1.6 1.6-4.2 0-5.8zm-1.4 4.4L12 16.1l-5.4-5.5c-.8-.8-.8-2.2 0-3C7 7.2 7.5 7 8 7c.5 0 1 .2 1.4.6l2.6 2.7 2.7-2.7c.3-.4.8-.6 1.3-.6s1 .2 1.4.6c.8.8.8 2.2 0 3z" fill-rule="evenodd" id="heart-chunky_svg__eds-icon--heart-chunky_base">
+        </path>
+       </svg>
+       <span class="eds-is-hidden-accessible">
+        Save this event: FOODEESFEST Charlotte, North Carolina (40+ food trucks and craft vendors!)
+       </span>
+      </i>
+     </button>
+    </span>
+    <span class="eds-icon-button eds-icon-button--outline" data-spec="icon-button">
+     <button class="eds-btn--button eds-btn--none eds-btn--icon-only" type="button">
+      <i class="eds-vector-image eds-icon--small eds-vector-image--block" data-spec="icon" data-testid="icon" title="">
+       <svg id="share-ios-chunky_svg__eds-icon--share-ios-chunky_svg" viewbox="0 0 24 24" x="0" xml:space="preserve" y="0">
+        <path clip-rule="evenodd" d="M18 16v2H6v-2H4v4h16v-4z" fill-rule="evenodd" id="share-ios-chunky_svg__eds-icon--share-ios-chunky_base">
+        </path>
+        <path clip-rule="evenodd" d="M12 4L7 9l1.4 1.4L11 7.8V16h2V7.8l2.6 2.6L17 9l-5-5z" fill-rule="evenodd" id="share-ios-chunky_svg__eds-icon--share-ios-chunky_arrow">
+        </path>
+       </svg>
+       <span class="eds-is-hidden-accessible">
+        Share this event: FOODEESFEST Charlotte, North Carolina (40+ food trucks and craft vendors!)
+       </span>
+      </i>
+     </button>
+    </span>
+   </section>
+  </div>
+ </section>
+</div>
+
+---
+CARD 2:
+<div class="Container_root__4i85v NestedActionContainer_root__1jtfr event-card event-card__vertical vertical-event-card__action-visibility" style="--ContainerBgColor:#fff;--ContainerBorderRadius:16px;--ContainerElevationFocusWithin:0px 2px 8px rgba(30, 10, 60, 0.06), 0px 4px 12px rgba(30, 10, 60, 0.08);--ContainerElevationHover:0px 2px 8px rgba(30, 10, 60, 0.06), 0px 4px 12px rgba(30, 10, 60, 0.08)">
+ <div data-testid="event-card-tracking-layer" style="position:absolute;top:0px;left:0px;height:100%;pointer-events:none;width:100%">
+ </div>
+ <a aria-label="View Holi Celebration at The Seaport" class="event-card-link" data-event-category="holiday" data-event-has-bogo-label="false" data-event-has-promo-code="false" data-event-id="1982694131520" data-event-location="New York, NY" data-event-paid-status="paid" href="https://www.eventbrite.com/e/holi-celebration-at-the-seaport-tickets-1982694131520?aff=ebdssbcitybrowse" rel="noopener" target="_blank">
+  <div class="event-card-image__aspect-container" data-testid="event-card-image-container" style="--image-aspect-ratio:2;--image-aspect-ratio-mobile:2;--image-width:100%;--image-width-mobile:100%;--image-background-color:#65605e">
+   <img alt="Holi Celebration at The Seaport primary image" class="event-card-image" height="256" loading="lazy" src="https://img.evbuc.com/https%3A%2F%2Fcdn.evbuc.com%2Fimages%2F1177071964%2F176701156929%2F1%2Foriginal.20260209-162939?crop=focalpoint&amp;fit=crop&amp;w=512&amp;auto=format%2Ccompress&amp;q=75&amp;sharp=10&amp;fp-x=0.5&amp;fp-y=0.5&amp;s=096cf04b1306750caee1c0cfaaef7fc1" width="512"/>
+  </div>
+ </a>
+ <section class="event-card-details" style="--EventCardDetailsPadding:8px 8px 16px 12px;--EventCardDetailsFlexGrow:2;--EventCardDetailsPosition:relative">
+  <div class="Stack_root__1ksk7" style="--Space:4px">
+   <aside class="DiscoverVerticalEventCard-module__urgencySignals___7QVRD">
+    <div class="EventCardUrgencySignal--almost-full EventCardUrgencySignal">
+     <p class="Typography_root__487rx #585163 Typography_body-md-bold__487rx EventCardUrgencySignal__label Typography_align-match-parent__487rx" style="--TypographyColor:#585163">
+      Almost full
+     </p>
+    </div>
+   </aside>
+   <a aria-label="View Holi Celebration at The Seaport" class="event-card-link" data-event-category="holiday" data-event-has-bogo-label="false" data-event-has-promo-code="false" data-event-id="1982694131520" data-event-location="New York, NY" data-event-paid-status="paid" href="https://www.eventbrite.com/e/holi-celebration-at-the-seaport-tickets-1982694131520?aff=ebdssbcitybrowse" rel="noopener" target="_blank">
+    <h3 class="Typography_root__487rx #3a3247 Typography_body-lg__487rx event-card__clamp-line--two Typography_align-match-parent__487rx" style="--TypographyColor:#3a3247">
+     Holi Celebration at The Seaport
+    </h3>
+   </a>
+   <p class="Typography_root__487rx #3a3247 Typography_body-md-bold__487rx Typography_align-match-parent__487rx" style="--TypographyColor:#3a3247">
+    Saturday • 12:00 PM
+   </p>
+   <p class="Typography_root__487rx #585163 Typography_body-md__487rx event-card__clamp-line--one Typography_align-match-parent__487rx" style="--TypographyColor:#585163">
+    Seaport Square at Pier 17
+   </p>
+   <span>
+   </span>
+   <div class="DiscoverVerticalEventCard-module__priceWrapper___usWo6">
+    <p class="Typography_root__487rx #716b7a Typography_body-md-bold__487rx Typography_align-match-parent__487rx" style="--TypographyColor:#716b7a">
+     Check ticket price on event
+    </p>
+   </div>
+   <section class="event-card-actions" data-event-category="holiday" data-event-has-bogo-label="false" data-event-has-promo-code="false" data-event-id="1982694131520" data-event-location="New York, NY" data-event-paid-status="paid" style="--EventCardActionsPosition:absolute;--EventCardActionsTop:-48px;--EventCardActionsRight:8px;--EventCardActionsGap:8px">
+    <span class="eds-icon-button eds-icon-button--outline" data-spec="icon-button">
+     <button aria-pressed="false" class="eds-btn--button eds-btn--none eds-btn--icon-only" data-event-id="1982694131520" type="button">
+      <i class="eds-vector-image eds-icon--small eds-vector-image--grey-700 eds-vector-image--block" data-spec="icon" data-testid="icon" title="">
+       <svg id="heart-chunky_svg__eds-icon--user-chunky_svg" viewbox="0 0 24 24" x="0" xml:space="preserve" y="0">
+        <path clip-rule="evenodd" d="M18.8 6.2C18.1 5.4 17 5 16 5c-1 0-2 .4-2.8 1.2L12 7.4l-1.2-1.2C10 5.4 9 5 8 5c-1 0-2 .4-2.8 1.2-1.5 1.6-1.5 4.2 0 5.8l6.8 7 6.8-7c1.6-1.6 1.6-4.2 0-5.8zm-1.4 4.4L12 16.1l-5.4-5.5c-.8-.8-.8-2.2 0-3C7 7.2 7.5 7 8 7c.5 0 1 .2 1.4.6l2.6 2.7 2.7-2.7c.3-.4.8-.6 1.3-.6s1 .2 1.4.6c.8.8.8 2.2 0 3z" fill-rule="evenodd" id="heart-chunky_svg__eds-icon--heart-chunky_base">
+        </path>
+       </svg>
+       <span class="eds-is-hidden-accessible">
+        Save this event: Holi Celebration at The Seaport
+       </span>
+      </i>
+     </button>
+    </span>
+    <span class="eds-icon-button eds-icon-button--outline" data-spec="icon-button">
+     <button class="eds-btn--button eds-btn--none eds-btn--icon-only" type="button">
+      <i class="eds-vector-image eds-icon--small eds-vector-image--block" data-spec="icon" data-testid="icon" title="">
+       <svg id="share-ios-chunky_svg__eds-icon--share-ios-chunky_svg" viewbox="0 0 24 24" x="0" xml:space="preserve" y="0">
+        <path clip-rule="evenodd" d="M18 16v2H6v-2H4v4h16v-4z" fill-rule="evenodd" id="share-ios-chunky_svg__eds-icon--share-ios-chunky_base">
+        </path>
+        <path clip-rule="evenodd" d="M12 4L7 9l1.4 1.4L11 7.8V16h2V7.8l2.6 2.6L17 9l-5-5z" fill-rule="evenodd" id="share-ios-chunky_svg__eds-icon--share-ios-chunky_arrow">
+        </path>
+       </svg>
+       <span class="eds-is-hidden-accessible">
+        Share this event: Holi Celebration at The Seaport
+       </span>
+      </i>
+     </button>
+    </span>
+   </section>
+  </div>
+ </section>
+</div>
+

@@ -16,13 +16,15 @@ def run_target(target: ScrapeTarget) -> list[dict]:
     Execute a target scrape based on `ScrapeTarget.config`.
 
     Expected config keys (minimal):
-      - item_selector: CSS selector for each item row (required)
-      - fields: dict mapping field -> selector/spec (required)
+      - item_selector:      CSS selector for each item row (required)
+      - fields:             dict mapping field -> selector/spec (required)
       - next_page_selector: CSS selector for next page link (optional)
-      - max_pages: int (optional; default 1)
-      - headers: dict (optional)
-      - timeout_seconds: int (optional)
-      - wait_until: playwright wait_until (optional)
+      - max_pages:          int (optional; default 1)
+      - headers:            dict (optional)
+      - timeout_seconds:    int (optional)
+      - wait_until:         playwright wait_until (optional; default domcontentloaded)
+      - wait_for_selector:  CSS selector to wait for after navigation (optional;
+                            use for SPAs that render content via XHR)
     """
     cfg = target.config or {}
     item_selector = cfg.get("item_selector") or cfg.get("items_selector")
@@ -30,10 +32,14 @@ def run_target(target: ScrapeTarget) -> list[dict]:
     if not item_selector:
         raise ValueError(f"ScrapeTarget {target.id} missing config.item_selector")
 
-    max_pages = int(cfg.get("max_pages") or 1)
-    headers = cfg.get("headers") or None
-    timeout_seconds = int(cfg.get("timeout_seconds") or 30)
-    wait_until = str(cfg.get("wait_until") or "networkidle")
+    max_pages        = int(cfg.get("max_pages") or 1)
+    headers          = cfg.get("headers") or None
+    timeout_seconds  = int(cfg.get("timeout_seconds") or 30)
+    wait_until       = str(cfg.get("wait_until") or "domcontentloaded")
+    wait_for_selector = cfg.get("wait_for_selector") or None
+    playwright_headless = bool(cfg.get("playwright_headless", True))
+    playwright_user_agent = cfg.get("playwright_user_agent") or None
+    playwright_extra_headers = cfg.get("playwright_extra_headers") or None
 
     url = target.start_url
     all_items: list[dict] = []
@@ -41,37 +47,40 @@ def run_target(target: ScrapeTarget) -> list[dict]:
     for page_num in range(1, max_pages + 1):
         if target.target_type == ScrapeTargetType.PLAYWRIGHT:
             html = fetch_html_playwright(
-                url, timeout_ms=timeout_seconds * 1000, wait_until=wait_until
+                url,
+                timeout_ms=timeout_seconds * 1000,
+                wait_until=wait_until,
+                wait_for_selector=wait_for_selector,
+                headless=playwright_headless,
+                user_agent=playwright_user_agent,
+                extra_headers=playwright_extra_headers,
             )
         else:
             html = fetch_html(url, headers=headers, timeout=timeout_seconds)
 
         items = extract_items(html, item_selector=item_selector, fields=fields)
-        
-        # Log extraction results for debugging
+
         if items:
             logger.info(
                 f"ScrapeTarget {target.id} page {page_num}: extracted {len(items)} items. "
                 f"Sample item keys: {list(items[0].keys()) if items else []}"
             )
-            # Log a sample item (first non-empty field) for debugging
-            if items:
-                sample = items[0]
-                non_empty = {k: v for k, v in sample.items() if v and str(v).strip()}
-                if non_empty:
-                    logger.debug(f"Sample item (non-empty fields): {non_empty}")
-                else:
-                    logger.warning(
-                        f"ScrapeTarget {target.id}: Extracted {len(items)} items but all fields are empty! "
-                        f"Check if selectors match the HTML structure. "
-                        f"Item selector: {item_selector}, Fields: {list(fields.keys())}"
-                    )
+            sample = items[0]
+            non_empty = {k: v for k, v in sample.items() if v and str(v).strip()}
+            if non_empty:
+                logger.debug(f"Sample item (non-empty fields): {non_empty}")
+            else:
+                logger.warning(
+                    f"ScrapeTarget {target.id}: Extracted {len(items)} items but all fields "
+                    f"are empty! Check selectors match the HTML structure. "
+                    f"item_selector={item_selector!r}, fields={list(fields.keys())}"
+                )
         else:
             logger.warning(
                 f"ScrapeTarget {target.id} page {page_num}: No items extracted. "
-                f"Item selector '{item_selector}' may not match any elements."
+                f"Selector {item_selector!r} may not match any elements."
             )
-        
+
         for it in items:
             it.setdefault("_page_url", url)
             it.setdefault("_target_id", target.id)
@@ -89,4 +98,3 @@ def run_target(target: ScrapeTarget) -> list[dict]:
         logger.info("ScrapeTarget %s page %s -> %s", target.id, page_num, url)
 
     return all_items
-

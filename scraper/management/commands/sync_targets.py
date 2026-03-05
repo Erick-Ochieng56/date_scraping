@@ -145,7 +145,7 @@ class Command(BaseCommand):
             if created:
                 created_count += 1
                 self.stdout.write(
-                    self.style.SUCCESS(f"✓ Created target: {name}")
+                    self.style.SUCCESS(f"[OK] Created target: {name}")
                 )
             elif options["update"]:
                 # Update existing target
@@ -157,13 +157,13 @@ class Command(BaseCommand):
                 target.save()
                 updated_count += 1
                 self.stdout.write(
-                    self.style.SUCCESS(f"✓ Updated target: {name}")
+                    self.style.SUCCESS(f"[OK] Updated target: {name}")
                 )
             else:
                 skipped_count += 1
                 self.stdout.write(
                     self.style.WARNING(
-                        f"⊘ Skipping existing target: {name} (use --update to modify)"
+                        f"[SKIP] Existing target: {name} (use --update to modify)"
                     )
                 )
 
@@ -181,7 +181,7 @@ class Command(BaseCommand):
                 else:
                     missing.update(enabled=False)
                     self.stdout.write(
-                        self.style.WARNING(f"⊘ Disabled {count} targets not in config file")
+                        self.style.WARNING(f"[DISABLED] {count} targets not in config file")
                     )
 
         # Summary
@@ -194,7 +194,7 @@ class Command(BaseCommand):
         else:
             self.stdout.write(
                 self.style.SUCCESS(
-                    f"\n✓ Summary: {created_count} created, {updated_count} updated, "
+                    f"\n[OK] Summary: {created_count} created, {updated_count} updated, "
                     f"{skipped_count} skipped, {len(processed_names)} total processed"
                 )
             )
