@@ -13,6 +13,14 @@ urlpatterns = [
     path('targets/wizard/', views.TargetWizardView.as_view(), name='target_wizard'),
     path('runs/', views.RunListView.as_view(), name='runs'),
     path('runs/<int:pk>/', views.RunDetailView.as_view(), name='run_detail'),
+
+    # Crawler (separate UX from scrape targets)
+    path('crawler/', views.CrawlerHomeView.as_view(), name='crawler_home'),
+    path('crawler/sources/', views.CrawlSourceListView.as_view(), name='crawler_sources'),
+    path('crawler/sources/add/', views.CrawlSourceCreateView.as_view(), name='crawler_source_add'),
+    path('crawler/sources/<int:pk>/edit/', views.CrawlSourceUpdateView.as_view(), name='crawler_source_edit'),
+    path('crawler/discover/', views.CrawlerDiscoverView.as_view(), name='crawler_discover'),
+    path('crawler/domains/', views.DiscoveredDomainListView.as_view(), name='crawler_domains'),
     path('prospects/', views.ProspectListView.as_view(), name='prospects'),
     path('prospects/add/', views.ProspectCreateView.as_view(), name='prospect_add'),
     path('prospects/<int:pk>/', views.ProspectDetailView.as_view(), name='prospect_detail'),
@@ -22,6 +30,10 @@ urlpatterns = [
     
     # API endpoints - Scraping
     path('api/trigger-scrape/', api_views.api_trigger_scrape, name='api_trigger_scrape'),
+    path('api/trigger-crawler/', api_views.api_trigger_crawler, name='api_trigger_crawler'),
+    path('api/crawler/preview/', api_views.api_crawler_preview, name='api_crawler_preview'),
+    path('api/crawler/queue/', api_views.api_crawler_queue, name='api_crawler_queue'),
+    path('api/crawler/domains/<int:domain_id>/crawl/', api_views.api_crawler_crawl_domain, name='api_crawler_crawl_domain'),
     path('api/runs/<int:run_id>/retry/', api_views.api_retry_run, name='api_retry_run'),
     path('api/runs/<int:run_id>/status/', api_views.api_get_run_status, name='api_get_run_status'),
     

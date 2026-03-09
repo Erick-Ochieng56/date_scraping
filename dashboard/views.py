@@ -6,12 +6,14 @@ from datetime import timedelta
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Count, Q
+from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse_lazy
 from django.utils import timezone
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
-from dashboard.forms import LeadCreateForm, ProspectCreateForm, TargetEditForm
+from crawler.models import CrawlSource, DiscoveredDomain, WebsiteProfile
+from dashboard.forms import CrawlSourceForm, LeadCreateForm, ProspectCreateForm, TargetEditForm
 from dashboard.models import ActivityLog
 from dashboard.utils import log_activity
 from leads.models import Lead, LeadStatus, Prospect, ProspectStatus
@@ -69,6 +71,40 @@ class DashboardHomeView(LoginRequiredMixin, TemplateView):
             "-started_at"
         )[:10]
 
+        # Crawler summary (last run + last 24h)
+        crawler_target = ScrapeTarget.objects.filter(name="translation_lead_crawler").first()
+        crawler_last_run = None
+        crawler_last_stats = None
+        crawler_services = []
+        crawler_runs_24h = 0
+        crawler_prospects_24h = 0
+        if crawler_target:
+            crawler_last_run = (
+                ScrapeRun.objects.filter(target=crawler_target)
+                .order_by("-started_at")
+                .first()
+            )
+            if crawler_last_run and crawler_last_run.stats:
+                crawler_last_stats = crawler_last_run.stats
+                svc = dict((crawler_last_run.stats or {}).get("services_detected") or {})
+                crawler_services = sorted(
+                    [(k, int(v or 0)) for k, v in svc.items() if int(v or 0) > 0],
+                    key=lambda kv: kv[1],
+                    reverse=True,
+                )[:7]
+
+            crawler_last_24h = timezone.now() - timedelta(hours=24)
+            crawler_runs_24h = ScrapeRun.objects.filter(
+                target=crawler_target, started_at__gte=crawler_last_24h
+            ).count()
+            # More actionable: total created+updated from runs in last 24h
+            crawler_prospects_24h = sum(
+                (r.created_leads or 0) + (r.updated_leads or 0)
+                for r in ScrapeRun.objects.filter(
+                    target=crawler_target, started_at__gte=crawler_last_24h
+                ).only("created_leads", "updated_leads")
+            )
+
         # Recent activity (for timeline widget)
         recent_activity = (
             ActivityLog.objects.select_related("user")
@@ -124,6 +160,13 @@ class DashboardHomeView(LoginRequiredMixin, TemplateView):
                 "recent_prospects": recent_prospects,
                 "recent_runs": recent_runs,
                 "recent_activity": recent_activity,
+                # Crawler summary
+                "crawler_target": crawler_target,
+                "crawler_last_run": crawler_last_run,
+                "crawler_last_stats": crawler_last_stats,
+                "crawler_services": crawler_services,
+                "crawler_runs_24h": crawler_runs_24h,
+                "crawler_prospects_24h": crawler_prospects_24h,
             # Chart data (serialized as JSON for JavaScript)
             "prospect_status_labels_json": json.dumps(prospect_status_labels),
             "prospect_status_data_json": json.dumps(prospect_status_data),
@@ -134,6 +177,69 @@ class DashboardHomeView(LoginRequiredMixin, TemplateView):
         )
 
         return context
+
+
+class CrawlerHomeView(LoginRequiredMixin, TemplateView):
+    template_name = "dashboard/crawler_home.html"
+
+
+class CrawlSourceListView(LoginRequiredMixin, ListView):
+    model = CrawlSource
+    template_name = "dashboard/crawler_sources.html"
+    context_object_name = "sources"
+    ordering = ["priority", "id"]
+
+    def get_queryset(self):
+        return super().get_queryset().order_by("priority", "id")
+
+
+class CrawlSourceCreateView(LoginRequiredMixin, CreateView):
+    model = CrawlSource
+    form_class = CrawlSourceForm
+    template_name = "dashboard/crawler_source_form.html"
+    success_url = reverse_lazy("dashboard:crawler_sources")
+
+
+class CrawlSourceUpdateView(LoginRequiredMixin, UpdateView):
+    model = CrawlSource
+    form_class = CrawlSourceForm
+    template_name = "dashboard/crawler_source_form.html"
+    success_url = reverse_lazy("dashboard:crawler_sources")
+
+
+class DiscoveredDomainListView(LoginRequiredMixin, ListView):
+    model = DiscoveredDomain
+    template_name = "dashboard/crawler_domains.html"
+    context_object_name = "domains"
+    ordering = ["crawl_status", "priority", "-first_seen_at"]
+    paginate_by = 50
+
+    def get_queryset(self):
+        qs = super().get_queryset().select_related("source").order_by(
+            "crawl_status", "priority", "-first_seen_at"
+        )
+        status_filter = (self.request.GET.get("status") or "").strip()
+        if status_filter in {"pending", "crawling", "completed", "failed"}:
+            qs = qs.filter(crawl_status=status_filter)
+        source_id = (self.request.GET.get("source") or "").strip()
+        if source_id.isdigit():
+            qs = qs.filter(source_id=int(source_id))
+        search = (self.request.GET.get("search") or "").strip()
+        if search:
+            qs = qs.filter(domain__icontains=search)
+        return qs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["sources"] = CrawlSource.objects.all().order_by("priority", "name")
+        context["status"] = (self.request.GET.get("status") or "").strip()
+        context["source_selected"] = (self.request.GET.get("source") or "").strip()
+        context["search"] = (self.request.GET.get("search") or "").strip()
+        return context
+
+
+class CrawlerDiscoverView(LoginRequiredMixin, TemplateView):
+    template_name = "dashboard/crawler_discover.html"
 
 
 class TargetWizardView(LoginRequiredMixin, TemplateView):
@@ -252,6 +358,11 @@ class RunListView(LoginRequiredMixin, ListView):
     def get_queryset(self):
         queryset = super().get_queryset().select_related("target")
 
+        # Preset filter: crawler only
+        crawler_only = (self.request.GET.get("crawler") or "").strip().lower()
+        if crawler_only in {"1", "true", "t", "yes", "y", "on"}:
+            queryset = queryset.filter(target__name="translation_lead_crawler")
+
         # Filter by status
         status_filter = self.request.GET.get("status")
         if status_filter in [s[0] for s in ScrapeRunStatus.choices]:
@@ -273,6 +384,8 @@ class RunListView(LoginRequiredMixin, ListView):
         context = super().get_context_data(**kwargs)
         context["targets"] = ScrapeTarget.objects.all().order_by("name")
         context["status_choices"] = ScrapeRunStatus.choices
+        crawler_only = (self.request.GET.get("crawler") or "").strip().lower()
+        context["crawler_only"] = crawler_only in {"1", "true", "t", "yes", "y", "on"}
         return context
 
 
@@ -295,10 +408,72 @@ class RunDetailView(LoginRequiredMixin, DetailView):
         # Serialize stats JSON for safe template rendering
         stats_json = json.dumps(run.stats, indent=2) if run.stats else None
 
+        is_crawler_run = bool(run.target and run.target.name == "translation_lead_crawler")
+        crawler_stats = dict(run.stats or {}) if is_crawler_run else {}
+        services_detected = dict((crawler_stats.get("services_detected") or {})) if is_crawler_run else {}
+        services_detected_items = sorted(
+            [(k, int(v or 0)) for k, v in services_detected.items()],
+            key=lambda kv: kv[1],
+            reverse=True,
+        )
+
+        crawler_progress = None
+        crawler_failures = []
+        domain_results_page_obj = None
+        if is_crawler_run:
+            try:
+                from crawler.models import CrawlRunDomainResult
+
+                state_counts = (
+                    CrawlRunDomainResult.objects.filter(run_id=run.id)
+                    .values("state")
+                    .annotate(count=Count("id"))
+                )
+                counts = {row["state"]: int(row["count"] or 0) for row in state_counts}
+                processed = CrawlRunDomainResult.objects.filter(
+                    run_id=run.id, processed_at__isnull=False
+                ).count()
+                failed = CrawlRunDomainResult.objects.filter(
+                    run_id=run.id, state="failed"
+                ).count()
+                crawler_progress = {
+                    "expected": int(run.item_count or 0),
+                    "processed": int(processed or 0),
+                    "failed": int(failed or 0),
+                    "states": counts,
+                }
+
+                crawler_failures = list(
+                    CrawlRunDomainResult.objects.filter(run_id=run.id, state="failed")
+                    .select_related("domain")
+                    .order_by("-updated_at")[:10]
+                    .values("domain__domain", "crawl_error", "pages_crawled", "updated_at")
+                )
+
+                # Per-domain results (paginated)
+                dpage = self.request.GET.get("dpage") or "1"
+                domain_qs = (
+                    CrawlRunDomainResult.objects.filter(run_id=run.id)
+                    .select_related("domain")
+                    .order_by("-score", "domain__domain")
+                )
+                paginator = Paginator(domain_qs, 50)
+                domain_results_page_obj = paginator.get_page(dpage)
+            except Exception:
+                crawler_progress = None
+                crawler_failures = []
+                domain_results_page_obj = None
+
         context.update(
             {
                 "duration": duration,
                 "stats_json": stats_json,
+                "is_crawler_run": is_crawler_run,
+                "crawler_stats": crawler_stats,
+                "services_detected_items": services_detected_items,
+                "crawler_progress": crawler_progress,
+                "crawler_failures": crawler_failures,
+                "domain_results_page_obj": domain_results_page_obj,
             }
         )
         return context

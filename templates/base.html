@@ -247,6 +247,14 @@
                             </li>
                             <li class="nav-item">
                                 <a
+                                    class="nav-link {% if request.resolver_match.url_name|default:''|slice:':7' == 'crawler' %}active{% endif %}"
+                                    href="{% url 'dashboard:crawler_home' %}"
+                                >
+                                    <i class="bi bi-search"></i> Crawler
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a
                                     class="nav-link {% if request.resolver_match.url_name == 'prospects' or request.resolver_match.url_name == 'prospect_detail' %}active{% endif %}"
                                     href="{% url 'dashboard:prospects' %}"
                                 >
