@@ -9,6 +9,7 @@ from django.core.exceptions import ValidationError
 
 from leads.models import Lead, LeadStatus, Prospect, ProspectStatus
 from scraper.models import ScrapeTarget, ScrapeTargetType
+from crawler.models import CrawlSource
 
 
 class TargetEditForm(forms.ModelForm):
@@ -125,3 +126,18 @@ class LeadCreateForm(forms.ModelForm):
         for f in ("email", "website", "position", "event_name", "address", "city", "state", "country_code", "notes"):
             self.fields[f].required = False
         self.fields["status"].initial = LeadStatus.CONTACTED
+
+
+class CrawlSourceForm(forms.ModelForm):
+    """Create/edit crawler discovery sources."""
+
+    class Meta:
+        model = CrawlSource
+        fields = ("name", "discovery_query", "source_type", "enabled", "priority")
+        widgets = {
+            "name": forms.TextInput(attrs={"class": "form-control"}),
+            "discovery_query": forms.TextInput(attrs={"class": "form-control"}),
+            "source_type": forms.Select(attrs={"class": "form-select"}),
+            "enabled": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+            "priority": forms.NumberInput(attrs={"class": "form-control", "min": 1, "max": 10}),
+        }

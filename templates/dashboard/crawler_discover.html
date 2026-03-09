@@ -1,0 +1,270 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Crawler Discover{% endblock %}
+
+{% block page_header %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Manual Keyword Search</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="{% url 'dashboard:crawler_home' %}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> Back
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Search Bing for domains</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-8">
+                        <label class="form-label">Keywords</label>
+                        <input class="form-control" id="queryInput" placeholder="e.g. international conference 2026 africa" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Max results</label>
+                        <input class="form-control" id="maxResultsInput" type="number" min="1" max="50" value="20" />
+                    </div>
+                    <div class="col-12 d-flex gap-2">
+                        <button class="btn btn-outline-primary" id="previewBtn">
+                            <i class="bi bi-eye"></i> Preview
+                        </button>
+                        <button class="btn btn-warning" id="queueBtn">
+                            <i class="bi bi-inboxes"></i> Queue (no crawl)
+                        </button>
+                        <button class="btn btn-success" id="queueCrawlBtn">
+                            <i class="bi bi-play-fill"></i> Queue + crawl now
+                        </button>
+                        <a href="{% url 'dashboard:crawler_domains' %}" class="btn btn-outline-secondary ms-auto">
+                            View queue
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Preview results</h5>
+                <small class="text-muted" id="previewCount">0 domains</small>
+            </div>
+            <div class="card-body">
+                <div class="mb-3 row g-2 align-items-end">
+                    <div class="col-md-8">
+                        <label class="form-label">Add domain manually</label>
+                        <input
+                            class="form-control"
+                            id="addDomainInput"
+                            placeholder="https://example.org"
+                        />
+                    </div>
+                    <div class="col-md-4 d-flex gap-2">
+                        <button class="btn btn-outline-secondary flex-grow-1" type="button" id="addDomainBtn">
+                            <i class="bi bi-plus"></i> Add
+                        </button>
+                        <button class="btn btn-outline-danger flex-grow-1" type="button" id="removeSelectedBtn">
+                            <i class="bi bi-trash"></i> Remove selected
+                        </button>
+                    </div>
+                </div>
+                <div id="previewEmpty" class="text-muted">Run a preview to see discovered domains.</div>
+                <div class="table-responsive d-none" id="previewTableWrap">
+                    <table class="table table-sm table-hover align-middle">
+                        <thead>
+                            <tr>
+                                <th style="width:40px;">
+                                    <input type="checkbox" class="form-check-input" id="selectAll" />
+                                </th>
+                                <th>Domain</th>
+                            </tr>
+                        </thead>
+                        <tbody id="previewTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const previewBtn = document.getElementById('previewBtn');
+    const queueBtn = document.getElementById('queueBtn');
+    const queueCrawlBtn = document.getElementById('queueCrawlBtn');
+    const queryInput = document.getElementById('queryInput');
+    const maxResultsInput = document.getElementById('maxResultsInput');
+    const previewEmpty = document.getElementById('previewEmpty');
+    const previewTableWrap = document.getElementById('previewTableWrap');
+    const previewTableBody = document.getElementById('previewTableBody');
+    const previewCount = document.getElementById('previewCount');
+    const selectAll = document.getElementById('selectAll');
+    const addDomainInput = document.getElementById('addDomainInput');
+    const addDomainBtn = document.getElementById('addDomainBtn');
+    const removeSelectedBtn = document.getElementById('removeSelectedBtn');
+
+    function getSelectedUrls() {
+        const urls = [];
+        document.querySelectorAll('.previewRowCheckbox:checked').forEach(cb => {
+            urls.push(cb.value);
+        });
+        return urls;
+    }
+
+    function recalcPreviewCount() {
+        const rows = previewTableBody.querySelectorAll('tr').length;
+        previewCount.textContent = `${rows} domain(s)`;
+    }
+
+    function ensureTableVisible() {
+        previewEmpty.classList.add('d-none');
+        previewTableWrap.classList.remove('d-none');
+    }
+
+    function renderPreview(urls) {
+        previewTableBody.innerHTML = '';
+
+        if (!urls.length) {
+            previewEmpty.classList.remove('d-none');
+            previewTableWrap.classList.add('d-none');
+            return;
+        }
+
+        ensureTableVisible();
+
+        urls.forEach((u) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><input class="form-check-input previewRowCheckbox" type="checkbox" value="${u}" checked /></td>
+                <td><code>${u}</code></td>
+            `;
+            previewTableBody.appendChild(tr);
+        });
+        recalcPreviewCount();
+    }
+
+    selectAll?.addEventListener('change', function () {
+        const checked = !!selectAll.checked;
+        document.querySelectorAll('.previewRowCheckbox').forEach(cb => cb.checked = checked);
+    });
+
+    addDomainBtn?.addEventListener('click', function () {
+        const raw = (addDomainInput.value || '').trim();
+        if (!raw) {
+            showToast('Enter a domain URL to add', 'warning');
+            return;
+        }
+        const exists = Array.from(document.querySelectorAll('.previewRowCheckbox')).some(
+            (cb) => cb.value === raw,
+        );
+        if (exists) {
+            showToast('Domain is already in the list', 'info');
+            return;
+        }
+
+        ensureTableVisible();
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><input class="form-check-input previewRowCheckbox" type="checkbox" value="${raw}" checked /></td>
+            <td><code>${raw}</code></td>
+        `;
+        previewTableBody.appendChild(tr);
+        addDomainInput.value = '';
+        recalcPreviewCount();
+    });
+
+    removeSelectedBtn?.addEventListener('click', function () {
+        const selected = document.querySelectorAll('.previewRowCheckbox:checked');
+        if (!selected.length) {
+            showToast('No domains selected to remove', 'warning');
+            return;
+        }
+        selected.forEach((cb) => {
+            const row = cb.closest('tr');
+            if (row) {
+                row.remove();
+            }
+        });
+        const remaining = previewTableBody.querySelectorAll('tr').length;
+        if (!remaining) {
+            previewEmpty.classList.remove('d-none');
+            previewTableWrap.classList.add('d-none');
+        }
+        recalcPreviewCount();
+    });
+
+    previewBtn?.addEventListener('click', async function () {
+        const query = (queryInput.value || '').trim();
+        const max_results = parseInt(maxResultsInput.value || '20');
+        if (!query) {
+            showToast('Please enter keywords', 'warning');
+            return;
+        }
+        previewBtn.disabled = true;
+        previewBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Previewing...';
+
+        const result = await makeAjaxRequest('{% url "dashboard:api_crawler_preview" %}', {
+            method: 'POST',
+            body: { query, max_results }
+        });
+
+        previewBtn.disabled = false;
+        previewBtn.innerHTML = '<i class="bi bi-eye"></i> Preview';
+
+        if (!result.success) {
+            showToast(result.error || 'Preview failed', 'error');
+            return;
+        }
+
+        renderPreview(result.data.urls || []);
+    });
+
+    async function queue(auto_crawl) {
+        const query = (queryInput.value || '').trim();
+        const max_results = parseInt(maxResultsInput.value || '20');
+        const urls = getSelectedUrls();
+        if (!query && !urls.length) {
+            showToast('Please enter keywords or select domains', 'warning');
+            return;
+        }
+
+        const btn = auto_crawl ? queueCrawlBtn : queueBtn;
+        const original = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Queuing...';
+
+        const result = await makeAjaxRequest('{% url "dashboard:api_crawler_queue" %}', {
+            method: 'POST',
+            body: { query, max_results, urls, auto_crawl }
+        });
+
+        btn.disabled = false;
+        btn.innerHTML = original;
+
+        if (!result.success) {
+            showToast(result.error || 'Queue failed', 'error');
+            return;
+        }
+
+        const msg = auto_crawl
+            ? `Queued ${result.data.queued} domain(s) and started crawling (run #${result.data.run_id})`
+            : `Queued ${result.data.queued} domain(s) (no crawl started)`;
+        showToast(msg, 'success');
+        if (auto_crawl && result.data.run_id) {
+            setTimeout(() => {
+                window.location.href = `{% url 'dashboard:run_detail' 0 %}`.replace('/0/', `/${result.data.run_id}/`);
+            }, 800);
+        }
+    }
+
+    queueBtn?.addEventListener('click', () => queue(false));
+    queueCrawlBtn?.addEventListener('click', () => queue(true));
+</script>
+{% endblock %}
+

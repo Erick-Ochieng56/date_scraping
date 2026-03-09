@@ -101,3 +101,63 @@ class WebsiteProfile(models.Model):
 
     def __str__(self) -> str:  # pragma: no cover
         return f"{self.domain.domain} ({self.translation_need_score})"
+
+
+class CrawlRunDomainResult(models.Model):
+    """
+    Per-run, per-domain processing ledger.
+
+    This enables idempotent stats and reliable ScrapeRun finalization even if
+    Celery tasks retry.
+    """
+
+    STATE_CHOICES = [
+        ("queued", "Queued"),
+        ("crawled", "Crawled"),
+        ("analyzed", "Analyzed"),
+        ("scored", "Scored"),
+        ("failed", "Failed"),
+    ]
+
+    run = models.ForeignKey(
+        "scraper.ScrapeRun", on_delete=models.CASCADE, related_name="crawler_domain_results"
+    )
+    domain = models.ForeignKey(
+        DiscoveredDomain, on_delete=models.CASCADE, related_name="run_results"
+    )
+
+    state = models.CharField(max_length=20, choices=STATE_CHOICES, default="queued")
+    crawl_succeeded = models.BooleanField(default=False)
+    crawl_error = models.TextField(blank=True, default="")
+    pages_crawled = models.IntegerField(default=0)
+
+    org_name = models.CharField(max_length=255, blank=True, default="")
+    org_type = models.CharField(max_length=100, blank=True, default="")
+    detected_org_types = models.JSONField(default=list)
+    detected_services = models.JSONField(default=list)
+    languages_detected = models.JSONField(default=list)
+    countries_detected = models.JSONField(default=list)
+    international_signals = models.JSONField(default=list)
+    event_names = models.JSONField(default=list)
+    contact_emails = models.JSONField(default=list)
+    contact_phones = models.JSONField(default=list)
+
+    score = models.IntegerField(default=0)
+    score_label = models.CharField(max_length=20, blank=True, default="")
+    prospect_created = models.BooleanField(default=False)
+    prospect_updated = models.BooleanField(default=False)
+
+    processed_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["run", "domain"], name="uniq_crawler_run_domain")
+        ]
+        indexes = [
+            models.Index(fields=["run", "state"]),
+            models.Index(fields=["processed_at"]),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover
+        return f"run={self.run_id} domain={self.domain.domain} state={self.state}"

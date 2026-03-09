@@ -1,0 +1,170 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Crawler Domains{% endblock %}
+
+{% block page_header %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Domains Queue</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="{% url 'dashboard:crawler_discover' %}" class="btn btn-sm btn-warning">
+            <i class="bi bi-search"></i> Manual search
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="get" class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label">Search domain</label>
+                <input class="form-control" name="search" value="{{ search }}" placeholder="example.org" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Status</label>
+                <select class="form-select" name="status">
+                    <option value="" {% if not status %}selected{% endif %}>All</option>
+                    <option value="pending" {% if status == 'pending' %}selected{% endif %}>Pending</option>
+                    <option value="crawling" {% if status == 'crawling' %}selected{% endif %}>Crawling</option>
+                    <option value="completed" {% if status == 'completed' %}selected{% endif %}>Completed</option>
+                    <option value="failed" {% if status == 'failed' %}selected{% endif %}>Failed</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Source</label>
+                <select class="form-select" name="source">
+                    <option value="" {% if not source_selected %}selected{% endif %}>All</option>
+                    {% for s in sources %}
+                    <option value="{{ s.id }}" {% if source_selected == s.id|stringformat:"s" %}selected{% endif %}>
+                        {{ s.name|truncatewords:6 }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <button class="btn btn-primary w-100" type="submit">Filter</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Domains ({{ page_obj.paginator.count }})</h5>
+        <a class="btn btn-sm btn-outline-info" href="{% url 'dashboard:runs' %}?crawler=1">
+            <i class="bi bi-play-circle"></i> Crawler runs
+        </a>
+    </div>
+    <div class="card-body">
+        {% if domains %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>Domain</th>
+                        <th>Status</th>
+                        <th class="text-end">Attempts</th>
+                        <th>Next attempt</th>
+                        <th>Source</th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for d in domains %}
+                    <tr>
+                        <td><a href="{{ d.domain }}" target="_blank" rel="noopener"><code>{{ d.domain }}</code></a></td>
+                        <td>
+                            <span class="badge bg-{% if d.crawl_status == 'completed' %}success{% elif d.crawl_status == 'failed' %}danger{% elif d.crawl_status == 'crawling' %}warning{% else %}secondary{% endif %}">
+                                {{ d.crawl_status }}
+                            </span>
+                        </td>
+                        <td class="text-end">{{ d.crawl_attempts }}</td>
+                        <td>
+                            {% if d.next_attempt_at %}
+                            {{ d.next_attempt_at|date:"Y-m-d H:i" }}
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if d.source %}
+                            <span class="text-muted">{{ d.source.name|truncatewords:5 }}</span>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <button
+                                class="btn btn-sm btn-outline-success crawlDomainBtn"
+                                data-domain-id="{{ d.id }}"
+                                data-domain="{{ d.domain }}"
+                            >
+                                <i class="bi bi-play-fill"></i> Crawl
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if is_paginated %}
+        <nav aria-label="Domains pagination">
+            <ul class="pagination justify-content-center">
+                {% if page_obj.has_previous %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% if status %}&status={{ status }}{% endif %}{% if source_selected %}&source={{ source_selected }}{% endif %}{% if search %}&search={{ search }}{% endif %}">Previous</a>
+                </li>
+                {% endif %}
+                <li class="page-item active">
+                    <span class="page-link">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+                </li>
+                {% if page_obj.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.next_page_number }}{% if status %}&status={{ status }}{% endif %}{% if source_selected %}&source={{ source_selected }}{% endif %}{% if search %}&search={{ search }}{% endif %}">Next</a>
+                </li>
+                {% endif %}
+            </ul>
+        </nav>
+        {% endif %}
+        {% else %}
+        <p class="text-muted mb-0">No domains in queue yet.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.querySelectorAll('.crawlDomainBtn')?.forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+            const domainId = parseInt(btn.dataset.domainId || '0');
+            const domain = btn.dataset.domain || '';
+            if (!domainId) return;
+            if (!confirm(`Crawl ${domain} now?`)) return;
+
+            const original = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Crawling...';
+
+            const url = `{% url "dashboard:api_crawler_crawl_domain" 0 %}`.replace('/0/', `/${domainId}/`);
+            const result = await makeAjaxRequest(url, { method: 'POST', body: {} });
+
+            if (result.success) {
+                showToast(`Crawl started (run #${result.data.run_id})`, 'success');
+                setTimeout(() => {
+                    window.location.href = `{% url 'dashboard:run_detail' 0 %}`.replace('/0/', `/${result.data.run_id}/`);
+                }, 800);
+                return;
+            }
+
+            showToast(result.error || 'Failed to start crawl', 'error');
+            btn.disabled = false;
+            btn.innerHTML = original;
+        });
+    });
+</script>
+{% endblock %}
+
