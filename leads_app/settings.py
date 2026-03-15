@@ -382,11 +382,11 @@ CELERY_BEAT_SCHEDULE = {
     },
 }
 
-# Add crawler discovery pipeline if enabled
-if _get_bool("CRAWLER_ENABLED", default=False):
+# Crawler (domain discovery) — primary pipeline; set CRAWLER_ENABLED=0 to disable
+if _get_bool("CRAWLER_ENABLED", default=True):
     crawler_interval = int(_get_env("CRAWLER_DISCOVERY_INTERVAL_SECONDS", "43200") or "43200")
     CELERY_BEAT_SCHEDULE["crawler-discover-websites"] = {
-        "task": "tasks.crawler_tasks.discover_websites_task",
+        "task": "crawler.tasks.discover_websites_task",
         "schedule": timedelta(seconds=crawler_interval),
     }
 

@@ -1,10 +1,11 @@
 # date_scraping
 
 Production-ready Django service that:
-- Scrapes event/meeting data on a schedule (Celery + Redis)
-- Creates Prospects (pre-contact discovery) automatically
+- **Target-based scraping**: Scrapes event/meeting data on a schedule (Celery + Redis) from configured URLs
+- **Crawler (primary)**: Discovers domains (e.g. Bing), crawls sites, scores them, and creates Prospects for translation/event leads
+- Creates **Prospects** (pre-contact discovery) automatically from both pipelines
 - Syncs Prospects to Google Sheets for team review
-- Converts Prospects to Leads (post-contact) for full CRM workflow
+- Converts Prospects to **Leads** (post-contact) for full CRM workflow
 - Optional: Syncs Leads to Perfex CRM (when API key available)
 
 **📖 For detailed setup and running instructions, see [HOW_TO_RUN.md](HOW_TO_RUN.md)**

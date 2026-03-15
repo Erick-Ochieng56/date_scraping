@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import timedelta
 from pathlib import Path
 
 from celery import shared_task
@@ -14,6 +15,11 @@ from scraper.services.runner import run_target
 from scraper.services.upsert import upsert_prospect_from_item
 
 logger = logging.getLogger(__name__)
+
+# How long we consider a run "in progress" to avoid duplicate enqueue (seconds)
+SCRAPE_CONCURRENCY_GUARD_SECONDS = int(
+    os.getenv("SCRAPE_CONCURRENCY_GUARD_SECONDS", "600") or "600"
+)
 
 
 def _get_env(name: str, default: str | None = None) -> str | None:
@@ -90,17 +96,65 @@ def _enqueue_sheets_sync(prospect_id: int, is_prospect: bool = True) -> None:
         logger.warning(f"Cannot sync Prospect {prospect_id} to Sheets: not found")
 
 
+def _target_is_due(target: ScrapeTarget) -> bool:
+    """
+    True if target has never run or run_every_minutes has passed since last_run_at.
+    """
+    if target.last_run_at is None:
+        return True
+    threshold = timezone.now() - timedelta(minutes=target.run_every_minutes)
+    return target.last_run_at <= threshold
+
+
+def _target_has_run_in_progress(target_id: int) -> bool:
+    """
+    True if there is a RUNNING ScrapeRun for this target started within
+    SCRAPE_CONCURRENCY_GUARD_SECONDS (avoids duplicate enqueue).
+    """
+    guard_cutoff = timezone.now() - timedelta(seconds=SCRAPE_CONCURRENCY_GUARD_SECONDS)
+    return ScrapeRun.objects.filter(
+        target_id=target_id,
+        status=ScrapeRunStatus.RUNNING,
+        started_at__gte=guard_cutoff,
+    ).exists()
+
+
 @shared_task
 def enqueue_enabled_targets() -> int:
     """
-    Periodic entrypoint: enqueue scrape tasks for all enabled targets.
+    Periodic entrypoint: enqueue scrape tasks for enabled targets that are due.
+
+    A target is due when:
+    - last_run_at is None, or
+    - (now - last_run_at) >= target.run_every_minutes.
+
+    Targets with a RUNNING run started within SCRAPE_CONCURRENCY_GUARD_SECONDS
+    are skipped to avoid duplicate scrapes.
     """
-    target_ids = list(
-        ScrapeTarget.objects.filter(enabled=True).values_list("id", flat=True)
+    candidates = list(
+        ScrapeTarget.objects.filter(enabled=True).order_by("id")
     )
-    for target_id in target_ids:
-        scrape_target.delay(target_id=target_id, trigger=ScrapeRunTrigger.SCHEDULED)
-    return len(target_ids)
+    enqueued = 0
+    for target in candidates:
+        if not _target_is_due(target):
+            logger.debug(
+                "Target %s (%s) not due: last_run_at=%s, run_every_minutes=%s",
+                target.id,
+                target.name,
+                target.last_run_at,
+                target.run_every_minutes,
+            )
+            continue
+        if _target_has_run_in_progress(target.id):
+            logger.debug(
+                "Target %s (%s) has run in progress; skipping enqueue",
+                target.id,
+                target.name,
+            )
+            continue
+        scrape_target.delay(target_id=target.id, trigger=ScrapeRunTrigger.SCHEDULED)
+        enqueued += 1
+    return enqueued
 
 
 @shared_task(bind=True)

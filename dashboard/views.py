@@ -11,6 +11,13 @@ from django.urls import reverse_lazy
 from django.utils import timezone
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
+from crawler.models import (
+    CrawlRun,
+    CrawlRunStatus,
+    CrawlRunTrigger,
+    CrawlSource,
+    DiscoveredDomain,
+)
 from dashboard.forms import LeadCreateForm, ProspectCreateForm, TargetEditForm
 from dashboard.models import ActivityLog
 from dashboard.utils import log_activity
@@ -51,7 +58,7 @@ class DashboardHomeView(LoginRequiredMixin, TemplateView):
         target_enabled = ScrapeTarget.objects.filter(enabled=True).count()
         target_disabled = ScrapeTarget.objects.filter(enabled=False).count()
 
-        # Recent runs (last 24 hours)
+        # Recent runs (last 24 hours) — scraper
         last_24h = timezone.now() - timedelta(hours=24)
         runs_24h = ScrapeRun.objects.filter(started_at__gte=last_24h).count()
         runs_success_24h = ScrapeRun.objects.filter(
@@ -61,13 +68,25 @@ class DashboardHomeView(LoginRequiredMixin, TemplateView):
             started_at__gte=last_24h, status=ScrapeRunStatus.FAILED
         ).count()
 
+        # Crawl runs (last 24 hours) — crawler pipeline
+        crawl_runs_24h = CrawlRun.objects.filter(started_at__gte=last_24h).count()
+        crawl_runs_success_24h = CrawlRun.objects.filter(
+            started_at__gte=last_24h, status=CrawlRunStatus.SUCCESS
+        ).count()
+        crawl_runs_failed_24h = CrawlRun.objects.filter(
+            started_at__gte=last_24h, status=CrawlRunStatus.FAILED
+        ).count()
+
         # Recent prospects (last 10)
         recent_prospects = Prospect.objects.order_by("-created_at")[:10]
 
-        # Recent runs (last 10)
+        # Recent scrape runs (last 10)
         recent_runs = ScrapeRun.objects.select_related("target").order_by(
             "-started_at"
         )[:10]
+
+        # Recent crawl runs (last 10)
+        recent_crawl_runs = CrawlRun.objects.order_by("-started_at")[:10]
 
         # Recent activity (for timeline widget)
         recent_activity = (
@@ -116,13 +135,18 @@ class DashboardHomeView(LoginRequiredMixin, TemplateView):
                 "target_total": target_total,
                 "target_enabled": target_enabled,
                 "target_disabled": target_disabled,
-                # Run stats
+                # Run stats (scraper)
                 "runs_24h": runs_24h,
                 "runs_success_24h": runs_success_24h,
                 "runs_failed_24h": runs_failed_24h,
+                # Crawl run stats (crawler pipeline)
+                "crawl_runs_24h": crawl_runs_24h,
+                "crawl_runs_success_24h": crawl_runs_success_24h,
+                "crawl_runs_failed_24h": crawl_runs_failed_24h,
                 # Recent activity
                 "recent_prospects": recent_prospects,
                 "recent_runs": recent_runs,
+                "recent_crawl_runs": recent_crawl_runs,
                 "recent_activity": recent_activity,
             # Chart data (serialized as JSON for JavaScript)
             "prospect_status_labels_json": json.dumps(prospect_status_labels),
@@ -240,6 +264,54 @@ class TargetDetailView(LoginRequiredMixin, DetailView):
         return context
 
 
+class CrawlTargetListView(LoginRequiredMixin, ListView):
+    """List all crawl targets (CrawlSource). Separate from scrape targets."""
+
+    model = CrawlSource
+    template_name = "dashboard/crawl_targets.html"
+    context_object_name = "crawl_targets"
+    ordering = ["priority", "id"]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        enabled_filter = self.request.GET.get("enabled")
+        if enabled_filter == "true":
+            queryset = queryset.filter(enabled=True)
+        elif enabled_filter == "false":
+            queryset = queryset.filter(enabled=False)
+        search = self.request.GET.get("search")
+        if search and search.strip():
+            queryset = queryset.filter(
+                Q(name__icontains=search.strip())
+                | Q(discovery_query__icontains=search.strip())
+            )
+        return queryset.annotate(domain_count=Count("domains"))
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["enabled_count"] = CrawlSource.objects.filter(enabled=True).count()
+        context["disabled_count"] = CrawlSource.objects.filter(enabled=False).count()
+        return context
+
+
+class CrawlTargetDetailView(LoginRequiredMixin, DetailView):
+    """View a single crawl target (CrawlSource) and recent domains from it."""
+
+    model = CrawlSource
+    template_name = "dashboard/crawl_target_detail.html"
+    context_object_name = "crawl_target"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        source = self.get_object()
+        recent_domains = DiscoveredDomain.objects.filter(source=source).order_by(
+            "-first_seen_at"
+        )[:20]
+        context["recent_domains"] = recent_domains
+        context["domain_count"] = DiscoveredDomain.objects.filter(source=source).count()
+        return context
+
+
 class RunListView(LoginRequiredMixin, ListView):
     """List all scrape runs."""
 
@@ -301,6 +373,53 @@ class RunDetailView(LoginRequiredMixin, DetailView):
                 "stats_json": stats_json,
             }
         )
+        return context
+
+
+class CrawlRunListView(LoginRequiredMixin, ListView):
+    """List all crawler discovery runs (CrawlRun)."""
+
+    model = CrawlRun
+    template_name = "dashboard/crawl_runs.html"
+    context_object_name = "crawl_runs"
+    ordering = ["-started_at"]
+    paginate_by = 50
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        status_filter = self.request.GET.get("status")
+        if status_filter in [s[0] for s in CrawlRunStatus.choices]:
+            queryset = queryset.filter(status=status_filter)
+        trigger_filter = self.request.GET.get("trigger")
+        if trigger_filter in [s[0] for s in CrawlRunTrigger.choices]:
+            queryset = queryset.filter(trigger=trigger_filter)
+        return queryset
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["status_choices"] = CrawlRunStatus.choices
+        context["trigger_choices"] = CrawlRunTrigger.choices
+        return context
+
+
+class CrawlRunDetailView(LoginRequiredMixin, DetailView):
+    """View crawler run details."""
+
+    model = CrawlRun
+    template_name = "dashboard/crawl_run_detail.html"
+    context_object_name = "crawl_run"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        run = self.get_object()
+        duration = None
+        if run.finished_at and run.started_at:
+            duration = run.finished_at - run.started_at
+        stats_json = json.dumps(run.stats, indent=2) if run.stats else None
+        config_json = json.dumps(run.config, indent=2) if run.config else None
+        context["duration"] = duration
+        context["stats_json"] = stats_json
+        context["config_json"] = config_json
         return context
 
 
@@ -396,11 +515,11 @@ class ProspectDetailView(LoginRequiredMixin, DetailView):
             json.dumps(prospect.raw_payload, indent=2) if prospect.raw_payload else None
         )
 
-        # Check if converted to lead
+        # Check if converted to lead (Lead.prospect has related_name="leads")
         converted_lead = None
         if prospect.status == ProspectStatus.CONVERTED:
             try:
-                converted_lead = prospect.lead_set.first()
+                converted_lead = prospect.leads.first()
             except Exception:
                 pass
 
@@ -506,16 +625,16 @@ class LeadDetailView(LoginRequiredMixin, DetailView):
             json.dumps(lead.raw_payload, indent=2) if lead.raw_payload else None
         )
 
-        # Check Perfex sync status
+        # Check Perfex sync status (PerfexLeadSync uses last_sync_at)
         perfex_synced = False
         perfex_sync_date = None
         try:
             from crm_integration.models import PerfexLeadSync
 
             sync = PerfexLeadSync.objects.filter(lead=lead).first()
-            if sync and sync.synced_at:
+            if sync and sync.last_sync_at:
                 perfex_synced = True
-                perfex_sync_date = sync.synced_at
+                perfex_sync_date = sync.last_sync_at
         except Exception:
             pass
 
@@ -530,7 +649,7 @@ class LeadDetailView(LoginRequiredMixin, DetailView):
 
 
 class ErrorMonitoringView(LoginRequiredMixin, TemplateView):
-    """Dedicated view for failed scrape runs and error summary."""
+    """Dedicated view for failed scrape runs, failed crawl runs, and error summary."""
 
     template_name = "dashboard/error_monitoring.html"
 
@@ -540,6 +659,7 @@ class ErrorMonitoringView(LoginRequiredMixin, TemplateView):
         last_24h = now - timedelta(hours=24)
         last_7d = now - timedelta(days=7)
 
+        # Failed scrape runs
         failed_runs = (
             ScrapeRun.objects.filter(status=ScrapeRunStatus.FAILED)
             .select_related("target")
@@ -552,11 +672,26 @@ class ErrorMonitoringView(LoginRequiredMixin, TemplateView):
             status=ScrapeRunStatus.FAILED, started_at__gte=last_7d
         ).count()
 
+        # Failed crawl runs (crawler pipeline)
+        failed_crawl_runs = (
+            CrawlRun.objects.filter(status=CrawlRunStatus.FAILED)
+            .order_by("-started_at")[:50]
+        )
+        failed_crawl_24h = CrawlRun.objects.filter(
+            status=CrawlRunStatus.FAILED, started_at__gte=last_24h
+        ).count()
+        failed_crawl_7d = CrawlRun.objects.filter(
+            status=CrawlRunStatus.FAILED, started_at__gte=last_7d
+        ).count()
+
         context.update(
             {
                 "failed_runs": failed_runs,
                 "failed_24h": failed_24h,
                 "failed_7d": failed_7d,
+                "failed_crawl_runs": failed_crawl_runs,
+                "failed_crawl_24h": failed_crawl_24h,
+                "failed_crawl_7d": failed_crawl_7d,
             }
         )
         return context

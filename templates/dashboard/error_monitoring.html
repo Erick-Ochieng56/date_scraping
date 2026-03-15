@@ -8,7 +8,10 @@
     <h1 class="h2">Error Monitoring</h1>
     <div class="btn-toolbar mb-2 mb-md-0">
         <a href="{% url 'dashboard:runs' %}?status=failed" class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-play-circle"></i> All failed runs
+            <i class="bi bi-play-circle"></i> Failed scrape runs
+        </a>
+        <a href="{% url 'dashboard:crawl_runs' %}?status=failed" class="btn btn-sm btn-outline-secondary ms-2">
+            <i class="bi bi-broadcast"></i> Failed crawl runs
         </a>
         <a href="{% url 'dashboard:index' %}" class="btn btn-sm btn-outline-secondary ms-2">
             <i class="bi bi-arrow-left"></i> Dashboard
@@ -20,35 +23,60 @@
 {% block content %}
 <!-- Summary cards -->
 <div class="row mb-4">
-    <div class="col-md-4 mb-3">
+    <div class="col-md-2 mb-3">
         <div class="card stat-card border-danger">
             <div class="card-body">
-                <h6 class="text-muted text-uppercase mb-2">Failed (last 24h)</h6>
+                <h6 class="text-muted text-uppercase mb-2">Scrape failed (24h)</h6>
                 <div class="stat-number text-danger">{{ failed_24h }}</div>
             </div>
         </div>
     </div>
-    <div class="col-md-4 mb-3">
+    <div class="col-md-2 mb-3">
         <div class="card stat-card border-warning">
             <div class="card-body">
-                <h6 class="text-muted text-uppercase mb-2">Failed (last 7 days)</h6>
+                <h6 class="text-muted text-uppercase mb-2">Scrape failed (7d)</h6>
                 <div class="stat-number text-warning">{{ failed_7d }}</div>
             </div>
         </div>
     </div>
-    <div class="col-md-4 mb-3">
+    <div class="col-md-2 mb-3">
+        <div class="card stat-card border-danger">
+            <div class="card-body">
+                <h6 class="text-muted text-uppercase mb-2">Crawl failed (24h)</h6>
+                <div class="stat-number text-danger">{{ failed_crawl_24h }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2 mb-3">
+        <div class="card stat-card border-warning">
+            <div class="card-body">
+                <h6 class="text-muted text-uppercase mb-2">Crawl failed (7d)</h6>
+                <div class="stat-number text-warning">{{ failed_crawl_7d }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2 mb-3">
         <div class="card stat-card border-secondary">
             <div class="card-body">
-                <h6 class="text-muted text-uppercase mb-2">Recent failures (shown)</h6>
+                <h6 class="text-muted text-uppercase mb-2">Shown (scrape)</h6>
                 <div class="stat-number text-secondary">{{ failed_runs|length }}</div>
+                <small class="text-muted">Latest 50</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2 mb-3">
+        <div class="card stat-card border-secondary">
+            <div class="card-body">
+                <h6 class="text-muted text-uppercase mb-2">Shown (crawl)</h6>
+                <div class="stat-number text-secondary">{{ failed_crawl_runs|length }}</div>
                 <small class="text-muted">Latest 50</small>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Failed runs table -->
-<div class="card">
+<!-- Failed scrape runs table -->
+<div class="card mb-4">
     <div class="card-header">
         <h5 class="mb-0">Recent failed scrape runs</h5>
     </div>
@@ -94,8 +122,55 @@
         {% else %}
         <div class="p-4 text-center text-muted">
             <i class="bi bi-check-circle fs-1 text-success"></i>
-            <p class="mb-0 mt-2">No failed runs in recent history.</p>
-            <a href="{% url 'dashboard:runs' %}">View all runs</a>
+            <p class="mb-0 mt-2">No failed scrape runs in recent history.</p>
+            <a href="{% url 'dashboard:runs' %}">View all scrape runs</a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Failed crawl runs table -->
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">Recent failed crawl runs</h5>
+    </div>
+    <div class="card-body p-0">
+        {% if failed_crawl_runs %}
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0">
+                <thead>
+                    <tr>
+                        <th>Run</th>
+                        <th>Started</th>
+                        <th>Error</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for run in failed_crawl_runs %}
+                    <tr>
+                        <td>
+                            <a href="{% url 'dashboard:crawl_run_detail' run.pk %}">#{{ run.id }}</a>
+                        </td>
+                        <td class="text-nowrap text-muted">{{ run.started_at|date:"Y-m-d H:i" }}</td>
+                        <td>
+                            <span class="text-danger" title="{{ run.error_text }}">
+                                {{ run.error_text|truncatewords:15|default:"—" }}
+                            </span>
+                        </td>
+                        <td>
+                            <a href="{% url 'dashboard:crawl_run_detail' run.pk %}" class="btn btn-sm btn-outline-primary">Details</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="p-4 text-center text-muted">
+            <i class="bi bi-check-circle fs-1 text-success"></i>
+            <p class="mb-0 mt-2">No failed crawl runs in recent history.</p>
+            <a href="{% url 'dashboard:crawl_runs' %}">View all crawl runs</a>
         </div>
         {% endif %}
     </div>

@@ -1,0 +1,122 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}{{ crawl_target.name }}{% endblock %}
+
+{% block page_header %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">{{ crawl_target.name }}</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="{% url 'dashboard:crawl_targets' %}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> Back to List
+        </a>
+        <a href="{% url 'admin:crawler_crawlsource_change' crawl_target.id %}" class="btn btn-sm btn-outline-secondary ms-2">
+            <i class="bi bi-pencil"></i> Edit in Admin
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Crawl target details</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row">
+                    <dt class="col-sm-3">Name:</dt>
+                    <dd class="col-sm-9">{{ crawl_target.name }}</dd>
+                    <dt class="col-sm-3">Discovery query:</dt>
+                    <dd class="col-sm-9"><code>{{ crawl_target.discovery_query }}</code></dd>
+                    <dt class="col-sm-3">Type:</dt>
+                    <dd class="col-sm-9"><span class="badge bg-info">{{ crawl_target.get_source_type_display }}</span></dd>
+                    <dt class="col-sm-3">Status:</dt>
+                    <dd class="col-sm-9">
+                        {% if crawl_target.enabled %}
+                        <span class="badge bg-success">Enabled</span>
+                        {% else %}
+                        <span class="badge bg-secondary">Disabled</span>
+                        {% endif %}
+                    </dd>
+                    <dt class="col-sm-3">Priority:</dt>
+                    <dd class="col-sm-9">{{ crawl_target.priority }}</dd>
+                    <dt class="col-sm-3">Domains from this source:</dt>
+                    <dd class="col-sm-9"><strong>{{ domain_count }}</strong></dd>
+                </dl>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Recent domains from this source</h5>
+                <a href="{% url 'admin:crawler_discovereddomain_changelist' %}?source__id__exact={{ crawl_target.id }}" class="btn btn-sm btn-outline-primary">View all in Admin</a>
+            </div>
+            <div class="card-body">
+                {% if recent_domains %}
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover">
+                        <thead>
+                            <tr>
+                                <th>Domain</th>
+                                <th>Status</th>
+                                <th>First seen</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for d in recent_domains %}
+                            <tr>
+                                <td><code>{{ d.domain }}</code></td>
+                                <td><span class="badge bg-{% if d.crawl_status == 'completed' %}success{% elif d.crawl_status == 'failed' %}danger{% elif d.crawl_status == 'crawling' %}warning{% else %}secondary{% endif %}">{{ d.get_crawl_status_display }}</span></td>
+                                <td>{{ d.first_seen_at|timesince }} ago</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">No domains discovered from this source yet. Run discovery to populate.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Quick actions</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <button type="button" class="btn btn-primary" id="runDiscoveryBtn">
+                        <i class="bi bi-broadcast"></i> Run discovery now
+                    </button>
+                    <a href="{% url 'dashboard:crawl_runs' %}" class="btn btn-outline-primary">View crawl runs</a>
+                    <a href="{% url 'dashboard:crawl_targets' %}" class="btn btn-outline-secondary">All crawl targets</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.getElementById('runDiscoveryBtn')?.addEventListener('click', async function () {
+        if (!confirm('Run discovery now? This uses all enabled crawl targets and creates a new Crawl Run.')) return;
+        const btn = this;
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Running...';
+        const result = await makeAjaxRequest('{% url "dashboard:api_trigger_crawl" %}', { method: 'POST', body: {} });
+        if (result.success) {
+            showToast(result.data.message || 'Discovery triggered.', 'success');
+            setTimeout(function () { window.location.href = '{% url "dashboard:crawl_runs" %}'; }, 2000);
+        } else {
+            showToast(result.error || 'Failed to trigger discovery', 'error');
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    });
+</script>
+{% endblock %}

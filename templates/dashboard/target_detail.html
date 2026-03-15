@@ -129,10 +129,10 @@
                     <button
                         type="button"
                         class="btn btn-primary"
-                        id="testScrapeBtn"
+                        id="runScrapeBtn"
                         data-target-id="{{ target.id }}"
                     >
-                        <i class="bi bi-play-fill"></i> Test Scrape
+                        <i class="bi bi-play-fill"></i> Run Scrape
                     </button>
                     <a
                         href="{% url 'dashboard:target_edit' target.id %}"
@@ -243,11 +243,9 @@
         }
     }
 
-    // Test scrape button handler
-    // Fix: removed inconsistent try/catch; makeAjaxRequest handles errors internally.
-    // Fix: target ID now correctly read from data-target-id attribute on the button.
-    document.getElementById('testScrapeBtn')?.addEventListener('click', async function () {
-        if (!confirm('Trigger a test scrape for this target?')) return;
+    // Run scrape button handler (run this target individually)
+    document.getElementById('runScrapeBtn')?.addEventListener('click', async function () {
+        if (!confirm('Run scrape for this target now?')) return;
 
         const btn = this;
         const originalText = btn.innerHTML;
@@ -262,10 +260,10 @@
         });
 
         if (result.success) {
-            showToast(result.data.message || 'Test scrape triggered successfully!', 'success');
+            showToast(result.data.message || 'Scrape triggered successfully!', 'success');
             setTimeout(() => window.location.reload(), 2000);
         } else {
-            showToast(result.error || 'Failed to trigger test scrape', 'error');
+            showToast(result.error || 'Failed to trigger scrape', 'error');
             btn.disabled = false;
             btn.innerHTML = originalText;
         }

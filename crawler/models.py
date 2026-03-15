@@ -1,6 +1,52 @@
 from __future__ import annotations
 
 from django.db import models
+from django.utils import timezone
+
+
+class CrawlRunStatus(models.TextChoices):
+    RUNNING = "running", "Running"
+    SUCCESS = "success", "Success"
+    FAILED = "failed", "Failed"
+
+
+class CrawlRunTrigger(models.TextChoices):
+    SCHEDULED = "scheduled", "Scheduled"
+    MANUAL = "manual", "Manual"
+
+
+class CrawlRun(models.Model):
+    """
+    One discovery/crawl cycle. Fully separate from scraper ScrapeRun.
+    Tracks domains discovered, queued, crawled, and prospects created.
+    """
+
+    started_at = models.DateTimeField(default=timezone.now)
+    finished_at = models.DateTimeField(blank=True, null=True)
+    trigger = models.CharField(
+        max_length=20,
+        choices=CrawlRunTrigger.choices,
+        default=CrawlRunTrigger.SCHEDULED,
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=CrawlRunStatus.choices,
+        default=CrawlRunStatus.RUNNING,
+    )
+    task_id = models.CharField(max_length=255, blank=True, default="")
+    error_text = models.TextField(blank=True, default="")
+    stats = models.JSONField(blank=True, default=dict)
+    config = models.JSONField(blank=True, default=dict, help_text="Snapshot for this run (max_domains_per_run, etc.)")
+    domains_queued = models.PositiveIntegerField(default=0)
+    prospects_created = models.PositiveIntegerField(default=0)
+    prospects_updated = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["-started_at"]
+        indexes = [models.Index(fields=["status"]), models.Index(fields=["-started_at"])]
+
+    def __str__(self) -> str:
+        return f"CrawlRun {self.id} @ {self.started_at:%Y-%m-%d %H:%M} ({self.status})"
 
 
 class CrawlSource(models.Model):

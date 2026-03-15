@@ -97,7 +97,7 @@ class ScrapeTargetAdmin(admin.ModelAdmin):
         """Custom column with action buttons."""
         trigger_url = reverse("admin:scraper_scrapetarget_trigger", args=[obj.pk])
         return format_html(
-            '<a class="button" href="{}" style="padding: 5px 10px; background: #417690; color: white; text-decoration: none; border-radius: 3px; display: inline-block;">Test Scrape</a>',
+            '<a class="button" href="{}" style="padding: 5px 10px; background: #417690; color: white; text-decoration: none; border-radius: 3px; display: inline-block;">Run Scrape</a>',
             trigger_url
         )
     actions_column.short_description = "Quick Actions"

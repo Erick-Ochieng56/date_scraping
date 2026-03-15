@@ -16,10 +16,11 @@
    DJANGO_SECRET_KEY=your-secret-key-here
    DJANGO_DEBUG=1
    
-   # Google Sheets (Required for lead output)
+   # Google Sheets (Required for prospect/lead output)
    GSHEETS_ENABLED=1
    GSHEETS_CREDENTIALS_JSON={"type":"service_account",...}
    GSHEETS_SPREADSHEET_ID=your-spreadsheet-id
+   GSHEETS_PROSPECTS_RANGE=Prospects!A:E
    GSHEETS_LEADS_RANGE=Leads!A:Z
    
    # Database (SQLite for local dev, or PostgreSQL)
@@ -96,12 +97,13 @@ celery -A leads_app beat -l info
    - Runs every 5 minutes (configurable via `SCRAPE_ALL_INTERVAL_SECONDS`)
 
 2. **Check Worker Logs:**
-   - Should see: `Task scraper.tasks.scrape_target[...] received`
-   - Should see: `Task sheets_integration.tasks.append_lead_to_sheet[...] received`
+   - Should see: `Task scraper.tasks.scrape_target[...] received` (target-based scraper)
+   - Should see: `Task sheets_integration.tasks.append_prospect_to_sheet[...] received` when new Prospects are created
+   - With crawler enabled: `Task crawler.tasks.discover_websites_task` / `crawl_domain_task`
 
 3. **Check Google Sheets:**
-   - New leads should appear automatically
-   - Check the "Leads" sheet in your configured spreadsheet
+   - New **Prospects** appear in the "Prospects" sheet (default range `Prospects!A:E`)
+   - Converted **Leads** appear in the "Leads" sheet when you convert Prospects to Leads
 
 4. **Check Django Admin:**
    - Go to: `http://localhost:8000/admin/scraper/scraperun/`
@@ -121,8 +123,8 @@ celery -A leads_app beat -l info
 6. **Worker** executes the scrape:
    - Fetches HTML/renders page
    - Extracts items using selectors
-   - Creates/updates Lead records
-   - Pushes to Google Sheets automatically
+   - Creates/updates **Prospect** records
+   - Pushes new Prospects to Google Sheets (Prospects tab) automatically
 
 ### Customize Schedule:
 
@@ -134,6 +136,20 @@ celery -A leads_app beat -l info
 - Set `SCRAPE_ALL_INTERVAL_SECONDS=300` in `.env`
 - Default: 300 seconds (5 minutes)
 - This is how often the system checks for targets to run
+
+**Concurrency guard:**
+- Targets with a run already in progress (RUNNING) are not enqueued again. Adjust with `SCRAPE_CONCURRENCY_GUARD_SECONDS` (default 600).
+
+### Crawler (domain discovery) — primary pipeline
+
+The **crawler** is a primary pipeline that discovers domains (e.g. via Bing), crawls sites, scores them, and creates Prospects for high-scoring matches. It runs on its own schedule.
+
+- **Enabled by default** (set `CRAWLER_ENABLED=0` in `.env` to disable).
+- **Schedule:** `CRAWLER_DISCOVERY_INTERVAL_SECONDS` (default 43200 = 12 hours).
+- **Tasks:** `crawler.tasks.discover_websites_task` → `crawl_domain_task` → `analyze_domain_task` → `score_and_create_prospect_task`.
+- **Run history:** Crawler uses its own **CrawlRun** model (Admin: `/admin/crawler/crawlrun/`). It is separate from scraper’s ScrapeRun.
+- **Config (env):** `CRAWLER_MAX_DOMAINS_PER_RUN` (default 500), `CRAWLER_MIN_SCORE_THRESHOLD` (default 40), `CRAWLER_RATE_LIMIT_SECONDS` (default 1.5).
+- Configure **CrawlSources** in Django admin (`/admin/crawler/crawlsource/`) to define discovery queries.
 
 ## Manual Triggers
 
@@ -158,15 +174,16 @@ curl -X POST http://localhost:8000/ops/trigger-scrape `
 
 ### Check Scrape Runs:
 - Admin: `http://localhost:8000/admin/scraper/scraperun/`
-- Shows: Status, item count, created/updated leads, errors
+- Shows: Status, item count, created/updated prospects, errors
 
-### Check Leads:
-- Admin: `http://localhost:8000/admin/leads/lead/`
-- Shows all scraped leads
+### Check Prospects and Leads:
+- Admin: `http://localhost:8000/admin/leads/prospect/` — scraped Prospects (pre-contact)
+- Admin: `http://localhost:8000/admin/leads/lead/` — converted Leads (post-contact)
 
 ### Check Google Sheets:
 - Open your configured spreadsheet
-- New rows appear automatically as leads are scraped
+- New Prospects appear in the "Prospects" sheet automatically when scraped
+- Leads appear in the "Leads" sheet when you convert Prospects to Leads
 
 ### Check Logs:
 - **Worker logs**: Real-time task execution
@@ -181,11 +198,11 @@ curl -X POST http://localhost:8000/ops/trigger-scrape `
 - Check Celery Beat is running
 - Check worker is running
 
-### "Leads not appearing in Google Sheets"
+### "Prospects not appearing in Google Sheets"
 - Verify `GSHEETS_ENABLED=1`
 - Verify `GSHEETS_SPREADSHEET_ID` is correct
-- Check service account has access to sheet
-- Check worker logs for errors
+- Check service account has access to sheet (share with service account email)
+- Check worker logs for `append_prospect_to_sheet` and any errors
 
 ### "Celery worker errors"
 - On Windows: Should use `solo` pool (automatic)

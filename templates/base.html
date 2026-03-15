@@ -238,11 +238,27 @@
                             </li>
                             <li class="nav-item">
                                 <a
+                                    class="nav-link {% if request.resolver_match.url_name == 'crawl_targets' or request.resolver_match.url_name == 'crawl_target_detail' %}active{% endif %}"
+                                    href="{% url 'dashboard:crawl_targets' %}"
+                                >
+                                    <i class="bi bi-search"></i> Crawl Targets
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a
                                     class="nav-link {% if request.resolver_match.url_name == 'runs' or request.resolver_match.url_name == 'run_detail' %}active{% endif %}"
                                     href="{% url 'dashboard:runs' %}"
                                 >
                                     <i class="bi bi-play-circle"></i> Scrape
                                     Runs
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a
+                                    class="nav-link {% if request.resolver_match.url_name == 'crawl_runs' or request.resolver_match.url_name == 'crawl_run_detail' %}active{% endif %}"
+                                    href="{% url 'dashboard:crawl_runs' %}"
+                                >
+                                    <i class="bi bi-broadcast"></i> Crawl Runs
                                 </a>
                             </li>
                             <li class="nav-item">

@@ -11,8 +11,12 @@ urlpatterns = [
     path('targets/<int:pk>/', views.TargetDetailView.as_view(), name='target_detail'),
     path('targets/<int:pk>/edit/', views.TargetEditView.as_view(), name='target_edit'),
     path('targets/wizard/', views.TargetWizardView.as_view(), name='target_wizard'),
+    path('crawl-targets/', views.CrawlTargetListView.as_view(), name='crawl_targets'),
+    path('crawl-targets/<int:pk>/', views.CrawlTargetDetailView.as_view(), name='crawl_target_detail'),
     path('runs/', views.RunListView.as_view(), name='runs'),
     path('runs/<int:pk>/', views.RunDetailView.as_view(), name='run_detail'),
+    path('crawl-runs/', views.CrawlRunListView.as_view(), name='crawl_runs'),
+    path('crawl-runs/<int:pk>/', views.CrawlRunDetailView.as_view(), name='crawl_run_detail'),
     path('prospects/', views.ProspectListView.as_view(), name='prospects'),
     path('prospects/add/', views.ProspectCreateView.as_view(), name='prospect_add'),
     path('prospects/<int:pk>/', views.ProspectDetailView.as_view(), name='prospect_detail'),
@@ -22,6 +26,7 @@ urlpatterns = [
     
     # API endpoints - Scraping
     path('api/trigger-scrape/', api_views.api_trigger_scrape, name='api_trigger_scrape'),
+    path('api/trigger-crawl/', api_views.api_trigger_crawl, name='api_trigger_crawl'),
     path('api/runs/<int:run_id>/retry/', api_views.api_retry_run, name='api_retry_run'),
     path('api/runs/<int:run_id>/status/', api_views.api_get_run_status, name='api_get_run_status'),
     

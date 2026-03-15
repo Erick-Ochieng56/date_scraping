@@ -1,0 +1,139 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Crawl Targets{% endblock %}
+
+{% block page_header %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Crawl Targets</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <button type="button" class="btn btn-sm btn-primary" id="runDiscoveryBtn">
+                <i class="bi bi-broadcast"></i> Run Discovery Now
+            </button>
+            <a href="{% url 'dashboard:crawl_runs' %}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-play-circle"></i> Crawl Runs
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- Filters -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="get" class="row g-3">
+            <div class="col-md-4">
+                <label for="search" class="form-label">Search</label>
+                <input type="text" class="form-control" id="search" name="search"
+                       value="{{ request.GET.search }}" placeholder="Name or query...">
+            </div>
+            <div class="col-md-3">
+                <label for="enabled" class="form-label">Status</label>
+                <select class="form-select" id="enabled" name="enabled">
+                    <option value="">All</option>
+                    <option value="true" {% if request.GET.enabled == 'true' %}selected{% endif %}>Enabled</option>
+                    <option value="false" {% if request.GET.enabled == 'false' %}selected{% endif %}>Disabled</option>
+                </select>
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+                <button type="submit" class="btn btn-primary me-2">Filter</button>
+                <a href="{% url 'dashboard:crawl_targets' %}" class="btn btn-outline-secondary">Clear</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Summary -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <h6 class="text-muted">Total Crawl Targets: <strong>{{ crawl_targets|length }}</strong></h6>
+                <p class="mb-0">
+                    <span class="badge bg-success">Enabled: {{ enabled_count }}</span>
+                    <span class="badge bg-secondary">Disabled: {{ disabled_count }}</span>
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Crawl Targets Table -->
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">Discovery sources (used when Run Discovery runs)</h5>
+    </div>
+    <div class="card-body">
+        {% if crawl_targets %}
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Query</th>
+                        <th>Type</th>
+                        <th>Priority</th>
+                        <th>Status</th>
+                        <th>Domains</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ct in crawl_targets %}
+                    <tr>
+                        <td>
+                            <strong><a href="{% url 'dashboard:crawl_target_detail' ct.id %}">{{ ct.name }}</a></strong>
+                        </td>
+                        <td><small class="text-muted">{{ ct.discovery_query|truncatewords:8 }}</small></td>
+                        <td><span class="badge bg-info">{{ ct.get_source_type_display }}</span></td>
+                        <td>{{ ct.priority }}</td>
+                        <td>
+                            {% if ct.enabled %}
+                            <span class="badge bg-success">Enabled</span>
+                            {% else %}
+                            <span class="badge bg-secondary">Disabled</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ ct.domain_count }}</td>
+                        <td>
+                            <a href="{% url 'dashboard:crawl_target_detail' ct.id %}" class="btn btn-sm btn-outline-primary" title="View">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i> No crawl targets found. Add sources in
+            <a href="{% url 'admin:crawler_crawlsource_changelist' %}">Crawler admin</a>.
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.getElementById('runDiscoveryBtn')?.addEventListener('click', async function () {
+        if (!confirm('Run discovery now? This will use all enabled crawl targets and create a new Crawl Run.')) return;
+        const btn = this;
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Running...';
+        const result = await makeAjaxRequest('{% url "dashboard:api_trigger_crawl" %}', { method: 'POST', body: {} });
+        if (result.success) {
+            showToast(result.data.message || 'Discovery triggered.', 'success');
+            setTimeout(function () { window.location.href = '{% url "dashboard:crawl_runs" %}'; }, 2000);
+        } else {
+            showToast(result.error || 'Failed to trigger discovery', 'error');
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    });
+</script>
+{% endblock %}

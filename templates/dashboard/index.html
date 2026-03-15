@@ -21,7 +21,7 @@
 {% block content %}
 <!-- Stats Cards -->
 <div class="row mb-4">
-    <div class="col-md-3 mb-3">
+    <div class="col-md-3 col-lg-2 mb-3">
         <div class="card stat-card border-primary">
             <div class="card-body">
                 <h6 class="text-muted text-uppercase mb-2">Total Prospects</h6>
@@ -32,7 +32,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-3 mb-3">
+    <div class="col-md-3 col-lg-2 mb-3">
         <div class="card stat-card border-success">
             <div class="card-body">
                 <h6 class="text-muted text-uppercase mb-2">Total Leads</h6>
@@ -43,7 +43,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-3 mb-3">
+    <div class="col-md-3 col-lg-2 mb-3">
         <div class="card stat-card border-info">
             <div class="card-body">
                 <h6 class="text-muted text-uppercase mb-2">Active Targets</h6>
@@ -54,13 +54,24 @@
             </div>
         </div>
     </div>
-    <div class="col-md-3 mb-3">
+    <div class="col-md-3 col-lg-2 mb-3">
         <div class="card stat-card border-warning">
             <div class="card-body">
-                <h6 class="text-muted text-uppercase mb-2">Recent Runs</h6>
+                <h6 class="text-muted text-uppercase mb-2">Scrape Runs (24h)</h6>
                 <div class="stat-number text-warning">{{ runs_24h }}</div>
                 <small class="text-muted"
                     >Success: {{ runs_success_24h }}, Failed: {{ runs_failed_24h }}</small
+                >
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 col-lg-2 mb-3">
+        <div class="card stat-card border-secondary">
+            <div class="card-body">
+                <h6 class="text-muted text-uppercase mb-2">Crawl Runs (24h)</h6>
+                <div class="stat-number text-secondary">{{ crawl_runs_24h }}</div>
+                <small class="text-muted"
+                    >Success: {{ crawl_runs_success_24h }}, Failed: {{ crawl_runs_failed_24h }}</small
                 >
             </div>
         </div>
@@ -147,7 +158,7 @@
 
 <!-- Recent Activity -->
 <div class="row">
-    <div class="col-md-4 mb-4">
+    <div class="col-md-3 mb-4">
         <div class="card">
             <div
                 class="card-header d-flex justify-content-between align-items-center"
@@ -199,7 +210,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-4 mb-4">
+    <div class="col-md-3 mb-4">
         <div class="card">
             <div
                 class="card-header d-flex justify-content-between align-items-center"
@@ -249,12 +260,62 @@
             </div>
         </div>
     </div>
-    <div class="col-md-4 mb-4">
+    <div class="col-md-3 mb-4">
         <div class="card">
             <div
                 class="card-header d-flex justify-content-between align-items-center"
             >
-                <h5 class="mb-0">Recent Activity</h5>
+                <h5 class="mb-0">Recent Crawl Runs</h5>
+                <a
+                    href="{% url 'dashboard:crawl_runs' %}"
+                    class="btn btn-sm btn-outline-primary"
+                    >View All</a
+                >
+            </div>
+            <div class="card-body">
+                {% if recent_crawl_runs %}
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Status</th>
+                                <th>Queued</th>
+                                <th>Started</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for run in recent_crawl_runs %}
+                            <tr>
+                                <td>
+                                    <a href="{% url 'dashboard:crawl_run_detail' run.id %}">#{{ run.id }}</a>
+                                </td>
+                                <td>
+                                    <span
+                                        class="badge bg-{% if run.status == 'success' %}success{% elif run.status == 'failed' %}danger{% else %}warning{% endif %}"
+                                    >
+                                        {{ run.get_status_display }}
+                                    </span>
+                                </td>
+                                <td>{{ run.domains_queued }}</td>
+                                <td>{{ run.started_at|timesince }} ago</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">No crawl runs yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-4">
+        <div class="card">
+            <div
+                class="card-header d-flex justify-content-between align-items-center"
+            >
+                <h5 class="mb-0">Activity</h5>
                 <a
                     href="{% url 'dashboard:activity_log' %}"
                     class="btn btn-sm btn-outline-primary"
