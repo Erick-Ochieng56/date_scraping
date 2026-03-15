@@ -100,6 +100,13 @@
                     >
                         <i class="bi bi-play-fill"></i> Trigger Scrape (All)
                     </button>
+                    <button
+                        type="button"
+                        class="btn btn-outline-warning"
+                        id="triggerCrawlerBtn"
+                    >
+                        <i class="bi bi-search"></i> Trigger Crawler Discovery
+                    </button>
                     <a
                         href="{% url 'dashboard:prospects' %}"
                         class="btn btn-outline-success"
@@ -117,6 +124,100 @@
         </div>
     </div>
 </div>
+
+<!-- Crawler Summary -->
+{% if crawler_target %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Crawler (Translation Lead Discovery)</h5>
+                {% if crawler_last_run %}
+                <a href="{% url 'dashboard:run_detail' crawler_last_run.id %}" class="btn btn-sm btn-outline-primary">
+                    View Last Run
+                </a>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                {% if crawler_last_run %}
+                <div class="row">
+                    <div class="col-md-3 mb-3">
+                        <div class="border rounded p-3 text-center">
+                            <h4 class="mb-0">{{ crawler_runs_24h }}</h4>
+                            <small class="text-muted">Runs (24h)</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <div class="border rounded p-3 text-center">
+                            <h4 class="mb-0">{{ crawler_prospects_24h }}</h4>
+                            <small class="text-muted">Prospects touched (24h)</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <div class="border rounded p-3 text-center">
+                            <h4 class="mb-0">{{ crawler_last_run.created_leads }}</h4>
+                            <small class="text-muted">Created (last run)</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <div class="border rounded p-3 text-center">
+                            <h4 class="mb-0">{{ crawler_last_run.updated_leads }}</h4>
+                            <small class="text-muted">Updated (last run)</small>
+                        </div>
+                    </div>
+                </div>
+
+                {% if crawler_last_stats %}
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6 class="text-muted text-uppercase mb-2">Last Run Stats</h6>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <tbody>
+                                    <tr><th class="w-50">Domains discovered</th><td>{{ crawler_last_stats.domains_discovered|default:"0" }}</td></tr>
+                                    <tr><th>Domains crawled</th><td>{{ crawler_last_stats.domains_crawled|default:"0" }}</td></tr>
+                                    <tr><th>Domains failed</th><td>{{ crawler_last_stats.domains_failed|default:"0" }}</td></tr>
+                                    <tr><th>Pages crawled</th><td>{{ crawler_last_stats.pages_crawled|default:"0" }}</td></tr>
+                                    <tr><th>High score leads</th><td>{{ crawler_last_stats.high_score_leads|default:"0" }}</td></tr>
+                                    <tr><th>Medium score leads</th><td>{{ crawler_last_stats.medium_score_leads|default:"0" }}</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h6 class="text-muted text-uppercase mb-2">Top Services Detected (last run)</h6>
+                        {% if crawler_services %}
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr><th>Service</th><th class="text-end">Count</th></tr>
+                                </thead>
+                                <tbody>
+                                    {% for svc, count in crawler_services %}
+                                    <tr>
+                                        <td><code>{{ svc }}</code></td>
+                                        <td class="text-end">{{ count }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <p class="text-muted mb-0">No services recorded yet.</p>
+                        {% endif %}
+                    </div>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">No crawler stats recorded yet.</p>
+                {% endif %}
+                {% else %}
+                <p class="text-muted mb-0">Crawler target exists, but no runs yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 
 <!-- Charts -->
 <div class="row mb-4">
@@ -486,6 +587,30 @@
             setTimeout(() => window.location.reload(), 2000);
         } else {
             showToast(result.error || 'Failed to trigger scrape', 'error');
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    });
+
+    // Trigger crawler discovery handler
+    document.getElementById('triggerCrawlerBtn')?.addEventListener('click', async function () {
+        if (!confirm('Trigger crawler discovery now?')) return;
+
+        const btn = this;
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Triggering...';
+
+        const result = await makeAjaxRequest('{% url "dashboard:api_trigger_crawler" %}', {
+            method: 'POST',
+            body: {}
+        });
+
+        if (result.success) {
+            showToast(result.data.message || 'Crawler triggered successfully!', 'success');
+            setTimeout(() => window.location.reload(), 2000);
+        } else {
+            showToast(result.error || 'Failed to trigger crawler', 'error');
             btn.disabled = false;
             btn.innerHTML = originalText;
         }

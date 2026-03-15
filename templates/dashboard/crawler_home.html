@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Crawler{% endblock %}
+
+{% block page_header %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Crawler</h1>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Discover translation leads</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted mb-3">
+                    The crawler discovers domains from keyword queries, crawls important pages, detects service signals, and creates Prospects for high scoring sites.
+                </p>
+                <div class="d-flex gap-2 flex-wrap">
+                    <a href="{% url 'dashboard:crawler_discover' %}" class="btn btn-warning">
+                        <i class="bi bi-search"></i> Manual keyword search
+                    </a>
+                    <a href="{% url 'dashboard:crawler_sources' %}" class="btn btn-outline-primary">
+                        <i class="bi bi-sliders"></i> Manage sources
+                    </a>
+                    <a href="{% url 'dashboard:crawler_domains' %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-globe"></i> Domains queue
+                    </a>
+                    <a href="{% url 'dashboard:runs' %}?crawler=1" class="btn btn-outline-info">
+                        <i class="bi bi-play-circle"></i> Crawler runs
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

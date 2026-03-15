@@ -45,6 +45,17 @@
                 <button type="submit" class="btn btn-primary me-2">Filter</button>
                 <a href="{% url 'dashboard:runs' %}" class="btn btn-outline-secondary">Clear</a>
             </div>
+            <div class="col-md-2 d-flex align-items-end">
+                {% if crawler_only %}
+                <a href="{% url 'dashboard:runs' %}" class="btn btn-outline-warning w-100">
+                    Show all (exit crawler)
+                </a>
+                {% else %}
+                <a href="{% url 'dashboard:runs' %}?crawler=1" class="btn btn-outline-warning w-100">
+                    Crawler only
+                </a>
+                {% endif %}
+            </div>
         </form>
     </div>
 </div>

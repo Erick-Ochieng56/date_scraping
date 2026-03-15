@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from functools import lru_cache
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -128,14 +129,84 @@ ORG_TYPE_KEYWORDS: dict[str, list[str]] = {
 }
 
 
-_COUNTRY_REGEX = re.compile(
-    r"\b("
-    r"africa|nigeria|kenya|ethiopia|ghana|tanzania|uganda|rwanda|south africa|"
-    r"united states|usa|united kingdom|uk|france|germany|spain|italy|"
-    r"canada|australia|india|china|japan|brazil|mexico"
-    r")\b",
-    re.I,
-)
+_LANG_CODE_RE = re.compile(r"^[a-z]{2,8}$", re.I)
+
+
+@lru_cache(maxsize=1)
+def _country_variant_map() -> dict[str, str]:
+    """
+    Build a mapping of country name variants -> canonical country name.
+
+    Uses pycountry (already in dependencies) and augments with common abbreviations.
+    """
+    try:
+        import pycountry
+    except Exception as exc:  # pragma: no cover
+        logger.warning("pycountry not available; falling back to minimal country detection: %s", exc)
+        return {
+            "usa": "united states",
+            "united states": "united states",
+            "uk": "united kingdom",
+            "united kingdom": "united kingdom",
+        }
+
+    variants: dict[str, str] = {}
+
+    def _add(variant: str, canonical: str) -> None:
+        v = " ".join((variant or "").strip().lower().split())
+        c = " ".join((canonical or "").strip().lower().split())
+        if not v or len(v) < 3:
+            return
+        variants.setdefault(v, c)
+
+    for c in pycountry.countries:
+        canonical = getattr(c, "name", "") or ""
+        if not canonical:
+            continue
+        _add(canonical, canonical)
+        _add(getattr(c, "official_name", "") or "", canonical)
+        _add(getattr(c, "common_name", "") or "", canonical)
+
+        # Add comma-stripped variants (e.g., "Korea, Republic of")
+        if "," in canonical:
+            _add(canonical.replace(",", ""), canonical)
+
+    # Common abbreviations / aliases
+    aliases = {
+        "u.s.": "united states",
+        "u.s.a.": "united states",
+        "us": "united states",
+        "usa": "united states",
+        "united states of america": "united states",
+        "u.k.": "united kingdom",
+        "uk": "united kingdom",
+        "great britain": "united kingdom",
+        "ivory coast": "côte d'ivoire",
+        "cote d'ivoire": "côte d'ivoire",
+        "cote d ivoire": "côte d'ivoire",
+        "uae": "united arab emirates",
+        "u.a.e.": "united arab emirates",
+        "drc": "congo, the democratic republic of the",
+        "dr congo": "congo, the democratic republic of the",
+    }
+    for k, v in aliases.items():
+        _add(k, v)
+
+    return variants
+
+
+@lru_cache(maxsize=1)
+def _country_regex() -> re.Pattern[str]:
+    """
+    One big regex to match any known country name variant.
+    """
+    variants = list(_country_variant_map().keys())
+    # Longest first avoids partial matches stealing earlier.
+    variants.sort(key=len, reverse=True)
+    escaped = [re.escape(v) for v in variants if v]
+    # Use non-capturing group; allow whitespace flexibility inside multiword names.
+    # We pre-normalize input whitespace, so plain escaped spaces are fine.
+    return re.compile(r"\b(?:%s)\b" % "|".join(escaped), re.I)
 
 
 def detect_services(text: str) -> list[str]:
@@ -159,26 +230,78 @@ def detect_org_types(text: str) -> list[str]:
 
 
 def detect_countries(text: str) -> list[str]:
-    """Detect country/region mentions as a proxy for international work."""
-    t = text or ""
-    hits = {m.group(0).strip().lower() for m in _COUNTRY_REGEX.finditer(t)}
+    """
+    Detect country mentions as a proxy for international work.
+
+    Returns a list of canonical country names (lowercase).
+    """
+    t = " ".join((text or "").split())
+    if not t:
+        return []
+
+    mapping = _country_variant_map()
+    rx = _country_regex()
+    hits: set[str] = set()
+    for m in rx.finditer(t):
+        raw = " ".join(m.group(0).strip().lower().split())
+        canonical = mapping.get(raw, raw)
+        if canonical:
+            hits.add(canonical)
+        if len(hits) >= 25:
+            break
     return sorted(hits)
 
 
 def detect_languages_from_html(html_pages: list[str]) -> list[str]:
     """
-    Detect languages from <html lang="..."> attributes.
+    Detect languages from common HTML signals:
+    - <html lang="...">
+    - <link rel="alternate" hreflang="...">
+    - <meta property="og:locale" content="en_US">
+    - <meta name="language" content="en">
+
     Returns a list of normalized language codes (e.g., ['en', 'fr']).
     """
     langs: set[str] = set()
     for html in html_pages:
-        for m in re.finditer(r"<html[^>]+lang=['\"]([^'\"]+)['\"]", html or "", flags=re.I):
+        h = html or ""
+
+        # <html lang="">
+        for m in re.finditer(r"<html[^>]+lang=['\"]([^'\"]+)['\"]", h, flags=re.I):
             code = (m.group(1) or "").strip().lower()
-            if not code:
-                continue
-            # Normalize 'en-US' -> 'en'
             code = code.split("-")[0].split("_")[0]
-            if 2 <= len(code) <= 8:
+            if _LANG_CODE_RE.match(code or ""):
+                langs.add(code)
+
+        # hreflang values on alternate links
+        for m in re.finditer(r"hreflang=['\"]([^'\"]+)['\"]", h, flags=re.I):
+            code = (m.group(1) or "").strip().lower()
+            if code in {"x-default", "default"}:
+                continue
+            code = code.split("-")[0].split("_")[0]
+            if _LANG_CODE_RE.match(code or ""):
+                langs.add(code)
+
+        # OpenGraph locale
+        for m in re.finditer(
+            r"<meta[^>]+property=['\"]og:locale['\"][^>]+content=['\"]([^'\"]+)['\"]",
+            h,
+            flags=re.I,
+        ):
+            code = (m.group(1) or "").strip().lower()
+            code = code.split("-")[0].split("_")[0]
+            if _LANG_CODE_RE.match(code or ""):
+                langs.add(code)
+
+        # <meta name="language" content="en">
+        for m in re.finditer(
+            r"<meta[^>]+name=['\"]language['\"][^>]+content=['\"]([^'\"]+)['\"]",
+            h,
+            flags=re.I,
+        ):
+            code = (m.group(1) or "").strip().lower()
+            code = code.split("-")[0].split("_")[0]
+            if _LANG_CODE_RE.match(code or ""):
                 langs.add(code)
     return sorted(langs)
 

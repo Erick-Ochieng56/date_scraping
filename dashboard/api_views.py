@@ -7,7 +7,7 @@ from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from crawler.tasks import discover_websites_task
+from crawler.tasks import discover_websites_task, crawl_domain_task
 from dashboard.models import Notification
 from dashboard.utils import log_activity
 from leads.models import Lead, LeadStatus, Prospect, ProspectStatus
@@ -74,7 +74,7 @@ def api_trigger_scrape(request: HttpRequest) -> JsonResponse:
 
 @login_required
 @require_POST
-def api_trigger_crawl(request: HttpRequest) -> JsonResponse:
+def api_trigger_crawler(request: HttpRequest) -> JsonResponse:
     """API endpoint to trigger crawler discovery (runs all enabled CrawlSources)."""
     try:
         task = discover_websites_task.delay()
@@ -86,11 +86,164 @@ def api_trigger_crawl(request: HttpRequest) -> JsonResponse:
             user=request.user,
             metadata={"task_id": task.id},
         )
-        return JsonResponse({
-            "success": True,
-            "message": "Crawler discovery triggered. A new CrawlRun will appear in Crawl Runs.",
-            "task_id": task.id,
-        })
+        return JsonResponse(
+            {
+                "success": True,
+                "message": "Crawler discovery triggered. A new CrawlRun will appear in Crawl Runs.",
+                "task_id": task.id,
+            }
+        )
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+# Alias for backwards compatibility (e.g. crawl_target_detail / crawl_targets templates)
+api_trigger_crawl = api_trigger_crawler
+
+
+@login_required
+@require_POST
+def api_crawler_preview(request: HttpRequest) -> JsonResponse:
+    """
+    Preview Bing discovery results for a manual query (no DB writes).
+    """
+    try:
+        body = json.loads((request.body or b"{}").decode("utf-8"))
+        query = (body.get("query") or "").strip()
+        max_results = int(body.get("max_results") or 20)
+        max_results = max(1, min(50, max_results))
+        if not query:
+            return JsonResponse({"success": True, "urls": []})
+
+        from crawler.discovery import discover_websites
+
+        urls = discover_websites(query=query, max_results=max_results)
+        return JsonResponse({"success": True, "urls": urls})
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@login_required
+@require_POST
+def api_crawler_queue(request: HttpRequest) -> JsonResponse:
+    """
+    Queue discovered domains into DiscoveredDomain and optionally auto-crawl them.
+    """
+    try:
+        body = json.loads((request.body or b"{}").decode("utf-8"))
+        query = (body.get("query") or "").strip()
+        max_results = int(body.get("max_results") or 20)
+        max_results = max(1, min(50, max_results))
+        auto_crawl = bool(body.get("auto_crawl") is True)
+        urls = list(body.get("urls") or [])
+
+        from django.utils import timezone
+
+        from crawler.discovery import discover_websites
+        from crawler.models import CrawlRun, CrawlRunStatus, CrawlRunTrigger, CrawlSource, DiscoveredDomain
+        from crawler.utils import normalize_domain_url
+
+        if not urls:
+            if not query:
+                return JsonResponse({"success": True, "queued": 0, "run_id": None, "domain_ids": []})
+            urls = discover_websites(query=query, max_results=max_results)
+
+        normalized = []
+        for u in urls:
+            dom = normalize_domain_url(u)
+            if dom and dom not in normalized:
+                normalized.append(dom)
+
+        if not normalized:
+            return JsonResponse({"success": True, "queued": 0, "run_id": None, "domain_ids": []})
+
+        source = None
+        if query:
+            source, _ = CrawlSource.objects.get_or_create(
+                discovery_query=query,
+                source_type="search",
+                defaults={"name": f"Manual: {query}", "enabled": False, "priority": 5},
+            )
+
+        domain_ids: list[int] = []
+        created_count = 0
+        now = timezone.now()
+        for dom in normalized:
+            obj, created = DiscoveredDomain.objects.get_or_create(
+                domain=dom,
+                defaults={
+                    "source": source,
+                    "priority": (source.priority if source else 5),
+                    "crawl_status": "pending",
+                },
+            )
+            if created:
+                created_count += 1
+            if source and obj.source_id is None:
+                obj.source = source
+                obj.save(update_fields=["source"])
+
+            due = obj.crawl_status in {"pending", "failed"} and (
+                obj.next_attempt_at is None or obj.next_attempt_at <= now
+            )
+            if due:
+                domain_ids.append(obj.id)
+
+        run_id = None
+        if auto_crawl and domain_ids:
+            run = CrawlRun.objects.create(
+                trigger=CrawlRunTrigger.MANUAL,
+                status=CrawlRunStatus.RUNNING,
+                started_at=timezone.now(),
+                domains_queued=len(domain_ids),
+            )
+            run_id = run.id
+
+            for domain_id in domain_ids:
+                crawl_domain_task.delay(domain_id=int(domain_id), run_id=run.id)
+
+            log_activity(
+                action="crawl_triggered",
+                object_type="crawl",
+                object_id=0,
+                description=f"Manual crawler queued {len(domain_ids)} domain(s)",
+                user=request.user,
+                metadata={"run_id": run.id, "query": query},
+            )
+
+        return JsonResponse(
+            {
+                "success": True,
+                "queued": len(domain_ids),
+                "new_domains": created_count,
+                "run_id": run_id,
+                "domain_ids": domain_ids,
+            }
+        )
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@login_required
+@require_POST
+def api_crawler_crawl_domain(request: HttpRequest, domain_id: int) -> JsonResponse:
+    """
+    Trigger a crawl for a single DiscoveredDomain (manual run).
+    """
+    try:
+        from django.utils import timezone
+
+        from crawler.models import CrawlRun, CrawlRunStatus, CrawlRunTrigger, DiscoveredDomain
+
+        DiscoveredDomain.objects.get(id=domain_id)  # ensure exists
+        run = CrawlRun.objects.create(
+            trigger=CrawlRunTrigger.MANUAL,
+            status=CrawlRunStatus.RUNNING,
+            started_at=timezone.now(),
+            domains_queued=1,
+        )
+        crawl_domain_task.delay(domain_id=int(domain_id), run_id=run.id)
+        return JsonResponse({"success": True, "run_id": run.id})
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
 
