@@ -64,10 +64,35 @@ def _spacy_nlp():
         return None
 
 
-def extract_org_name(text: str, domain: str) -> str:
+def _org_from_title(title: str) -> str:
+    """
+    Heuristic org-name extraction from an HTML <title>.
+    """
+    t = " ".join((title or "").strip().split())
+    if not t:
+        return ""
+
+    # Common title separators: "Org | Page", "Org - Page"
+    parts = re.split(r"\s+[|\-—:]\s+", t)
+    candidates = [p.strip() for p in parts if p.strip()]
+    if not candidates:
+        return ""
+
+    # Prefer the first chunk unless it's obviously generic
+    first = candidates[0]
+    bad = {"home", "welcome", "homepage", "index", "official website"}
+    if first.lower() in bad and len(candidates) > 1:
+        first = candidates[1]
+
+    # Strip trailing "Official Site"/"Official Website"
+    first = re.sub(r"\b(official\s+site|official\s+website)\b", "", first, flags=re.I).strip()
+    return first[:255]
+
+
+def extract_org_name(text: str, domain: str, page_title: str | None = None) -> str:
     """
     Extract organization name using spaCy NER.
-    Fallback: derive from domain hostname.
+    Fallback: use page <title>, then derive from domain hostname.
     """
     t = (text or "").strip()
     nlp = _spacy_nlp()
@@ -78,6 +103,11 @@ def extract_org_name(text: str, domain: str) -> str:
             # Prefer the longest org mention
             orgs.sort(key=len, reverse=True)
             return orgs[0][:255]
+
+    if page_title:
+        from_title = _org_from_title(page_title)
+        if from_title:
+            return from_title
 
     host = urlparse(domain).netloc or domain
     host = host.lower().replace("www.", "")

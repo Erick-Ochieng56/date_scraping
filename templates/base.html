@@ -255,10 +255,10 @@
                             </li>
                             <li class="nav-item">
                                 <a
-                                    class="nav-link {% if request.resolver_match.url_name == 'crawl_runs' or request.resolver_match.url_name == 'crawl_run_detail' %}active{% endif %}"
-                                    href="{% url 'dashboard:crawl_runs' %}"
+                                    class="nav-link {% if request.resolver_match.url_name == 'crawl_runs' or request.resolver_match.url_name == 'crawl_run_detail' or request.resolver_match.url_name|default:''|slice:':7' == 'crawler' %}active{% endif %}"
+                                    href="{% url 'dashboard:crawler_home' %}"
                                 >
-                                    <i class="bi bi-broadcast"></i> Crawl Runs
+                                    <i class="bi bi-search"></i> Crawler
                                 </a>
                             </li>
                             <li class="nav-item">

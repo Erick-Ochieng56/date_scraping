@@ -41,15 +41,44 @@ def discover_websites(query: str, max_results: int = 20) -> list[str]:
 
     soup = BeautifulSoup(resp.text, "lxml")
 
-    # Bing results: <li class="b_algo"><h2><a href="...">
     out: list[str] = []
+
+    # Primary: classic Bing SERP layout
     for a in soup.select("li.b_algo h2 a[href]"):
-        href = a.get("href") or ""
+        href = (a.get("href") or "").strip()
+        if not href:
+            continue
+        # Ignore non-web links
+        href_lower = href.lower()
+        if not (href_lower.startswith("http://") or href_lower.startswith("https://")):
+            continue
         norm = normalize_domain(href)
         if norm and norm not in out:
             out.append(norm)
         if len(out) >= max_results:
             break
+
+    # Fallback: more generic selection inside main results container
+    if not out:
+        main = soup.select_one("#b_results") or soup
+        for a in main.select("a[href]"):
+            href = (a.get("href") or "").strip()
+            if not href:
+                continue
+            href_lower = href.lower()
+            # Skip non-http(s) and internal/navigation links (javascript:, #, mailto:, bing UI, etc.)
+            if not (href_lower.startswith("http://") or href_lower.startswith("https://")):
+                continue
+            if "bing.com" in href_lower:
+                continue
+            norm = normalize_domain(href)
+            if norm and norm not in out:
+                out.append(norm)
+            if len(out) >= max_results:
+                break
+
+    if not out:
+        logger.info("Bing discovery returned no domains for query=%r", q)
     return out
 
 

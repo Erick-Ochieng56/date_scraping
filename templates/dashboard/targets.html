@@ -113,6 +113,15 @@
                         </td>
                         <td>
                             <div class="btn-group btn-group-sm" role="group">
+                                <button
+                                    type="button"
+                                    class="btn btn-outline-success triggerTargetScrapeBtn"
+                                    title="Run scrape now"
+                                    data-target-id="{{ target.id }}"
+                                    data-target-name="{{ target.name }}"
+                                >
+                                    <i class="bi bi-play-fill"></i>
+                                </button>
                                 <a href="{% url 'dashboard:target_detail' target.id %}" class="btn btn-outline-primary" title="View Details">
                                     <i class="bi bi-eye"></i>
                                 </a>
@@ -134,5 +143,37 @@
         {% endif %}
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.querySelectorAll('.triggerTargetScrapeBtn')?.forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+            const targetId = parseInt(btn.dataset.targetId || '0');
+            const targetName = btn.dataset.targetName || `Target ${targetId}`;
+            if (!targetId) return;
+
+            if (!confirm(`Trigger scrape for "${targetName}" now?`)) return;
+
+            const originalHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+            const result = await makeAjaxRequest('{% url "dashboard:api_trigger_scrape" %}', {
+                method: 'POST',
+                body: { target_id: targetId }
+            });
+
+            if (result.success) {
+                showToast(result.data.message || `Scrape triggered for ${targetName}`, 'success');
+                setTimeout(() => window.location.reload(), 1200);
+            } else {
+                showToast(result.error || `Failed to trigger scrape for ${targetName}`, 'error');
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+            }
+        });
+    });
+</script>
 {% endblock %}
 
