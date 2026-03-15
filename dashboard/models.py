@@ -24,6 +24,7 @@ class ActivityLog(models.Model):
         ('scrape_triggered', 'Scrape Triggered'),
         ('scrape_completed', 'Scrape Completed'),
         ('scrape_failed', 'Scrape Failed'),
+        ('crawl_triggered', 'Crawl Discovery Triggered'),
     ]
     
     created_at = models.DateTimeField(default=timezone.now, db_index=True)

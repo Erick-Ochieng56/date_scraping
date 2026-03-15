@@ -1,0 +1,133 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Crawl Run #{{ crawl_run.id }}{% endblock %}
+
+{% block page_header %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Crawl Run #{{ crawl_run.id }}</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a href="{% url 'dashboard:crawl_runs' %}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back to List
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Run Details</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row">
+                    <dt class="col-sm-3">Status:</dt>
+                    <dd class="col-sm-9">
+                        <span class="badge bg-{% if crawl_run.status == 'success' %}success{% elif crawl_run.status == 'failed' %}danger{% else %}warning{% endif %} badge-lg">
+                            {{ crawl_run.get_status_display }}
+                        </span>
+                    </dd>
+                    <dt class="col-sm-3">Trigger:</dt>
+                    <dd class="col-sm-9"><span class="badge bg-info">{{ crawl_run.get_trigger_display }}</span></dd>
+                    <dt class="col-sm-3">Started:</dt>
+                    <dd class="col-sm-9">{{ crawl_run.started_at|date:"Y-m-d H:i:s" }}</dd>
+                    <dt class="col-sm-3">Finished:</dt>
+                    <dd class="col-sm-9">
+                        {% if crawl_run.finished_at %}
+                            {{ crawl_run.finished_at|date:"Y-m-d H:i:s" }}
+                        {% else %}
+                            <span class="text-muted">Still running...</span>
+                        {% endif %}
+                    </dd>
+                    <dt class="col-sm-3">Duration:</dt>
+                    <dd class="col-sm-9">{% if duration %}{{ duration }}{% else %}<span class="text-muted">-</span>{% endif %}</dd>
+                    <dt class="col-sm-3">Task ID:</dt>
+                    <dd class="col-sm-9"><code>{{ crawl_run.task_id|default:"-" }}</code></dd>
+                </dl>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Statistics</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4 text-center mb-3">
+                        <div class="border rounded p-3">
+                            <h3 class="text-primary mb-0">{{ crawl_run.domains_queued }}</h3>
+                            <small class="text-muted">Domains Queued</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4 text-center mb-3">
+                        <div class="border rounded p-3">
+                            <h3 class="text-success mb-0">{{ crawl_run.prospects_created }}</h3>
+                            <small class="text-muted">Prospects Created</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4 text-center mb-3">
+                        <div class="border rounded p-3">
+                            <h3 class="text-info mb-0">{{ crawl_run.prospects_updated }}</h3>
+                            <small class="text-muted">Prospects Updated</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% if crawl_run.status == 'failed' and crawl_run.error_text %}
+        <div class="card mb-4 border-danger">
+            <div class="card-header bg-danger text-white">
+                <h5 class="mb-0">Error Details</h5>
+            </div>
+            <div class="card-body">
+                <pre class="bg-light p-3 rounded"><code>{{ crawl_run.error_text }}</code></pre>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if crawl_run.stats %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Stats (JSON)</h5>
+            </div>
+            <div class="card-body">
+                <pre class="bg-light p-3 rounded" style="max-height: 300px; overflow-y: auto;"><code>{{ stats_json }}</code></pre>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if crawl_run.config %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Run Config</h5>
+            </div>
+            <div class="card-body">
+                <pre class="bg-light p-3 rounded" style="max-height: 200px; overflow-y: auto;"><code>{{ config_json }}</code></pre>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    <div class="col-md-4">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Quick Actions</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <a href="{% url 'dashboard:crawl_runs' %}" class="btn btn-outline-primary">
+                        <i class="bi bi-list"></i> All Crawl Runs
+                    </a>
+                    <a href="{% url 'admin:crawler_crawlrun_changelist' %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-gear"></i> Crawler Admin
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

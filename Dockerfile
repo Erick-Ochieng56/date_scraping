@@ -15,6 +15,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
+# Playwright: install Chromium and system deps so PLAYWRIGHT targets work in Docker
+RUN python -m playwright install --with-deps chromium
+
 COPY . /app
 
 # Collect static at build time only if configured in runtime (safe no-op if settings block)

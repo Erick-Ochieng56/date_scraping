@@ -2,7 +2,51 @@ from __future__ import annotations
 
 from django.contrib import admin
 
-from crawler.models import CrawlSource, DiscoveredDomain, WebsiteProfile
+from crawler.models import (
+    CrawlRun,
+    CrawlRunStatus,
+    CrawlSource,
+    DiscoveredDomain,
+    WebsiteProfile,
+)
+
+
+@admin.register(CrawlRun)
+class CrawlRunAdmin(admin.ModelAdmin):
+    list_display = [
+        "id",
+        "started_at",
+        "finished_at",
+        "status",
+        "trigger",
+        "domains_queued",
+        "prospects_created",
+        "prospects_updated",
+    ]
+    list_filter = ["status", "trigger"]
+    ordering = ["-started_at"]
+    readonly_fields = [
+        "started_at",
+        "finished_at",
+        "task_id",
+        "stats",
+        "config",
+        "domains_queued",
+        "prospects_created",
+        "prospects_updated",
+    ]
+
+    @admin.action(description="Trigger discovery now")
+    def trigger_discovery(self, request, queryset):
+        from crawler.tasks import discover_websites_task
+
+        t = discover_websites_task.delay()
+        self.message_user(
+            request,
+            f"Discovery task enqueued (task_id={t.id}). Check CrawlRun list for new run.",
+        )
+
+    actions = ["trigger_discovery"]
 
 
 @admin.register(CrawlSource)

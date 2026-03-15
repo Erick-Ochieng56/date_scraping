@@ -7,6 +7,7 @@ from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
+from crawler.tasks import discover_websites_task
 from dashboard.models import Notification
 from dashboard.utils import log_activity
 from leads.models import Lead, LeadStatus, Prospect, ProspectStatus
@@ -67,6 +68,29 @@ def api_trigger_scrape(request: HttpRequest) -> JsonResponse:
                 "task_id": task.id,
             })
     
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@login_required
+@require_POST
+def api_trigger_crawl(request: HttpRequest) -> JsonResponse:
+    """API endpoint to trigger crawler discovery (runs all enabled CrawlSources)."""
+    try:
+        task = discover_websites_task.delay()
+        log_activity(
+            action="crawl_triggered",
+            object_type="crawl",
+            object_id=0,
+            description="Crawler discovery triggered",
+            user=request.user,
+            metadata={"task_id": task.id},
+        )
+        return JsonResponse({
+            "success": True,
+            "message": "Crawler discovery triggered. A new CrawlRun will appear in Crawl Runs.",
+            "task_id": task.id,
+        })
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
 
