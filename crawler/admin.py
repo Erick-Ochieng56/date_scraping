@@ -67,25 +67,30 @@ class DiscoveredDomainAdmin(admin.ModelAdmin):
     def reset_to_pending(self, request, queryset):
         queryset.update(crawl_status="pending", error_text="", next_attempt_at=None)
 
-    @admin.action(description="Trigger crawl (create run + enqueue)")
+    @admin.action(description="Trigger crawl (create CrawlRun + enqueue)")
     def trigger_crawl(self, request, queryset):
         from django.utils import timezone
 
-        from scraper.models import ScrapeRun, ScrapeRunStatus, ScrapeRunTrigger
-        from tasks.crawler_tasks import _get_or_create_crawler_target, _initial_run_stats, crawl_domain_task
+        from crawler.models import CrawlRun, CrawlRunDomainResult, CrawlRunStatus, CrawlRunTrigger
+        from crawler.tasks import crawl_domain_task
 
-        target = _get_or_create_crawler_target()
-        run = ScrapeRun.objects.create(
-            target=target,
-            trigger=ScrapeRunTrigger.MANUAL,
-            status=ScrapeRunStatus.RUNNING,
+        run = CrawlRun.objects.create(
+            trigger=CrawlRunTrigger.MANUAL,
+            status=CrawlRunStatus.RUNNING,
             started_at=timezone.now(),
-            stats=_initial_run_stats(),
-            item_count=queryset.count(),
+            domains_queued=queryset.count(),
         )
-
         for domain in queryset.values_list("id", flat=True):
+            CrawlRunDomainResult.objects.get_or_create(
+                crawl_run_id=run.id,
+                domain_id=domain,
+                defaults={"state": "queued"},
+            )
             crawl_domain_task.delay(domain_id=int(domain), run_id=run.id)
+        self.message_user(
+            request,
+            f"CrawlRun #{run.id} created; {queryset.count()} domain(s) enqueued.",
+        )
 
     actions = ["reset_to_pending", "trigger_crawl"]
 

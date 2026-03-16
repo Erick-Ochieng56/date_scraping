@@ -69,7 +69,9 @@ class DomainParts:
 def normalize_domain_url(url: str) -> str:
     """
     Extract clean domain from any URL.
-    Returns normalized base like: https://domain.com
+    Returns normalized base like https://domain.com or https://www.domain.com.
+    Preserves www so that sites which live on www (e.g. www.isanet.org) are
+    crawled on the correct host instead of the bare domain.
     """
     url = (url or "").strip()
     if not url:
@@ -78,8 +80,6 @@ def normalize_domain_url(url: str) -> str:
         url = "https://" + url.lstrip("/")
     parsed = urlparse(url)
     netloc = (parsed.netloc or "").lower()
-    if netloc.startswith("www."):
-        netloc = netloc[4:]
     if not netloc:
         return ""
     return f"https://{netloc}"

@@ -148,7 +148,7 @@ The **crawler** is a primary pipeline that discovers domains (e.g. via Bing), cr
 - **Schedule:** `CRAWLER_DISCOVERY_INTERVAL_SECONDS` (default 43200 = 12 hours).
 - **Tasks:** `crawler.tasks.discover_websites_task` → `crawl_domain_task` → `analyze_domain_task` → `score_and_create_prospect_task`.
 - **Run history:** Crawler uses its own **CrawlRun** model (Admin: `/admin/crawler/crawlrun/`). It is separate from scraper’s ScrapeRun.
-- **Config (env):** `CRAWLER_MAX_DOMAINS_PER_RUN` (default 500), `CRAWLER_MIN_SCORE_THRESHOLD` (default 40), `CRAWLER_RATE_LIMIT_SECONDS` (default 1.5).
+- **Config (env):** `CRAWLER_MAX_DOMAINS_PER_RUN` (default 500), `CRAWLER_MIN_SCORE_THRESHOLD` (default 40), `CRAWLER_RATE_LIMIT_SECONDS` (default 1.5). Optional: `SERPER_API_KEY` (when set, discovery and manual keyword search use Serper.dev Google Search API instead of Bing).
 - Configure **CrawlSources** in Django admin (`/admin/crawler/crawlsource/`) to define discovery queries.
 
 ## Manual Triggers
@@ -216,12 +216,35 @@ curl -X POST http://localhost:8000/ops/trigger-scrape `
 
 ## Production Deployment
 
-For production, use:
-- **Docker Compose** (recommended) - see `docker-compose.yml`
-- **Supervisor/systemd** for process management
-- **PostgreSQL** instead of SQLite
-- **Redis** for Celery broker
-- Set `DJANGO_DEBUG=0` and proper `DJANGO_SECRET_KEY`
+### Production checklist
+
+Before going live, ensure:
+
+1. **Environment**
+   - `DJANGO_DEBUG=0`
+   - Strong `DJANGO_SECRET_KEY` (generate a new one; do not use the dev default)
+   - `DJANGO_ALLOWED_HOSTS` set to your domain(s), e.g. `yourdomain.com,www.yourdomain.com`
+   - `DJANGO_CSRF_TRUSTED_ORIGINS` set to your HTTPS origin(s), e.g. `https://yourdomain.com`
+
+2. **Database and broker**
+   - Use **PostgreSQL** in production (e.g. via Docker Compose or managed DB). Set `DATABASE_URL=postgresql://user:pass@host:5432/dbname`
+   - Use **Redis** for Celery (broker and result backend). Set `REDIS_URL` / `CELERY_BROKER_URL`
+
+3. **Static files**
+   - When using Docker, static files are collected at build time (`collectstatic` in Dockerfile). Serve them via WhiteNoise (enabled when `DEBUG=False`) or your reverse proxy.
+   - For non-Docker deploys, run `python manage.py collectstatic --noinput` before starting the app and point your web server to `STATIC_ROOT`.
+
+4. **Secrets**
+   - Prefer environment or secrets manager for `DJANGO_SECRET_KEY`, `OPS_TOKEN`, `GSHEETS_CREDENTIALS_JSON`, `PERFEX_API_TOKEN` rather than committing `.env` to the repo.
+
+5. **Optional**
+   - Set `SENTRY_DSN` for error tracking.
+   - Tune crawler/scraper intervals and concurrency via env (see `.env.example`).
+
+### Running in production
+
+- **Docker Compose** (recommended): see `docker-compose.yml` (web, worker, beat, Postgres, Redis).
+- **Supervisor/systemd**: run gunicorn, Celery worker, and Celery beat as separate services; use Postgres and Redis.
 
 ## Quick Command Reference
 

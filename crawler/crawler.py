@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import xml.etree.ElementTree as ET
 from collections import deque
 from dataclasses import dataclass
 from typing import Any
@@ -17,7 +18,6 @@ from crawler.constants import (
     DEFAULT_MAX_CRAWL_DEPTH,
     DEFAULT_MAX_PAGES_PER_DOMAIN,
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
-    PRIORITY_PATHS,
 )
 from crawler.models import DiscoveredDomain
 from crawler.utils import RateLimiter, clean_text, normalize_url
@@ -108,23 +108,108 @@ def is_allowed_by_robots(url: str) -> bool:
         return True
 
 
-def _prioritized_seed_urls(domain: str) -> list[str]:
-    base = domain.rstrip("/")
+# Sitemap XML namespaces (sites use either none or this)
+SITEMAP_NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+SITEMAP_NS_DEFAULT = "http://www.sitemaps.org/schemas/sitemap/0.9"
+
+# Max URLs to take from a sitemap as seeds (avoid huge queues)
+MAX_SITEMAP_SEEDS = 100
+
+
+def _fetch_sitemap_urls(base_url: str) -> list[str]:
+    """
+    Fetch sitemap.xml (or sitemap index) and return same-domain URLs.
+    Preserves order; dedupes. Returns [] on any failure.
+    """
+    parsed = urlparse(base_url)
+    if not parsed.scheme or not parsed.netloc:
+        return []
+    base_netloc = parsed.netloc.lower()
+    sitemap_url = urljoin(base_url, "/sitemap.xml")
+    headers = {"User-Agent": CRAWLER_USER_AGENT}
+    try:
+        resp = requests.get(
+            sitemap_url, headers=headers, timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS
+        )
+        resp.raise_for_status()
+    except Exception as e:
+        logger.debug("sitemap fetch failed for %s: %s", sitemap_url, e)
+        return []
+
+    try:
+        root = ET.fromstring(resp.content)
+    except ET.ParseError as e:
+        logger.debug("sitemap parse failed for %s: %s", sitemap_url, e)
+        return []
+
+    # Handle both <urlset> and <sitemapindex>; support with or without namespace
+    def find_all_loc(parent: ET.Element) -> list[str]:
+        out: list[str] = []
+        for elem in parent.iter():
+            tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+            if tag == "loc" and elem.text:
+                out.append((elem.text or "").strip())
+        return out
+
     urls: list[str] = []
-    for path in PRIORITY_PATHS:
-        if path == "/":
-            u = base + "/"
-        else:
-            u = base + path
-        urls.append(u)
-    # De-dupe while preserving order
+    root_tag = root.tag.split("}")[-1] if "}" in root.tag else root.tag
+
+    if root_tag == "sitemapindex":
+        # Follow first-level sitemap index (one hop only)
+        for loc in find_all_loc(root)[:20]:
+            if not loc or not loc.lower().startswith(("http://", "https://")):
+                continue
+            try:
+                r = requests.get(loc, headers=headers, timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS)
+                r.raise_for_status()
+                child = ET.fromstring(r.content)
+                for u in find_all_loc(child):
+                    if u and urlparse(u).netloc.lower() == base_netloc:
+                        nu = normalize_url(u)
+                        if nu and nu not in urls:
+                            urls.append(nu)
+                            if len(urls) >= MAX_SITEMAP_SEEDS:
+                                return urls
+            except Exception:
+                continue
+        return urls
+
+    # <urlset>
+    for u in find_all_loc(root):
+        if u and urlparse(u).netloc.lower() == base_netloc:
+            nu = normalize_url(u)
+            if nu and nu not in urls:
+                urls.append(nu)
+                if len(urls) >= MAX_SITEMAP_SEEDS:
+                    break
+    return urls
+
+
+def _discover_seed_urls(domain: str) -> list[str]:
+    """
+    Discover crawl seed URLs from the site instead of guessing paths.
+    Uses sitemap.xml when present; always includes the homepage.
+    This avoids 404s on sites that use PascalCase or nested paths (e.g. /ISA/About-ISA).
+    """
+    base = domain.rstrip("/")
+    homepage = base + "/" if not base.endswith("/") else base
+    homepage = normalize_url(homepage)
+    if not homepage:
+        return []
+
+    sitemap_urls = _fetch_sitemap_urls(base)
     seen: set[str] = set()
     out: list[str] = []
-    for u in urls:
-        nu = normalize_url(u)
-        if nu and nu not in seen:
-            out.append(nu)
-            seen.add(nu)
+
+    # Prefer homepage first so we always crawl it and discover links
+    if homepage not in seen:
+        out.append(homepage)
+        seen.add(homepage)
+    for u in sitemap_urls:
+        if u and u not in seen:
+            out.append(u)
+            seen.add(u)
+    # If no sitemap, we still have the homepage; BFS will discover links from there
     return out
 
 
@@ -156,7 +241,7 @@ def crawl_domain(domain_obj: DiscoveredDomain) -> dict[str, Any]:
     max_depth = DEFAULT_MAX_CRAWL_DEPTH
 
     visited: set[str] = set()
-    queue: deque[tuple[str, int]] = deque((u, 0) for u in _prioritized_seed_urls(base))
+    queue: deque[tuple[str, int]] = deque((u, 0) for u in _discover_seed_urls(base))
 
     pages: list[CrawledPage] = []
     error: str | None = None

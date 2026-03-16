@@ -125,79 +125,72 @@
     </div>
 </div>
 
-<!-- Crawler Summary -->
-{% if crawler_target %}
+<!-- Crawler Summary (CrawlRun pipeline only) -->
 <div class="row mb-4">
     <div class="col-12">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">Crawler (Translation Lead Discovery)</h5>
-                {% if crawler_last_run %}
-                <a href="{% url 'dashboard:run_detail' crawler_last_run.id %}" class="btn btn-sm btn-outline-primary">
-                    View Last Run
-                </a>
-                {% endif %}
+                <h5 class="mb-0">Crawler (domain discovery)</h5>
+                <div class="btn-group">
+                    <a href="{% url 'dashboard:crawler_home' %}" class="btn btn-sm btn-outline-primary">Crawler Home</a>
+                    <a href="{% url 'dashboard:crawl_runs' %}" class="btn btn-sm btn-outline-secondary">Crawl Runs</a>
+                    {% if crawler_last_run %}
+                    <a href="{% url 'dashboard:crawl_run_detail' crawler_last_run.id %}" class="btn btn-sm btn-outline-primary">Last Run</a>
+                    {% endif %}
+                </div>
             </div>
             <div class="card-body">
-                {% if crawler_last_run %}
                 <div class="row">
                     <div class="col-md-3 mb-3">
                         <div class="border rounded p-3 text-center">
-                            <h4 class="mb-0">{{ crawler_runs_24h }}</h4>
-                            <small class="text-muted">Runs (24h)</small>
+                            <h4 class="mb-0">{{ crawl_runs_24h }}</h4>
+                            <small class="text-muted">Crawl runs (24h)</small>
                         </div>
                     </div>
                     <div class="col-md-3 mb-3">
                         <div class="border rounded p-3 text-center">
-                            <h4 class="mb-0">{{ crawler_prospects_24h }}</h4>
-                            <small class="text-muted">Prospects touched (24h)</small>
+                            <h4 class="mb-0">{{ crawl_runs_success_24h }}</h4>
+                            <small class="text-muted">Success (24h)</small>
                         </div>
                     </div>
                     <div class="col-md-3 mb-3">
                         <div class="border rounded p-3 text-center">
-                            <h4 class="mb-0">{{ crawler_last_run.created_leads }}</h4>
-                            <small class="text-muted">Created (last run)</small>
+                            <h4 class="mb-0">{% if crawler_last_run %}{{ crawler_last_run.prospects_created|default:0 }}{% else %}0{% endif %}</h4>
+                            <small class="text-muted">Prospects created (last run)</small>
                         </div>
                     </div>
                     <div class="col-md-3 mb-3">
                         <div class="border rounded p-3 text-center">
-                            <h4 class="mb-0">{{ crawler_last_run.updated_leads }}</h4>
-                            <small class="text-muted">Updated (last run)</small>
+                            <h4 class="mb-0">{% if crawler_last_run %}{{ crawler_last_run.prospects_updated|default:0 }}{% else %}0{% endif %}</h4>
+                            <small class="text-muted">Prospects updated (last run)</small>
                         </div>
                     </div>
                 </div>
-
                 {% if crawler_last_stats %}
                 <div class="row">
                     <div class="col-md-6">
-                        <h6 class="text-muted text-uppercase mb-2">Last Run Stats</h6>
+                        <h6 class="text-muted text-uppercase mb-2">Last run stats</h6>
                         <div class="table-responsive">
                             <table class="table table-sm">
                                 <tbody>
-                                    <tr><th class="w-50">Domains discovered</th><td>{{ crawler_last_stats.domains_discovered|default:"0" }}</td></tr>
+                                    <tr><th class="w-50">Domains queued</th><td>{{ crawler_last_run.domains_queued|default:"0" }}</td></tr>
                                     <tr><th>Domains crawled</th><td>{{ crawler_last_stats.domains_crawled|default:"0" }}</td></tr>
-                                    <tr><th>Domains failed</th><td>{{ crawler_last_stats.domains_failed|default:"0" }}</td></tr>
                                     <tr><th>Pages crawled</th><td>{{ crawler_last_stats.pages_crawled|default:"0" }}</td></tr>
-                                    <tr><th>High score leads</th><td>{{ crawler_last_stats.high_score_leads|default:"0" }}</td></tr>
-                                    <tr><th>Medium score leads</th><td>{{ crawler_last_stats.medium_score_leads|default:"0" }}</td></tr>
+                                    <tr><th>Prospects created</th><td>{{ crawler_last_stats.prospects_created|default:"0" }}</td></tr>
+                                    <tr><th>Prospects updated</th><td>{{ crawler_last_stats.prospects_updated|default:"0" }}</td></tr>
                                 </tbody>
                             </table>
                         </div>
                     </div>
                     <div class="col-md-6">
-                        <h6 class="text-muted text-uppercase mb-2">Top Services Detected (last run)</h6>
+                        <h6 class="text-muted text-uppercase mb-2">Top services (last run)</h6>
                         {% if crawler_services %}
                         <div class="table-responsive">
                             <table class="table table-sm">
-                                <thead>
-                                    <tr><th>Service</th><th class="text-end">Count</th></tr>
-                                </thead>
+                                <thead><tr><th>Service</th><th class="text-end">Count</th></tr></thead>
                                 <tbody>
                                     {% for svc, count in crawler_services %}
-                                    <tr>
-                                        <td><code>{{ svc }}</code></td>
-                                        <td class="text-end">{{ count }}</td>
-                                    </tr>
+                                    <tr><td><code>{{ svc }}</code></td><td class="text-end">{{ count }}</td></tr>
                                     {% endfor %}
                                 </tbody>
                             </table>
@@ -208,16 +201,12 @@
                     </div>
                 </div>
                 {% else %}
-                <p class="text-muted mb-0">No crawler stats recorded yet.</p>
-                {% endif %}
-                {% else %}
-                <p class="text-muted mb-0">Crawler target exists, but no runs yet.</p>
+                <p class="text-muted mb-0">No crawl runs yet. Use <a href="{% url 'dashboard:crawler_discover' %}">Discover</a> or trigger discovery from Crawler Home.</p>
                 {% endif %}
             </div>
         </div>
     </div>
 </div>
-{% endif %}
 
 <!-- Charts -->
 <div class="row mb-4">

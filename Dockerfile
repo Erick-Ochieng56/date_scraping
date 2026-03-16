@@ -20,8 +20,10 @@ RUN python -m playwright install --with-deps chromium
 
 COPY . /app
 
-# Collect static at build time only if configured in runtime (safe no-op if settings block)
+# Collect static at build time (needs a placeholder SECRET_KEY when DEBUG=0)
 ENV DJANGO_DEBUG=0
+ENV DJANGO_SECRET_KEY=build-time-placeholder-override-in-runtime
+RUN python manage.py collectstatic --noinput --clear 2>/dev/null || true
 
 EXPOSE 8000
 

@@ -16,15 +16,15 @@ urlpatterns = [
     path('runs/', views.RunListView.as_view(), name='runs'),
     path('runs/<int:pk>/', views.RunDetailView.as_view(), name='run_detail'),
 
-    # Crawler (separate UX from scrape targets)
+    # Crawler (fully separate from scraper: own URLs and pages)
     path('crawler/', views.CrawlerHomeView.as_view(), name='crawler_home'),
     path('crawler/sources/', views.CrawlSourceListView.as_view(), name='crawler_sources'),
     path('crawler/sources/add/', views.CrawlSourceCreateView.as_view(), name='crawler_source_add'),
     path('crawler/sources/<int:pk>/edit/', views.CrawlSourceUpdateView.as_view(), name='crawler_source_edit'),
     path('crawler/discover/', views.CrawlerDiscoverView.as_view(), name='crawler_discover'),
     path('crawler/domains/', views.DiscoveredDomainListView.as_view(), name='crawler_domains'),
-    path('crawl-runs/', views.CrawlRunListView.as_view(), name='crawl_runs'),
-    path('crawl-runs/<int:pk>/', views.CrawlRunDetailView.as_view(), name='crawl_run_detail'),
+    path('crawler/runs/', views.CrawlRunListView.as_view(), name='crawl_runs'),
+    path('crawler/runs/<int:pk>/', views.CrawlRunDetailView.as_view(), name='crawl_run_detail'),
     path('prospects/', views.ProspectListView.as_view(), name='prospects'),
     path('prospects/add/', views.ProspectCreateView.as_view(), name='prospect_add'),
     path('prospects/<int:pk>/', views.ProspectDetailView.as_view(), name='prospect_detail'),
