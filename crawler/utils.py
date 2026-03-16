@@ -8,9 +8,13 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+import warnings
 
 logger = logging.getLogger(__name__)
+
+# Silence noisy warnings when XML gets parsed with the HTML parser.
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 
 class RateLimiter:
@@ -40,9 +44,24 @@ def compute_payload_hash(payload: dict[str, Any]) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
-def clean_text(html: str) -> str:
+def make_soup(html: str, content_type: str = "") -> BeautifulSoup:
+    """
+    Create a BeautifulSoup instance, choosing XML vs HTML parser.
+
+    For XML-ish content (sitemaps, explicit XML content types), use the XML
+    parser so namespace-prefixed tags like <image:loc> or <sitemap:loc> are
+    preserved. Otherwise default to lxml HTML parsing.
+    """
+    text = html or ""
+    prefix = text.lstrip()[:200]
+    ct = (content_type or "").lower()
+    is_xml = prefix.startswith("<?xml") or "sitemap" in prefix.lower() or "xml" in ct
+    return BeautifulSoup(text, "xml" if is_xml else "lxml")
+
+
+def clean_text(html: str, content_type: str = "") -> str:
     """Strip HTML tags and normalize whitespace."""
-    soup = BeautifulSoup(html or "", "lxml")
+    soup = make_soup(html, content_type=content_type)
     return " ".join(soup.get_text(" ", strip=True).split())
 
 
