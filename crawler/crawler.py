@@ -20,7 +20,7 @@ from crawler.constants import (
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
 )
 from crawler.models import DiscoveredDomain
-from crawler.utils import RateLimiter, clean_text, normalize_url
+from crawler.utils import RateLimiter, clean_text, make_soup, normalize_url
 
 logger = logging.getLogger(__name__)
 
@@ -48,13 +48,15 @@ def fetch_page(url: str, use_playwright: bool = False) -> tuple[str, str]:
             wait_until="domcontentloaded",
             wait_for_selector=None,
         )
+        # Playwright doesn't expose a Content-Type header here; rely on content sniffing.
         return html, clean_text(html)
 
     headers = {"User-Agent": CRAWLER_USER_AGENT, "Accept-Language": "en-US,en;q=0.9"}
     resp = requests.get(url, headers=headers, timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS)
     resp.raise_for_status()
     html = resp.text
-    return html, clean_text(html)
+    ct = resp.headers.get("Content-Type", "")
+    return html, clean_text(html, content_type=ct)
 
 
 def extract_internal_links(base_url: str, html: str) -> list[str]:
@@ -63,7 +65,7 @@ def extract_internal_links(base_url: str, html: str) -> list[str]:
     if not base.netloc:
         return []
 
-    soup = BeautifulSoup(html or "", "lxml")
+    soup = make_soup(html)
     out: list[str] = []
     for a in soup.select("a[href]"):
         href = (a.get("href") or "").strip()
