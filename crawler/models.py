@@ -153,8 +153,8 @@ class CrawlRunDomainResult(models.Model):
     """
     Per-run, per-domain processing ledger.
 
-    This enables idempotent stats and reliable ScrapeRun finalization even if
-    Celery tasks retry.
+    Can be linked to either a scraper ScrapeRun (legacy) or a crawler CrawlRun.
+    Exactly one of run or crawl_run must be set.
     """
 
     STATE_CHOICES = [
@@ -166,7 +166,18 @@ class CrawlRunDomainResult(models.Model):
     ]
 
     run = models.ForeignKey(
-        "scraper.ScrapeRun", on_delete=models.CASCADE, related_name="crawler_domain_results"
+        "scraper.ScrapeRun",
+        on_delete=models.CASCADE,
+        related_name="crawler_domain_results",
+        null=True,
+        blank=True,
+    )
+    crawl_run = models.ForeignKey(
+        CrawlRun,
+        on_delete=models.CASCADE,
+        related_name="domain_results",
+        null=True,
+        blank=True,
     )
     domain = models.ForeignKey(
         DiscoveredDomain, on_delete=models.CASCADE, related_name="run_results"
@@ -198,10 +209,20 @@ class CrawlRunDomainResult(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["run", "domain"], name="uniq_crawler_run_domain")
+            models.UniqueConstraint(
+                condition=models.Q(run_id__isnull=False),
+                fields=["run", "domain"],
+                name="uniq_crawler_run_domain",
+            ),
+            models.UniqueConstraint(
+                condition=models.Q(crawl_run_id__isnull=False),
+                fields=["crawl_run", "domain"],
+                name="uniq_crawler_crawl_run_domain",
+            ),
         ]
         indexes = [
             models.Index(fields=["run", "state"]),
+            models.Index(fields=["crawl_run", "state"]),
             models.Index(fields=["processed_at"]),
         ]
 

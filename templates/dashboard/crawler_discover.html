@@ -19,7 +19,7 @@
     <div class="col-lg-8">
         <div class="card mb-4">
             <div class="card-header">
-                <h5 class="mb-0">Search Bing for domains</h5>
+                <h5 class="mb-0">Search for domains (Serper/Google or Bing)</h5>
             </div>
             <div class="card-body">
                 <div class="row g-3">
@@ -258,7 +258,7 @@
         showToast(msg, 'success');
         if (auto_crawl && result.data.run_id) {
             setTimeout(() => {
-                window.location.href = `{% url 'dashboard:run_detail' 0 %}`.replace('/0/', `/${result.data.run_id}/`);
+                window.location.href = `{% url 'dashboard:crawl_run_detail' 0 %}`.replace('/0/', `/${result.data.run_id}/`);
             }, 800);
         }
     }

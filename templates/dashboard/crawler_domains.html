@@ -155,7 +155,7 @@
             if (result.success) {
                 showToast(`Crawl started (run #${result.data.run_id})`, 'success');
                 setTimeout(() => {
-                    window.location.href = `{% url 'dashboard:run_detail' 0 %}`.replace('/0/', `/${result.data.run_id}/`);
+                    window.location.href = `{% url 'dashboard:crawl_run_detail' 0 %}`.replace('/0/', `/${result.data.run_id}/`);
                 }, 800);
                 return;
             }

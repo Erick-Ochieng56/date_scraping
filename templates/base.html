@@ -228,20 +228,14 @@
                                 </a>
                             </li>
                             <li class="nav-item">
+                                <span class="nav-link text-uppercase small text-muted px-3 pt-2">Scraper</span>
+                            </li>
+                            <li class="nav-item">
                                 <a
                                     class="nav-link {% if request.resolver_match.url_name == 'targets' or request.resolver_match.url_name == 'target_detail' or request.resolver_match.url_name == 'target_wizard' %}active{% endif %}"
                                     href="{% url 'dashboard:targets' %}"
                                 >
-                                    <i class="bi bi-bullseye"></i> Scrape
-                                    Targets
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a
-                                    class="nav-link {% if request.resolver_match.url_name == 'crawl_targets' or request.resolver_match.url_name == 'crawl_target_detail' %}active{% endif %}"
-                                    href="{% url 'dashboard:crawl_targets' %}"
-                                >
-                                    <i class="bi bi-search"></i> Crawl Targets
+                                    <i class="bi bi-bullseye"></i> Targets
                                 </a>
                             </li>
                             <li class="nav-item">
@@ -249,16 +243,50 @@
                                     class="nav-link {% if request.resolver_match.url_name == 'runs' or request.resolver_match.url_name == 'run_detail' %}active{% endif %}"
                                     href="{% url 'dashboard:runs' %}"
                                 >
-                                    <i class="bi bi-play-circle"></i> Scrape
-                                    Runs
+                                    <i class="bi bi-play-circle"></i> Scrape Runs
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <span class="nav-link text-uppercase small text-muted px-3 pt-2">Crawler</span>
+                            </li>
+                            <li class="nav-item">
+                                <a
+                                    class="nav-link {% if request.resolver_match.url_name == 'crawler_home' %}active{% endif %}"
+                                    href="{% url 'dashboard:crawler_home' %}"
+                                >
+                                    <i class="bi bi-house"></i> Crawler Home
                                 </a>
                             </li>
                             <li class="nav-item">
                                 <a
-                                    class="nav-link {% if request.resolver_match.url_name == 'crawl_runs' or request.resolver_match.url_name == 'crawl_run_detail' or request.resolver_match.url_name|default:''|slice:':7' == 'crawler' %}active{% endif %}"
-                                    href="{% url 'dashboard:crawler_home' %}"
+                                    class="nav-link {% if request.resolver_match.url_name == 'crawler_discover' %}active{% endif %}"
+                                    href="{% url 'dashboard:crawler_discover' %}"
                                 >
-                                    <i class="bi bi-search"></i> Crawler
+                                    <i class="bi bi-search"></i> Discover
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a
+                                    class="nav-link {% if request.resolver_match.url_name == 'crawler_domains' %}active{% endif %}"
+                                    href="{% url 'dashboard:crawler_domains' %}"
+                                >
+                                    <i class="bi bi-globe"></i> Domains
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a
+                                    class="nav-link {% if request.resolver_match.url_name == 'crawler_sources' or request.resolver_match.url_name == 'crawler_source_add' or request.resolver_match.url_name == 'crawler_source_edit' %}active{% endif %}"
+                                    href="{% url 'dashboard:crawler_sources' %}"
+                                >
+                                    <i class="bi bi-sliders"></i> Sources
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a
+                                    class="nav-link {% if request.resolver_match.url_name == 'crawl_runs' or request.resolver_match.url_name == 'crawl_run_detail' %}active{% endif %}"
+                                    href="{% url 'dashboard:crawl_runs' %}"
+                                >
+                                    <i class="bi bi-broadcast"></i> Crawl Runs
                                 </a>
                             </li>
                             <li class="nav-item">

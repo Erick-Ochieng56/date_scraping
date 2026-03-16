@@ -18,7 +18,15 @@ from django.utils import timezone
 
 from crawler.crawler import crawl_domain
 from crawler.discovery import discover_websites, save_discovered_domains
-from crawler.models import CrawlRun, CrawlRunStatus, CrawlRunTrigger, CrawlSource, DiscoveredDomain, WebsiteProfile
+from crawler.models import (
+    CrawlRun,
+    CrawlRunDomainResult,
+    CrawlRunStatus,
+    CrawlRunTrigger,
+    CrawlSource,
+    DiscoveredDomain,
+    WebsiteProfile,
+)
 from crawler.prospect_pipeline import create_or_update_prospect
 from crawler.scoring import get_score_label, score_website
 
@@ -87,6 +95,11 @@ def discover_websites_task(self) -> dict[str, Any]:
         new_domain_ids.extend(pending)
 
         for domain_id in new_domain_ids:
+            CrawlRunDomainResult.objects.get_or_create(
+                crawl_run_id=run.id,
+                domain_id=domain_id,
+                defaults={"state": "queued"},
+            )
             crawl_domain_task.delay(domain_id=domain_id, run_id=run.id)
 
         run.domains_queued = len(new_domain_ids)
@@ -121,12 +134,21 @@ def crawl_domain_task(self, domain_id: int, run_id: int) -> dict[str, Any]:
         domain_obj.last_crawled_at = timezone.now()
         domain_obj.error_text = data.get("error") or ""
         domain_obj.save(update_fields=["crawl_status", "last_crawled_at", "error_text"])
+        pages = int(data.get("pages_crawled") or 0)
+        CrawlRunDomainResult.objects.filter(
+            crawl_run_id=run_id, domain_id=domain_id
+        ).update(
+            state="crawled",
+            crawl_succeeded=not data.get("error"),
+            crawl_error=data.get("error") or "",
+            pages_crawled=pages,
+        )
         analyze_domain_task.delay(
             domain_id=domain_id, crawl_data=data, run_id=run_id
         )
         return {
             "domain_id": domain_id,
-            "pages_crawled": int(data.get("pages_crawled") or 0),
+            "pages_crawled": pages,
         }
     except Exception as exc:
         logger.exception(
@@ -136,6 +158,9 @@ def crawl_domain_task(self, domain_id: int, run_id: int) -> dict[str, Any]:
         domain_obj.last_crawled_at = timezone.now()
         domain_obj.error_text = str(exc)
         domain_obj.save(update_fields=["crawl_status", "last_crawled_at", "error_text"])
+        CrawlRunDomainResult.objects.filter(
+            crawl_run_id=run_id, domain_id=domain_id
+        ).update(state="failed", crawl_succeeded=False, crawl_error=str(exc))
         raise
 
 
@@ -183,6 +208,22 @@ def analyze_domain_task(
     profile.pages_crawled = int(crawl_data.get("pages_crawled") or 0)
     profile.save()
 
+    CrawlRunDomainResult.objects.filter(
+        crawl_run_id=run_id, domain_id=domain_id
+    ).update(
+        state="analyzed",
+        org_name=profile.org_name or "",
+        org_type=profile.org_type or "",
+        detected_org_types=profile.detected_org_types or [],
+        detected_services=profile.detected_services or [],
+        languages_detected=profile.languages_detected or [],
+        countries_detected=profile.countries_detected or [],
+        international_signals=profile.international_signals or [],
+        event_names=profile.event_names or [],
+        contact_emails=profile.contact_emails or [],
+        contact_phones=profile.contact_phones or [],
+    )
+
     score_and_create_prospect_task.delay(domain_id=domain_id, run_id=run_id)
     return profile.id
 
@@ -221,6 +262,20 @@ def score_and_create_prospect_task(
             label,
             score,
         )
+    else:
+        created = False
+        updated = False
+
+    CrawlRunDomainResult.objects.filter(
+        crawl_run_id=run_id, domain_id=domain_id
+    ).update(
+        state="scored",
+        score=score,
+        score_label=label,
+        prospect_created=created,
+        prospect_updated=updated,
+        processed_at=timezone.now(),
+    )
 
     try:
         with transaction.atomic():

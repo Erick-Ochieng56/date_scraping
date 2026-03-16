@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Iterable
 from urllib.parse import urljoin, urlparse
 
@@ -12,12 +13,95 @@ from crawler.utils import normalize_domain_url
 
 logger = logging.getLogger(__name__)
 
+SERPER_BASE_URL = "https://google.serper.dev/search"
 
-def discover_websites(query: str, max_results: int = 20) -> list[str]:
+
+def _get_serper_api_key() -> str | None:
+    """Return Serper API key if set, else None."""
+    key = (os.getenv("SERPER_API_KEY") or "").strip()
+    return key if key else None
+
+
+def discover_websites_serper(query: str, max_results: int = 20) -> list[str]:
     """
-    Discover website URLs for a given query by scraping Bing search results.
+    Discover website URLs using Serper.dev Google Search API.
 
-    Google tends to block automated scraping; Bing is typically more tolerant.
+    Requires SERPER_API_KEY to be set. Returns a list of normalized domain URLs.
+    """
+    q = (query or "").strip()
+    if not q:
+        return []
+
+    api_key = _get_serper_api_key()
+    if not api_key:
+        logger.debug("SERPER_API_KEY not set; skipping Serper discovery")
+        return []
+
+    payload = {"q": q, "num": min(max_results, 100)}
+    headers = {
+        "X-API-KEY": api_key,
+        "Content-Type": "application/json",
+    }
+
+    try:
+        resp = requests.post(
+            SERPER_BASE_URL,
+            headers=headers,
+            json=payload,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.RequestException as exc:
+        logger.warning("Serper API request failed for query=%r: %s", q, exc)
+        return []
+    except ValueError as exc:
+        logger.warning("Serper API invalid JSON for query=%r: %s", q, exc)
+        return []
+
+    out: list[str] = []
+    organic = data.get("organic") or []
+    for item in organic:
+        link = (item.get("link") or "").strip()
+        if not link or not (
+            link.lower().startswith("http://") or link.lower().startswith("https://")
+        ):
+            continue
+        norm = normalize_domain(link)
+        if norm and norm not in out:
+            out.append(norm)
+        if len(out) >= max_results:
+            break
+
+    # Include sitelinks from organic results for more coverage
+    if len(out) < max_results:
+        for item in organic:
+            for sitelink in item.get("sitelinks") or []:
+                link = (sitelink.get("link") or "").strip()
+                if not link or not (
+                    link.lower().startswith("http://")
+                    or link.lower().startswith("https://")
+                ):
+                    continue
+                norm = normalize_domain(link)
+                if norm and norm not in out:
+                    out.append(norm)
+                if len(out) >= max_results:
+                    break
+            if len(out) >= max_results:
+                break
+
+    if not out:
+        logger.info("Serper discovery returned no domains for query=%r", q)
+    else:
+        logger.info("Serper discovery found %d domain(s) for query=%r", len(out), q)
+    return out[:max_results]
+
+
+def discover_websites_bing(query: str, max_results: int = 20) -> list[str]:
+    """
+    Discover website URLs by scraping Bing search results.
+
     Returns a list of normalized domain URLs (e.g., https://example.com).
     """
     q = (query or "").strip()
@@ -80,6 +164,27 @@ def discover_websites(query: str, max_results: int = 20) -> list[str]:
     if not out:
         logger.info("Bing discovery returned no domains for query=%r", q)
     return out
+
+
+def discover_websites(query: str, max_results: int = 20) -> list[str]:
+    """
+    Discover website URLs for a given query.
+
+    Uses Serper.dev (Google Search API) when SERPER_API_KEY is set;
+    otherwise falls back to Bing scraping. Returns a list of normalized
+    domain URLs (e.g., https://example.com).
+    """
+    q = (query or "").strip()
+    if not q:
+        return []
+
+    if _get_serper_api_key():
+        urls = discover_websites_serper(q, max_results=max_results)
+        if urls:
+            return urls
+        logger.info("Serper returned no results; falling back to Bing for query=%r", q)
+
+    return discover_websites_bing(q, max_results=max_results)
 
 
 def normalize_domain(url: str) -> str:
