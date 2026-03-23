@@ -1,5 +1,6 @@
 from django.urls import path
-from . import api_views, export_views, views, wizard_views
+
+from . import api_views, auth_api, export_views, views, wizard_views
 
 app_name = 'dashboard'
 
@@ -32,6 +33,11 @@ urlpatterns = [
     path('leads/add/', views.LeadCreateView.as_view(), name='lead_add'),
     path('leads/<int:pk>/', views.LeadDetailView.as_view(), name='lead_detail'),
     
+    # Auth (Scraper portal + CSRF priming)
+    path('api/auth/login/', auth_api.api_auth_login, name='api_auth_login'),
+    path('api/auth/logout/', auth_api.api_auth_logout, name='api_auth_logout'),
+    path('api/auth/me/', auth_api.api_auth_me, name='api_auth_me'),
+
     # API endpoints - Scraping
     path('api/trigger-scrape/', api_views.api_trigger_scrape, name='api_trigger_scrape'),
     path('api/trigger-crawler/', api_views.api_trigger_crawler, name='api_trigger_crawler'),

@@ -87,12 +87,14 @@
             </div>
             <div class="card-body">
                 <div class="btn-group" role="group">
+                    {% if user.is_staff %}
                     <a
                         href="{% url 'dashboard:target_wizard' %}"
                         class="btn btn-primary"
                     >
                         <i class="bi bi-plus-circle"></i> Add New Target
                     </a>
+                    {% endif %}
                     <button
                         type="button"
                         class="btn btn-outline-primary"
@@ -400,6 +402,7 @@
             </div>
         </div>
     </div>
+    {% if user.is_staff %}
     <div class="col-md-3 mb-4">
         <div class="card">
             <div
@@ -431,6 +434,7 @@
             </div>
         </div>
     </div>
+    {% endif %}
 </div>
 {% endblock %}
 

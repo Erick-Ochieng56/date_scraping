@@ -6,6 +6,7 @@
 {% block page_header %}
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
     <h1 class="h2">Scrape Targets</h1>
+    {% if user.is_staff %}
     <div class="btn-toolbar mb-2 mb-md-0">
         <div class="btn-group me-2">
             <a href="{% url 'dashboard:target_wizard' %}" class="btn btn-sm btn-primary">
@@ -13,6 +14,7 @@
             </a>
         </div>
     </div>
+    {% endif %}
 </div>
 {% endblock %}
 
@@ -125,9 +127,11 @@
                                 <a href="{% url 'dashboard:target_detail' target.id %}" class="btn btn-outline-primary" title="View Details">
                                     <i class="bi bi-eye"></i>
                                 </a>
+                                {% if user.is_staff %}
                                 <a href="{% url 'dashboard:target_edit' target.id %}" class="btn btn-outline-secondary" title="Edit">
                                     <i class="bi bi-pencil"></i>
                                 </a>
+                                {% endif %}
                             </div>
                         </td>
                     </tr>
@@ -138,7 +142,11 @@
         {% else %}
         <div class="alert alert-info">
             <i class="bi bi-info-circle"></i> No targets found.
+            {% if user.is_staff %}
             <a href="{% url 'dashboard:target_wizard' %}">Add your first target</a>.
+            {% else %}
+            Ask an administrator to add scrape targets.
+            {% endif %}
         </div>
         {% endif %}
     </div>

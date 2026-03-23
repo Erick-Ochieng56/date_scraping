@@ -2,17 +2,17 @@ from __future__ import annotations
 
 import json
 
-from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.http import require_GET, require_POST
 
+from dashboard.permissions import staff_json_api_user
 from dashboard.utils import log_activity
 from scraper.models import ScrapeTarget
 from scraper.services.auto_discover import auto_create_target, detect_platform_type
 
 
-@login_required
 @require_GET
+@staff_json_api_user
 def wizard_detect_platform(request: HttpRequest) -> JsonResponse:
     """API endpoint to detect platform from URL."""
     url = request.GET.get('url')
@@ -33,8 +33,8 @@ def wizard_detect_platform(request: HttpRequest) -> JsonResponse:
     })
 
 
-@login_required
 @require_POST
+@staff_json_api_user
 def wizard_create_target(request: HttpRequest) -> JsonResponse:
     """API endpoint to create target from wizard."""
     try:

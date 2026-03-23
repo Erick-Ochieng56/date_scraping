@@ -235,6 +235,9 @@ USE_I18N = True
 
 USE_TZ = True
 
+# Django Group name for Scraper portal users (non-staff; see dashboard.permissions).
+SCRAPER_GROUP_NAME = (_get_env("SCRAPER_GROUP_NAME") or "scraper").strip()
+
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
@@ -253,13 +256,19 @@ STATICFILES_DIRS = [
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# --- Security hardening (safe defaults for production) ---
+# --- Security hardening (when DEBUG=False) ---
 if not DEBUG:
     if SECRET_KEY == "django-insecure-dev-only-change-me":
         raise RuntimeError("DJANGO_SECRET_KEY must be set in production (DEBUG=False).")
 
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-    SECURE_SSL_REDIRECT = _get_bool("DJANGO_SECURE_SSL_REDIRECT", default=True)
+    # Default False: runserver and local HTTP + Vite proxy are HTTP-only. A True default
+    # redirects every request to https://same-host/... which runserver cannot serve →
+    # "Bad request version" / "accessing over HTTPS but only supports HTTP" in the console.
+    # Set DJANGO_SECURE_SSL_REDIRECT=1 in real production (or terminate TLS at a proxy).
+    SECURE_SSL_REDIRECT = _get_bool("DJANGO_SECURE_SSL_REDIRECT", default=False)
+    # Still default True: behind HTTPS (or a TLS-terminating proxy) in real deployments.
+    # For local HTTP with DEBUG=0, set DJANGO_SESSION_COOKIE_SECURE=0 and DJANGO_CSRF_COOKIE_SECURE=0.
     SESSION_COOKIE_SECURE = _get_bool("DJANGO_SESSION_COOKIE_SECURE", default=True)
     CSRF_COOKIE_SECURE = _get_bool("DJANGO_CSRF_COOKIE_SECURE", default=True)
     SECURE_HSTS_SECONDS = int(_get_env("DJANGO_SECURE_HSTS_SECONDS", "3600") or "3600")
@@ -271,7 +280,19 @@ if not DEBUG:
     SECURE_REFERRER_POLICY = _get_env("DJANGO_SECURE_REFERRER_POLICY", "same-origin")
     X_FRAME_OPTIONS = _get_env("DJANGO_X_FRAME_OPTIONS", "DENY")
 
-CSRF_TRUSTED_ORIGINS = _get_list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
+# Browser Origin is the SPA host (e.g. Vite on :5173), not Django :8000 — required for CSRF on POST from the React app.
+_CSRF_TRUSTED = list(_get_list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[]))
+if DEBUG:
+    for _origin in (
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        # Vite with https: true or HTTPS dev tooling
+        "https://localhost:5173",
+        "https://127.0.0.1:5173",
+    ):
+        if _origin not in _CSRF_TRUSTED:
+            _CSRF_TRUSTED.append(_origin)
+CSRF_TRUSTED_ORIGINS = _CSRF_TRUSTED
 
 # --- Optional WhiteNoise (production only) ---
 # In development, runserver serves from STATICFILES_DIRS; WhiteNoise would serve

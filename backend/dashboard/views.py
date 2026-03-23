@@ -5,6 +5,8 @@ from datetime import timedelta
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+
+from dashboard.permissions import StaffDashboardMixin
 from django.db.models import Count, Q
 from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, redirect
@@ -183,7 +185,7 @@ class CrawlerHomeView(LoginRequiredMixin, TemplateView):
     template_name = "dashboard/crawler_home.html"
 
 
-class CrawlSourceListView(LoginRequiredMixin, ListView):
+class CrawlSourceListView(StaffDashboardMixin, ListView):
     model = CrawlSource
     template_name = "dashboard/crawler_sources.html"
     context_object_name = "sources"
@@ -193,14 +195,14 @@ class CrawlSourceListView(LoginRequiredMixin, ListView):
         return super().get_queryset().order_by("priority", "id")
 
 
-class CrawlSourceCreateView(LoginRequiredMixin, CreateView):
+class CrawlSourceCreateView(StaffDashboardMixin, CreateView):
     model = CrawlSource
     form_class = CrawlSourceForm
     template_name = "dashboard/crawler_source_form.html"
     success_url = reverse_lazy("dashboard:crawler_sources")
 
 
-class CrawlSourceUpdateView(LoginRequiredMixin, UpdateView):
+class CrawlSourceUpdateView(StaffDashboardMixin, UpdateView):
     model = CrawlSource
     form_class = CrawlSourceForm
     template_name = "dashboard/crawler_source_form.html"
@@ -242,12 +244,12 @@ class CrawlerDiscoverView(LoginRequiredMixin, TemplateView):
     template_name = "dashboard/crawler_discover.html"
 
 
-class TargetWizardView(LoginRequiredMixin, TemplateView):
+class TargetWizardView(StaffDashboardMixin, TemplateView):
     """Wizard for creating scrape targets with auto-detection."""
     template_name = 'dashboard/target_wizard.html'
 
 
-class TargetEditView(LoginRequiredMixin, UpdateView):
+class TargetEditView(StaffDashboardMixin, UpdateView):
     """Edit an existing scrape target in the dashboard."""
     model = ScrapeTarget
     form_class = TargetEditForm
@@ -346,7 +348,7 @@ class TargetDetailView(LoginRequiredMixin, DetailView):
         return context
 
 
-class CrawlTargetListView(LoginRequiredMixin, ListView):
+class CrawlTargetListView(StaffDashboardMixin, ListView):
     """List all crawl targets (CrawlSource). Separate from scrape targets."""
 
     model = CrawlSource
@@ -376,7 +378,7 @@ class CrawlTargetListView(LoginRequiredMixin, ListView):
         return context
 
 
-class CrawlTargetDetailView(LoginRequiredMixin, DetailView):
+class CrawlTargetDetailView(StaffDashboardMixin, DetailView):
     """View a single crawl target (CrawlSource) and recent domains from it."""
 
     model = CrawlSource
@@ -764,7 +766,7 @@ class LeadDetailView(LoginRequiredMixin, DetailView):
         return context
 
 
-class ErrorMonitoringView(LoginRequiredMixin, TemplateView):
+class ErrorMonitoringView(StaffDashboardMixin, TemplateView):
     """Dedicated view for failed scrape runs, failed crawl runs, and error summary."""
 
     template_name = "dashboard/error_monitoring.html"
@@ -813,7 +815,7 @@ class ErrorMonitoringView(LoginRequiredMixin, TemplateView):
         return context
 
 
-class ActivityLogListView(LoginRequiredMixin, ListView):
+class ActivityLogListView(StaffDashboardMixin, ListView):
     """View activity log (audit trail) with optional filters."""
 
     model = ActivityLog

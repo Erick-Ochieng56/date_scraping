@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 
-from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
 from crawler.tasks import discover_websites_task, crawl_domain_task
+from dashboard.permissions import dashboard_api_user
 from dashboard.models import Notification
 from dashboard.utils import log_activity
 from leads.models import Lead, LeadStatus, Prospect, ProspectStatus
@@ -15,8 +15,8 @@ from scraper.models import ScrapeRun, ScrapeRunStatus, ScrapeTarget
 from scraper.tasks import scrape_target, enqueue_enabled_targets
 
 
-@login_required
 @require_POST
+@dashboard_api_user
 def api_trigger_scrape(request: HttpRequest) -> JsonResponse:
     """API endpoint to trigger a scrape for a specific target or all enabled targets."""
     try:
@@ -72,8 +72,8 @@ def api_trigger_scrape(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
 @require_POST
+@dashboard_api_user
 def api_trigger_crawler(request: HttpRequest) -> JsonResponse:
     """API endpoint to trigger crawler discovery (runs all enabled CrawlSources)."""
     try:
@@ -101,8 +101,8 @@ def api_trigger_crawler(request: HttpRequest) -> JsonResponse:
 api_trigger_crawl = api_trigger_crawler
 
 
-@login_required
 @require_POST
+@dashboard_api_user
 def api_crawler_preview(request: HttpRequest) -> JsonResponse:
     """
     Preview Bing discovery results for a manual query (no DB writes).
@@ -123,8 +123,8 @@ def api_crawler_preview(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
 @require_POST
+@dashboard_api_user
 def api_crawler_queue(request: HttpRequest) -> JsonResponse:
     """
     Queue discovered domains into DiscoveredDomain and optionally auto-crawl them.
@@ -224,8 +224,8 @@ def api_crawler_queue(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
 @require_POST
+@dashboard_api_user
 def api_crawler_crawl_domain(request: HttpRequest, domain_id: int) -> JsonResponse:
     """
     Trigger a crawl for a single DiscoveredDomain (manual run).
@@ -248,8 +248,8 @@ def api_crawler_crawl_domain(request: HttpRequest, domain_id: int) -> JsonRespon
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
 @require_POST
+@dashboard_api_user
 def api_retry_run(request: HttpRequest, run_id: int) -> JsonResponse:
     """API endpoint to retry a failed scrape run."""
     try:
@@ -283,7 +283,8 @@ def api_retry_run(request: HttpRequest, run_id: int) -> JsonResponse:
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
+@require_GET
+@dashboard_api_user
 def api_get_run_status(request: HttpRequest, run_id: int) -> JsonResponse:
     """API endpoint to get the current status of a scrape run."""
     try:
@@ -312,8 +313,8 @@ def api_get_run_status(request: HttpRequest, run_id: int) -> JsonResponse:
 
 # Prospect API Endpoints
 
-@login_required
 @require_POST
+@dashboard_api_user
 def api_prospect_bulk_mark_contacted(request: HttpRequest) -> JsonResponse:
     """API endpoint to mark multiple prospects as contacted."""
     try:
@@ -352,8 +353,8 @@ def api_prospect_bulk_mark_contacted(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
 @require_POST
+@dashboard_api_user
 def api_prospect_bulk_convert(request: HttpRequest) -> JsonResponse:
     """API endpoint to convert multiple prospects to leads."""
     try:
@@ -402,8 +403,8 @@ def api_prospect_bulk_convert(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
 @require_POST
+@dashboard_api_user
 def api_prospect_bulk_reject(request: HttpRequest) -> JsonResponse:
     """API endpoint to reject multiple prospects."""
     try:
@@ -447,8 +448,8 @@ def api_prospect_bulk_reject(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
 @require_POST
+@dashboard_api_user
 def api_prospect_mark_contacted(request: HttpRequest, prospect_id: int) -> JsonResponse:
     """API endpoint to mark a single prospect as contacted."""
     try:
@@ -472,8 +473,8 @@ def api_prospect_mark_contacted(request: HttpRequest, prospect_id: int) -> JsonR
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
 @require_POST
+@dashboard_api_user
 def api_prospect_convert(request: HttpRequest, prospect_id: int) -> JsonResponse:
     """API endpoint to convert a single prospect to a lead."""
     try:
@@ -501,8 +502,8 @@ def api_prospect_convert(request: HttpRequest, prospect_id: int) -> JsonResponse
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
 @require_POST
+@dashboard_api_user
 def api_prospect_reject(request: HttpRequest, prospect_id: int) -> JsonResponse:
     """API endpoint to reject a single prospect."""
     try:
@@ -531,8 +532,8 @@ def api_prospect_reject(request: HttpRequest, prospect_id: int) -> JsonResponse:
 
 # Lead API Endpoints
 
-@login_required
 @require_POST
+@dashboard_api_user
 def api_lead_bulk_mark_interested(request: HttpRequest) -> JsonResponse:
     """API endpoint to mark multiple leads as interested."""
     try:
@@ -569,8 +570,8 @@ def api_lead_bulk_mark_interested(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
 @require_POST
+@dashboard_api_user
 def api_lead_bulk_sync_crm(request: HttpRequest) -> JsonResponse:
     """API endpoint to sync multiple leads to CRM."""
     try:
@@ -612,8 +613,8 @@ def api_lead_bulk_sync_crm(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
 @require_POST
+@dashboard_api_user
 def api_lead_bulk_reject(request: HttpRequest) -> JsonResponse:
     """API endpoint to reject multiple leads."""
     try:
@@ -653,8 +654,8 @@ def api_lead_bulk_reject(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
 @require_POST
+@dashboard_api_user
 def api_lead_mark_interested(request: HttpRequest, lead_id: int) -> JsonResponse:
     """API endpoint to mark a single lead as interested."""
     try:
@@ -685,8 +686,8 @@ def api_lead_mark_interested(request: HttpRequest, lead_id: int) -> JsonResponse
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
 @require_POST
+@dashboard_api_user
 def api_lead_sync_crm(request: HttpRequest, lead_id: int) -> JsonResponse:
     """API endpoint to sync a single lead to CRM."""
     try:
@@ -721,8 +722,8 @@ def api_lead_sync_crm(request: HttpRequest, lead_id: int) -> JsonResponse:
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@login_required
 @require_POST
+@dashboard_api_user
 def api_lead_reject(request: HttpRequest, lead_id: int) -> JsonResponse:
     """API endpoint to reject a single lead."""
     try:
@@ -756,8 +757,8 @@ def api_lead_reject(request: HttpRequest, lead_id: int) -> JsonResponse:
 
 # Notifications API Endpoints
 
-@login_required
 @require_GET
+@dashboard_api_user
 def api_notifications(request: HttpRequest) -> JsonResponse:
     """API endpoint to get user notifications."""
     try:
@@ -783,8 +784,8 @@ def api_notifications(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"success": False, "error": str(e)}, status=500)
 
 
-@login_required
 @require_POST
+@dashboard_api_user
 def api_notification_read(request: HttpRequest, notif_id: int) -> JsonResponse:
     """API endpoint to mark a notification as read."""
     try:

@@ -232,7 +232,7 @@
                             </li>
                             <li class="nav-item">
                                 <a
-                                    class="nav-link {% if request.resolver_match.url_name == 'targets' or request.resolver_match.url_name == 'target_detail' or request.resolver_match.url_name == 'target_wizard' %}active{% endif %}"
+                                    class="nav-link {% if request.resolver_match.url_name == 'targets' or request.resolver_match.url_name == 'target_detail' or user.is_staff and request.resolver_match.url_name == 'target_wizard' %}active{% endif %}"
                                     href="{% url 'dashboard:targets' %}"
                                 >
                                     <i class="bi bi-bullseye"></i> Targets
@@ -273,6 +273,7 @@
                                     <i class="bi bi-globe"></i> Domains
                                 </a>
                             </li>
+                            {% if user.is_staff %}
                             <li class="nav-item">
                                 <a
                                     class="nav-link {% if request.resolver_match.url_name == 'crawler_sources' or request.resolver_match.url_name == 'crawler_source_add' or request.resolver_match.url_name == 'crawler_source_edit' %}active{% endif %}"
@@ -281,6 +282,7 @@
                                     <i class="bi bi-sliders"></i> Sources
                                 </a>
                             </li>
+                            {% endif %}
                             <li class="nav-item">
                                 <a
                                     class="nav-link {% if request.resolver_match.url_name == 'crawl_runs' or request.resolver_match.url_name == 'crawl_run_detail' %}active{% endif %}"
@@ -305,6 +307,7 @@
                                     <i class="bi bi-person-check"></i> Leads
                                 </a>
                             </li>
+                            {% if user.is_staff %}
                             <li class="nav-item">
                                 <a
                                     class="nav-link {% if request.resolver_match.url_name == 'activity_log' %}active{% endif %}"
@@ -321,6 +324,7 @@
                                     <i class="bi bi-exclamation-triangle"></i> Error Monitoring
                                 </a>
                             </li>
+                            {% endif %}
                         </ul>
                     </div>
                 </nav>

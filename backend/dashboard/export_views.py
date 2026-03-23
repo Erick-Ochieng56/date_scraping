@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import csv
 
-from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, HttpResponse
 from django.views.decorators.http import require_GET
 
+from dashboard.permissions import dashboard_api_user
 from leads.models import Lead, Prospect
 
 
-@login_required
 @require_GET
+@dashboard_api_user
 def export_prospects_csv(request: HttpRequest) -> HttpResponse:
     """Export prospects to CSV."""
     response = HttpResponse(content_type='text/csv')
@@ -73,8 +73,8 @@ def export_prospects_csv(request: HttpRequest) -> HttpResponse:
     return response
 
 
-@login_required
 @require_GET
+@dashboard_api_user
 def export_leads_csv(request: HttpRequest) -> HttpResponse:
     """Export leads to CSV."""
     response = HttpResponse(content_type='text/csv')
