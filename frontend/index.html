@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!--
+      Free ngrok interstitial only inspects the browser's *request* to the tunnel, not Django responses.
+      Patch fetch + XHR so every same-origin API call sends ngrok-skip-browser-warning (axios uses XHR).
+      The first full-page GET cannot carry a custom header; use "Visit Site" once (ngrok sets a cookie ~7d).
+    -->
+    <script>
+      (function () {
+        try {
+          var host = location.hostname
+          if (!/\.ngrok-free\.(dev|app)$/i.test(host) && !/\.ngrok\.io$/i.test(host)) return
+          var NAME = 'ngrok-skip-browser-warning'
+          var VALUE = 'true'
+          if (typeof fetch === 'function') {
+            var _fetch = window.fetch
+            window.fetch = function (input, init) {
+              init = init ? Object.assign({}, init) : {}
+              var headers = new Headers(init.headers || undefined)
+              if (!headers.has(NAME)) headers.set(NAME, VALUE)
+              init.headers = headers
+              return _fetch.call(this, input, init)
+            }
+          }
+          var _open = XMLHttpRequest.prototype.open
+          XMLHttpRequest.prototype.open = function () {
+            var out = _open.apply(this, arguments)
+            try {
+              this.setRequestHeader(NAME, VALUE)
+            } catch (e) {}
+            return out
+          }
+        } catch (e) {}
+      })()
+    </script>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/atericlogo.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link href="/src/index.css" rel="stylesheet">
+    <title>Ateric — Leads dashboard</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
