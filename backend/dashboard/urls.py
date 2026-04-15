@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import include, path
 
 from . import api_views, auth_api, export_views, views, wizard_views
 
@@ -79,5 +79,7 @@ urlpatterns = [
     # Notifications endpoints
     path('api/notifications/', api_views.api_notifications, name='api_notifications'),
     path('api/notifications/<int:notif_id>/read/', api_views.api_notification_read, name='api_notification_read'),
+    path("api/v1/", include("dashboard.api.urls")),
+    path("api/admin/v1/", include("dashboard.api.admin_urls")),
 ]
 

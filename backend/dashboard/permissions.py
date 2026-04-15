@@ -1,10 +1,11 @@
 """
-Role helpers for the dashboard API and staff-only HTML views.
+Role helpers for the dashboard API and HTML views.
 
-- **Staff** (`is_staff`): full Django dashboard + admin-style management; uses the
-  template dashboard, not the React Scraper portal login.
-- **Scraper**: users in the `scraper` Django group (non-staff). Session login via
-  `/dashboard/api/auth/login/` for the SPA; operational APIs and data only.
+- **Admin** (`is_staff`, usually superuser): template dashboard + Django admin;
+  not the React app session login.
+- **Staff** (React): users in the portal Django group (``SCRAPER_GROUP_NAME`` /
+  default ``scraper``) who are *not* ``is_staff``. Session login via
+  ``/dashboard/api/auth/login/`` for the SPA.
 """
 from __future__ import annotations
 

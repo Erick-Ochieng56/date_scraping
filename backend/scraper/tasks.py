@@ -158,13 +158,14 @@ def enqueue_enabled_targets() -> int:
 
 
 @shared_task(bind=True)
-def scrape_target(self, target_id: int, trigger: str = ScrapeRunTrigger.MANUAL) -> int:
+def scrape_target(self, target_id: int, trigger: str = ScrapeRunTrigger.MANUAL, initiated_by_id: int | None = None) -> int:
     """
     Scrape a single target and upsert leads.
     Returns number of items extracted.
     """
     target = ScrapeTarget.objects.get(id=target_id)
     run = ScrapeRun.objects.create(
+        owner_id=initiated_by_id or target.owner_id,
         target=target,
         trigger=trigger,
         status=ScrapeRunStatus.RUNNING,
@@ -191,7 +192,11 @@ def scrape_target(self, target_id: int, trigger: str = ScrapeRunTrigger.MANUAL) 
 
         with transaction.atomic():
             for item in items:
-                prospect, created = upsert_prospect_from_item(target=target, item=item)
+                prospect, created = upsert_prospect_from_item(
+                    target=target,
+                    item=item,
+                    owner_id=initiated_by_id or target.owner_id,
+                )
                 if created:
                     created_count += 1
                     # Only push NEW prospects to Sheets. Do not re-push on updates.

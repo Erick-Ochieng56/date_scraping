@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from django.contrib.auth import get_user_model
 from django.db import models
 from django.utils import timezone
 
+User = get_user_model()
 
 class CrawlRunStatus(models.TextChoices):
     RUNNING = "running", "Running"
@@ -23,6 +25,7 @@ class CrawlRun(models.Model):
 
     started_at = models.DateTimeField(default=timezone.now)
     finished_at = models.DateTimeField(blank=True, null=True)
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="crawl_runs", null=True, blank=True)
     trigger = models.CharField(
         max_length=20,
         choices=CrawlRunTrigger.choices,
@@ -62,11 +65,23 @@ class CrawlSource(models.Model):
     ]
 
     name = models.CharField(max_length=200)
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="crawl_sources", null=True, blank=True)
     discovery_query = models.CharField(max_length=500)
     source_type = models.CharField(max_length=50, choices=SOURCE_TYPE_CHOICES)
     enabled = models.BooleanField(default=True)
     priority = models.IntegerField(default=5)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    competitor_keywords = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Keywords that indicate a site IS a competitor. Auto-derived from discovery_query if empty.",
+    )
+    competitor_org_types = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Org types to exclude e.g. ['translation_agency', 'lsp', 'localization_vendor']",
+    )
 
     class Meta:
         indexes = [
@@ -91,6 +106,7 @@ class DiscoveredDomain(models.Model):
     ]
 
     domain = models.CharField(max_length=255, unique=True)
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="discovered_domains", null=True, blank=True)
     source = models.ForeignKey(
         CrawlSource, on_delete=models.SET_NULL, null=True, related_name="domains"
     )
@@ -106,6 +122,12 @@ class DiscoveredDomain(models.Model):
     last_crawled_at = models.DateTimeField(null=True, blank=True)
     next_attempt_at = models.DateTimeField(null=True, blank=True)
     error_text = models.TextField(blank=True, default="")
+    source_url = models.URLField(
+        max_length=2048,
+        blank=True,
+        default="",
+        help_text="Landing page URL from discovery (e.g. Serper organic link); crawler visits this before the homepage when set.",
+    )
 
     class Meta:
         indexes = [
@@ -136,13 +158,23 @@ class WebsiteProfile(models.Model):
     contact_emails = models.JSONField(default=list)
     contact_phones = models.JSONField(default=list)
     translation_need_score = models.IntegerField(default=0)
+    gemini_translation_need_score = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="When set, scoring pipeline prefers this value over rule-based score_website().",
+    )
     pages_crawled = models.IntegerField(default=0)
     analyzed_at = models.DateTimeField(auto_now=True)
+
+    is_competitor = models.BooleanField(default=False)
+    is_competitor_reason = models.CharField(max_length=500, blank=True, default="")
+    excluded_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         indexes = [
             models.Index(fields=["translation_need_score"]),
             models.Index(fields=["analyzed_at"]),
+            models.Index(fields=["is_competitor"], name="crawler_web_is_comp_7a1b2c_idx"),
         ]
 
     def __str__(self) -> str:  # pragma: no cover
@@ -204,6 +236,9 @@ class CrawlRunDomainResult(models.Model):
     prospect_created = models.BooleanField(default=False)
     prospect_updated = models.BooleanField(default=False)
 
+    is_competitor = models.BooleanField(default=False)
+    is_competitor_reason = models.CharField(max_length=500, blank=True, default="")
+
     processed_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -228,3 +263,152 @@ class CrawlRunDomainResult(models.Model):
 
     def __str__(self) -> str:  # pragma: no cover
         return f"run={self.run_id} domain={self.domain.domain} state={self.state}"
+
+
+class AISearchJob(models.Model):
+    STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("generating", "Generating Queries"),
+        ("searching", "Searching"),
+        ("done", "Done"),
+        ("failed", "Failed"),
+    ]
+
+    owner = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="ai_search_jobs"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    seed_topic = models.CharField(max_length=500)
+    industry = models.CharField(max_length=200, blank=True, default="")
+    region = models.CharField(max_length=200, blank=True, default="")
+
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default="pending"
+    )
+    error_text = models.TextField(blank=True, default="")
+
+    queries_generated = models.JSONField(default=list)
+    domains_discovered = models.PositiveIntegerField(default=0)
+    prospects_created = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:  # pragma: no cover
+        return f"AISearchJob: {self.seed_topic} ({self.status})"
+
+
+class AISearchResult(models.Model):
+    job = models.ForeignKey(
+        AISearchJob, on_delete=models.CASCADE, related_name="results"
+    )
+    domain = models.CharField(max_length=255)
+    org_name = models.CharField(max_length=255, blank=True, default="")
+    org_type = models.CharField(max_length=100, blank=True, default="")
+    why_needs_translation = models.TextField(blank=True, default="")
+    international_signals = models.JSONField(default=list)
+    contact_email = models.CharField(max_length=255, blank=True, default="")
+    raw_data = models.JSONField(default=dict)
+
+    queued_domain = models.ForeignKey(
+        "DiscoveredDomain",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="ai_search_results",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:  # pragma: no cover
+        return f"{self.domain} (job={self.job_id})"
+
+
+class EventProspect(models.Model):
+    STATUS_CHOICES = [
+        ("new", "New"),
+        ("contacted", "Contacted"),
+        ("qualified", "Qualified"),
+        ("converted", "Converted"),
+        ("expired", "Expired"),
+        ("irrelevant", "Irrelevant"),
+    ]
+
+    EVENT_TYPE_CHOICES = [
+        ("conference", "Conference"),
+        ("summit", "Summit"),
+        ("trade_show", "Trade Show"),
+        ("workshop", "Workshop"),
+        ("diplomatic", "Diplomatic Meeting"),
+        ("legal", "Legal Proceeding"),
+        ("medical", "Medical Congress"),
+        ("ngo", "NGO/Development Forum"),
+        ("government", "Government Event"),
+        ("other", "Other"),
+    ]
+
+    owner = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="event_prospects"
+    )
+    discovered_domain = models.ForeignKey(
+        "DiscoveredDomain",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="event_prospects",
+    )
+    ai_search_result = models.ForeignKey(
+        "AISearchResult",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="event_prospects",
+    )
+
+    event_name = models.CharField(max_length=500)
+    event_type = models.CharField(
+        max_length=50, choices=EVENT_TYPE_CHOICES, default="other"
+    )
+    organizer_name = models.CharField(max_length=255, blank=True, default="")
+    organizer_domain = models.CharField(max_length=255, blank=True, default="")
+    event_url = models.URLField(blank=True, default="")
+
+    event_date = models.DateField(null=True, blank=True)
+    event_date_raw = models.CharField(max_length=200, blank=True, default="")
+    event_location = models.CharField(max_length=255, blank=True, default="")
+    is_virtual = models.BooleanField(default=False)
+    is_hybrid = models.BooleanField(default=False)
+
+    languages_involved = models.JSONField(default=list)
+    countries_involved = models.JSONField(default=list)
+    expected_attendee_count = models.CharField(max_length=100, blank=True, default="")
+    translation_services_needed = models.JSONField(default=list)
+    translation_need_score = models.IntegerField(default=0)
+
+    contact_name = models.CharField(max_length=255, blank=True, default="")
+    contact_email = models.CharField(max_length=255, blank=True, default="")
+    contact_phone = models.CharField(max_length=100, blank=True, default="")
+
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default="new"
+    )
+    urgency_score = models.IntegerField(default=0)
+    notes = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-urgency_score", "event_date"]
+        indexes = [
+            models.Index(fields=["event_date"], name="crawler_eve_event_d_8d3e4f_idx"),
+            models.Index(fields=["status"], name="crawler_eve_status_9e4f5a_idx"),
+            models.Index(fields=["urgency_score"], name="crawler_eve_urgency_a0b1c2_idx"),
+            models.Index(
+                fields=["event_type", "status"], name="crawler_eve_event_t_d3e4f5_idx"
+            ),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover
+        return f"{self.event_name} ({self.event_date or 'date unknown'})"

@@ -117,8 +117,14 @@ def api_crawler_preview(request: HttpRequest) -> JsonResponse:
 
         from crawler.discovery import discover_websites
 
-        urls = discover_websites(query=query, max_results=max_results)
-        return JsonResponse({"success": True, "urls": urls})
+        hits = discover_websites(query=query, max_results=max_results)
+        return JsonResponse(
+            {
+                "success": True,
+                "hits": hits,
+                "urls": [h["source_url"] for h in hits],
+            }
+        )
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
 
@@ -139,22 +145,17 @@ def api_crawler_queue(request: HttpRequest) -> JsonResponse:
 
         from django.utils import timezone
 
-        from crawler.discovery import discover_websites
+        from crawler.discovery import discover_websites, discovery_hits_from_user_payload, save_discovered_domains
         from crawler.models import CrawlRun, CrawlRunStatus, CrawlRunTrigger, CrawlSource, DiscoveredDomain
-        from crawler.utils import normalize_domain_url
 
         if not urls:
             if not query:
                 return JsonResponse({"success": True, "queued": 0, "run_id": None, "domain_ids": []})
-            urls = discover_websites(query=query, max_results=max_results)
+            hits = discover_websites(query=query, max_results=max_results)
+        else:
+            hits = discovery_hits_from_user_payload(urls)
 
-        normalized = []
-        for u in urls:
-            dom = normalize_domain_url(u)
-            if dom and dom not in normalized:
-                normalized.append(dom)
-
-        if not normalized:
+        if not hits:
             return JsonResponse({"success": True, "queued": 0, "run_id": None, "domain_ids": []})
 
         source = None
@@ -165,20 +166,17 @@ def api_crawler_queue(request: HttpRequest) -> JsonResponse:
                 defaults={"name": f"Manual: {query}", "enabled": False, "priority": 5},
             )
 
+        created_count = save_discovered_domains(hits, source=source, owner_id=None)
+
         domain_ids: list[int] = []
-        created_count = 0
         now = timezone.now()
-        for dom in normalized:
-            obj, created = DiscoveredDomain.objects.get_or_create(
-                domain=dom,
-                defaults={
-                    "source": source,
-                    "priority": (source.priority if source else 5),
-                    "crawl_status": "pending",
-                },
-            )
-            if created:
-                created_count += 1
+        seen_ids: set[int] = set()
+        for h in hits:
+            dom = h["domain"]
+            try:
+                obj = DiscoveredDomain.objects.get(domain=dom)
+            except DiscoveredDomain.DoesNotExist:
+                continue
             if source and obj.source_id is None:
                 obj.source = source
                 obj.save(update_fields=["source"])
@@ -186,8 +184,9 @@ def api_crawler_queue(request: HttpRequest) -> JsonResponse:
             due = obj.crawl_status in {"pending", "failed"} and (
                 obj.next_attempt_at is None or obj.next_attempt_at <= now
             )
-            if due:
+            if due and obj.id not in seen_ids:
                 domain_ids.append(obj.id)
+                seen_ids.add(obj.id)
 
         run_id = None
         if auto_crawl and domain_ids:

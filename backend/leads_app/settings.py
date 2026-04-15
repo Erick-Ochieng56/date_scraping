@@ -126,12 +126,52 @@ SECRET_KEY = _get_env(
     "django-insecure-dev-only-change-me",
 )
 
+CORS_ALLOW_CREDENTIALS = True
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ),
+    "DEFAULT_PERMISSION_CLASSES": (
+        "rest_framework.permissions.IsAuthenticated",
+    ),
+}
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=8),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
+}
+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = _get_bool("DJANGO_DEBUG", default=False)
 
-ALLOWED_HOSTS = _get_list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
+_DEFAULT_ALLOWED_HOSTS = (
+    "localhost",
+    "127.0.0.1",
+    ".ngrok-free.app",
+    "ngrok-free.app",
+    ".ngrok-free.dev",
+    "ngrok-free.dev",
+)
+_EXTRA_ALLOWED_HOSTS = _get_list("DJANGO_ALLOWED_HOSTS", default=[])
+ALLOWED_HOSTS = list(dict.fromkeys(list(_DEFAULT_ALLOWED_HOSTS) + _EXTRA_ALLOWED_HOSTS))
+
+# Vite build output (repo root / frontend / dist). Used when DJANGO_SERVE_SPA=1.
+_react_dist_raw = (_get_env("DJANGO_REACT_DIST_DIR", str(BASE_DIR.parent / "frontend" / "dist")) or "").strip()
+REACT_DIST_DIR = Path(_react_dist_raw or str(BASE_DIR.parent / "frontend" / "dist"))
+SERVE_REACT_APP = _get_bool("DJANGO_SERVE_SPA", default=False)
+USE_X_FORWARDED_HOST = _get_bool("DJANGO_USE_X_FORWARDED_HOST", default=False)
 
 ENVIRONMENT = _get_env("DJANGO_ENV", "development" if DEBUG else "production")
+
+# Google Gemini (optional — crawler AI enrichment / AI search jobs)
+GEMINI_API_KEY = (_get_env("GEMINI_API_KEY", "") or "").strip()
+GEMINI_ANALYSIS_MODEL = (
+    _get_env("GEMINI_ANALYSIS_MODEL", "gemini-2.5-flash") or "gemini-2.5-flash"
+).strip()
+GEMINI_GROUNDED_MODEL = (
+    _get_env("GEMINI_GROUNDED_MODEL", "gemini-2.5-flash") or "gemini-2.5-flash"
+).strip()
 
 
 # Application definition
@@ -143,10 +183,12 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "rest_framework",
     "django_extensions",
     "django_bootstrap5",
     "django_tables2",
     "django_filters",
+    "corsheaders",
     # local apps
     "core",
     "leads",
@@ -158,6 +200,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     # WhiteNoise is optional; enables simple static serving in production.
     # If not installed, we safely skip it.
@@ -170,6 +213,8 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = "leads_app.urls"
+LOGIN_URL = "/admin/login/"
+LOGIN_REDIRECT_URL = "/dashboard/"
 
 TEMPLATES = [
     {
@@ -444,3 +489,36 @@ if _get_bool("TARGETS_SYNC_ENABLED", default=False):
             "task": "scraper.tasks.sync_targets_from_config",
             "schedule": timedelta(seconds=sync_interval),
         }
+
+# Event prospects: expire past events daily (requires Celery beat + crawler app)
+try:
+    from celery.schedules import crontab as _crontab_expire
+
+    CELERY_BEAT_SCHEDULE["expire-past-events-daily"] = {
+        "task": "crawler.tasks.expire_past_events",
+        "schedule": _crontab_expire(hour=0, minute=0),
+    }
+except ImportError:
+    CELERY_BEAT_SCHEDULE["expire-past-events-daily"] = {
+        "task": "crawler.tasks.expire_past_events",
+        "schedule": timedelta(days=1),
+    }
+
+# --- Single-origin SPA (Django serves Vite build; e.g. one ngrok tunnel) ---
+# When DJANGO_SERVE_SPA=1: add React dist to templates + static finders, and enable catch-all in urls.py.
+# Vite output: frontend/dist/index.html + frontend/dist/assets/* (not CRA's build/static).
+REACT_DIST_ASSETS_DIR = REACT_DIST_DIR / "assets"
+
+if SERVE_REACT_APP and REACT_DIST_DIR.is_dir():
+    TEMPLATES[0]["DIRS"] = [REACT_DIST_DIR, BASE_DIR / "templates"]
+    if REACT_DIST_ASSETS_DIR.is_dir() and REACT_DIST_ASSETS_DIR not in STATICFILES_DIRS:
+        STATICFILES_DIRS = [*STATICFILES_DIRS, REACT_DIST_ASSETS_DIR]
+
+# ngrok (and similar) terminate TLS and forward HTTP: trust X-Forwarded-Proto for is_secure() etc.
+if _get_bool("DJANGO_BEHIND_HTTPS_PROXY", default=False):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# Same-origin SPA + API: browser does not need CORS. Default-disable when serving the SPA from Django.
+if _get_bool("DJANGO_DISABLE_CORS", default=SERVE_REACT_APP):
+    INSTALLED_APPS = [a for a in INSTALLED_APPS if a != "corsheaders"]
+    MIDDLEWARE = [m for m in MIDDLEWARE if m != "corsheaders.middleware.CorsMiddleware"]

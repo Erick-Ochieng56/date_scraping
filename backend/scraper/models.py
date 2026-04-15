@@ -1,6 +1,8 @@
 from django.db import models
+from django.contrib.auth import get_user_model
 from django.utils import timezone
 
+User = get_user_model()
 
 class ScrapeTargetType(models.TextChoices):
     HTML = "html", "HTML (requests/bs4)"
@@ -27,6 +29,7 @@ class ScrapeTarget(models.Model):
 
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     updated_at = models.DateTimeField(auto_now=True)
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="scrape_targets", null=True, blank=True)
 
     name = models.CharField(max_length=200, unique=True)
     enabled = models.BooleanField(default=True)
@@ -47,6 +50,7 @@ class ScrapeTarget(models.Model):
 class ScrapeRun(models.Model):
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     updated_at = models.DateTimeField(auto_now=True)
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="scrape_runs", null=True, blank=True)
 
     target = models.ForeignKey(
         ScrapeTarget, on_delete=models.CASCADE, related_name="runs"

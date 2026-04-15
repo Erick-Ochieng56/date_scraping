@@ -7,12 +7,12 @@ from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
 
-from dashboard.permissions import any_authenticated_json, scraper_group_name
+from dashboard.permissions import scraper_group_name
 
 
 @require_POST
 def api_auth_login(request: HttpRequest) -> JsonResponse:
-    """Session login for Scraper portal users only (non-staff + scraper group)."""
+    """Session login for SPA users (staff and admin)."""
     try:
         body = json.loads(request.body.decode("utf-8") or "{}")
     except json.JSONDecodeError:
@@ -31,21 +31,14 @@ def api_auth_login(request: HttpRequest) -> JsonResponse:
             {"success": False, "error": "Invalid username or password."}, status=400
         )
 
-    if user.is_staff:
-        return JsonResponse(
-            {
-                "success": False,
-                "error": "Administrator accounts use the Django dashboard, not this app.",
-            },
-            status=403,
-        )
-
     gname = scraper_group_name()
-    if not user.groups.filter(name=gname).exists():
+    is_admin = bool(user.is_staff)
+    is_staff_portal = user.groups.filter(name=gname).exists()
+    if not is_admin and not is_staff_portal:
         return JsonResponse(
             {
                 "success": False,
-                "error": "Your account is not enabled for the Scraper portal.",
+                "error": "Your account is not enabled for the staff dashboard.",
             },
             status=403,
         )
@@ -54,15 +47,16 @@ def api_auth_login(request: HttpRequest) -> JsonResponse:
     return JsonResponse(
         {
             "success": True,
-            "user": {"username": user.get_username(), "role": "scraper"},
+            "user": {"username": user.get_username(), "role": "admin" if is_admin else "staff"},
         }
     )
 
 
 @require_POST
-@any_authenticated_json
 def api_auth_logout(request: HttpRequest) -> JsonResponse:
-    logout(request)
+    # Idempotent logout: if the session is already anonymous/expired, still return success.
+    if request.user.is_authenticated:
+        logout(request)
     return JsonResponse({"success": True})
 
 
@@ -86,7 +80,7 @@ def api_auth_me(request: HttpRequest) -> JsonResponse:
         return JsonResponse(
             {
                 "authenticated": True,
-                "role": "scraper",
+                "role": "staff",
                 "username": request.user.get_username(),
             }
         )

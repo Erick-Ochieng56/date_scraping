@@ -54,7 +54,7 @@ def _map_item_to_prospect_fields(target: ScrapeTarget, item: dict[str, Any]) -> 
 
 
 @transaction.atomic
-def upsert_prospect_from_item(target: ScrapeTarget, item: dict[str, Any]) -> Tuple[Prospect, bool]:
+def upsert_prospect_from_item(target: ScrapeTarget, item: dict[str, Any], owner_id: int | None = None) -> Tuple[Prospect, bool]:
     """
     Upsert strategy for Prospects (simple + robust):
       1) match by email (if present)
@@ -68,6 +68,8 @@ def upsert_prospect_from_item(target: ScrapeTarget, item: dict[str, Any]) -> Tup
     fields = _map_item_to_prospect_fields(target, item)
 
     qs = Prospect.objects.all()
+    if owner_id:
+        qs = qs.filter(owner_id=owner_id)
     existing: Prospect | None = None
 
     if fields.get("email"):
@@ -82,6 +84,7 @@ def upsert_prospect_from_item(target: ScrapeTarget, item: dict[str, Any]) -> Tup
     if existing is None:
         prospect = Prospect.objects.create(
             **fields,
+            owner_id=owner_id,
             raw_payload=item,
             raw_payload_hash=raw_hash,
         )

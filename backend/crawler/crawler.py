@@ -20,7 +20,7 @@ from crawler.constants import (
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
 )
 from crawler.models import DiscoveredDomain
-from crawler.utils import RateLimiter, clean_text, make_soup, normalize_url
+from crawler.utils import RateLimiter, clean_text, make_soup, normalize_domain_url, normalize_url
 
 logger = logging.getLogger(__name__)
 
@@ -236,14 +236,38 @@ def crawl_domain(domain_obj: DiscoveredDomain) -> dict[str, Any]:
         'error': str | None
       }
     """
-    base = domain_obj.domain
+    base = (domain_obj.domain or "").strip()
+    if "://" not in base:
+        base = normalize_domain_url(base)
+    if not base:
+        return {
+            "pages": [],
+            "emails": [],
+            "phones": [],
+            "pages_crawled": 0,
+            "error": "Invalid domain",
+        }
     limiter = RateLimiter(seconds=DEFAULT_DELAY_BETWEEN_REQUESTS_SECONDS)
 
     max_pages = DEFAULT_MAX_PAGES_PER_DOMAIN
     max_depth = DEFAULT_MAX_CRAWL_DEPTH
 
     visited: set[str] = set()
-    queue: deque[tuple[str, int]] = deque((u, 0) for u in _discover_seed_urls(base))
+    seeds = _discover_seed_urls(base)
+    landing = (getattr(domain_obj, "source_url", None) or "").strip()
+    if landing:
+        landing = normalize_url(landing)
+        bp = urlparse(base)
+        lp = urlparse(landing)
+        if (
+            landing
+            and lp.scheme in {"http", "https"}
+            and lp.netloc.lower().removeprefix("www.")
+            == bp.netloc.lower().removeprefix("www.")
+        ):
+            seeds = [landing] + [s for s in seeds if s != landing]
+
+    queue: deque[tuple[str, int]] = deque((u, 0) for u in seeds)
 
     pages: list[CrawledPage] = []
     error: str | None = None

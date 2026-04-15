@@ -1,6 +1,8 @@
 from django.db import models
+from django.contrib.auth import get_user_model
 from django.utils import timezone
 
+User = get_user_model()
 
 class ProspectStatus(models.TextChoices):
     NEW = "new", "New"  # Just scraped, awaiting review
@@ -33,6 +35,7 @@ class Prospect(models.Model):
 
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     updated_at = models.DateTimeField(auto_now=True)
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="prospects", null=True, blank=True)
 
     # Where it came from (scraper/source system)
     source_name = models.CharField(max_length=100, blank=True, default="")
@@ -127,6 +130,7 @@ class Prospect(models.Model):
 
         # Use the Lead class that's defined in the same module
         lead = Lead.objects.create(
+            owner=self.owner,
             prospect=self,
             # Copy basic fields from Prospect
             source_name=self.source_name,
@@ -217,6 +221,7 @@ class Lead(models.Model):
 
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     updated_at = models.DateTimeField(auto_now=True)
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="leads", null=True, blank=True)
 
     # Reference to source Prospect (if converted from Prospect)
     prospect = models.ForeignKey(

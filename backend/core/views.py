@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 
+from django.conf import settings
 from django.db import connections
-from django.http import HttpRequest, JsonResponse
+from django.http import FileResponse, Http404, HttpRequest, JsonResponse
 from django.utils import timezone
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 
 def _ops_authorized(request: HttpRequest) -> bool:
@@ -190,3 +192,32 @@ def auto_create_target(request: HttpRequest) -> JsonResponse:
         logger = logging.getLogger(__name__)
         logger.exception("Failed to auto-create target")
         return JsonResponse({"error": str(exc)}, status=500)
+
+
+@require_http_methods(["GET", "HEAD"])
+def react_spa_catch_all(request: HttpRequest, spa_path: str = "") -> FileResponse:
+    """
+    Serve the Vite production bundle: real files under REACT_DIST_DIR, else index.html.
+    Registered only when settings.SERVE_REACT_APP is true (see leads_app.urls).
+    """
+    dist: Path = settings.REACT_DIST_DIR
+    if not dist.is_dir():
+        raise Http404("React build not found (run npm run build in frontend/).")
+    root = dist.resolve()
+    rel = (spa_path or "").strip("/")
+    if rel:
+        candidate = (dist / rel).resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError as exc:
+            raise Http404("Invalid path") from exc
+        if candidate.is_file():
+            return FileResponse(candidate.open("rb"))
+    index = (dist / "index.html").resolve()
+    try:
+        index.relative_to(root)
+    except ValueError as exc:
+        raise Http404("Missing index.html") from exc
+    if not index.is_file():
+        raise Http404("Missing index.html")
+    return FileResponse(index.open("rb"), content_type="text/html; charset=utf-8")

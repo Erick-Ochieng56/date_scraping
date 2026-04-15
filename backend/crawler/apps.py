@@ -6,5 +6,4 @@ class CrawlerConfig(AppConfig):
     name = "crawler"
 
     def ready(self) -> None:
-        # Register signals (no-op for now, but keeps future hooks centralized).
-        from . import signals  # noqa: F401
+        from . import signals  # noqa: F401  # post_save: auto-derive competitor keywords

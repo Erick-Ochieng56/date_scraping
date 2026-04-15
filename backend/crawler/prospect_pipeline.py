@@ -33,7 +33,7 @@ def build_raw_payload(profile: WebsiteProfile, score: int) -> dict[str, Any]:
     }
 
 
-def create_or_update_prospect(profile: WebsiteProfile, score: int):
+def create_or_update_prospect(profile: WebsiteProfile, score: int, owner_id: int | None = None):
     """
     Create or update a Prospect from a WebsiteProfile.
 
@@ -52,7 +52,10 @@ def create_or_update_prospect(profile: WebsiteProfile, score: int):
     phone_e164 = (profile.contact_phones[0] if profile.contact_phones else "") or ""
 
     with transaction.atomic():
-        existing = Prospect.objects.filter(
+        base_qs = Prospect.objects.all()
+        if owner_id:
+            base_qs = base_qs.filter(owner_id=owner_id)
+        existing = base_qs.filter(
             models.Q(raw_payload_hash=payload_hash)
             | (models.Q(email=email) if email else models.Q(pk__in=[]))
             | (models.Q(website=website) if website else models.Q(pk__in=[]))
@@ -75,6 +78,7 @@ def create_or_update_prospect(profile: WebsiteProfile, score: int):
             return existing, False
 
         prospect = Prospect.objects.create(
+            owner_id=owner_id,
             source_name="web_crawler",
             source_url=website,
             company=profile.org_name or website,
