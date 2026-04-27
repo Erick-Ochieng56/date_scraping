@@ -14,48 +14,48 @@ function lazyNamed(
   })
 }
 
-export const AdminAuditPage = lazyNamed(() => import('@/pages/AdminAuditPage'), 'AdminAuditPage')
+export const AdminAuditPage = lazyNamed(() => import('@/pages/admin/AdminAuditPage'), 'AdminAuditPage')
 export const AdminCrawlerDomainsPage = lazyNamed(
-  () => import('@/pages/AdminCrawlerDomainsPage'),
+  () => import('@/pages/admin/AdminCrawlerDomainsPage'),
   'AdminCrawlerDomainsPage',
 )
-export const AdminCrawlerOpsPage = lazyNamed(() => import('@/pages/AdminCrawlerOpsPage'), 'AdminCrawlerOpsPage')
-export const AdminCrawlerRunsPage = lazyNamed(() => import('@/pages/AdminCrawlerRunsPage'), 'AdminCrawlerRunsPage')
+export const AdminCrawlerOpsPage = lazyNamed(() => import('@/pages/admin/AdminCrawlerOpsPage'), 'AdminCrawlerOpsPage')
+export const AdminCrawlerRunsPage = lazyNamed(() => import('@/pages/admin/AdminCrawlerRunsPage'), 'AdminCrawlerRunsPage')
 export const AdminCrawlerSourcesPage = lazyNamed(
-  () => import('@/pages/AdminCrawlerSourcesPage'),
+  () => import('@/pages/admin/AdminCrawlerSourcesPage'),
   'AdminCrawlerSourcesPage',
 )
-export const AdminHomePage = lazyNamed(() => import('@/pages/AdminHomePage'), 'AdminHomePage')
-export const AdminMonitoringPage = lazyNamed(() => import('@/pages/AdminMonitoringPage'), 'AdminMonitoringPage')
-export const AdminPipelinePage = lazyNamed(() => import('@/pages/AdminPipelinePage'), 'AdminPipelinePage')
-export const AdminScraperOpsPage = lazyNamed(() => import('@/pages/AdminScraperOpsPage'), 'AdminScraperOpsPage')
-export const AdminScraperRunsPage = lazyNamed(() => import('@/pages/AdminScraperRunsPage'), 'AdminScraperRunsPage')
+export const AdminHomePage = lazyNamed(() => import('@/pages/admin/AdminHomePage'), 'AdminHomePage')
+export const AdminMonitoringPage = lazyNamed(() => import('@/pages/admin/AdminMonitoringPage'), 'AdminMonitoringPage')
+export const AdminPipelinePage = lazyNamed(() => import('@/pages/admin/AdminPipelinePage'), 'AdminPipelinePage')
+export const AdminScraperOpsPage = lazyNamed(() => import('@/pages/admin/AdminScraperOpsPage'), 'AdminScraperOpsPage')
+export const AdminScraperRunsPage = lazyNamed(() => import('@/pages/admin/AdminScraperRunsPage'), 'AdminScraperRunsPage')
 export const AdminScraperTargetsPage = lazyNamed(
-  () => import('@/pages/AdminScraperTargetsPage'),
+  () => import('@/pages/admin/AdminScraperTargetsPage'),
   'AdminScraperTargetsPage',
 )
-export const AdminSettingsPage = lazyNamed(() => import('@/pages/AdminSettingsPage'), 'AdminSettingsPage')
-export const AdminUsersPage = lazyNamed(() => import('@/pages/AdminUsersPage'), 'AdminUsersPage')
+export const AdminSettingsPage = lazyNamed(() => import('@/pages/admin/AdminSettingsPage'), 'AdminSettingsPage')
+export const AdminUsersPage = lazyNamed(() => import('@/pages/admin/AdminUsersPage'), 'AdminUsersPage')
 type AiSearchVariant = 'staff' | 'admin'
 
 export const AiSearchPage: LazyExoticComponent<ComponentType<{ variant: AiSearchVariant }>> = lazy(
   async () => {
-    const { AiSearchPage: Page } = await import('@/pages/AiSearchPage')
+    const { AiSearchPage: Page } = await import('@/pages/staff/AiSearchPage')
     return { default: Page }
   },
 )
-export const CrawlerDiscoverPage = lazyNamed(() => import('@/pages/CrawlerDiscoverPage'), 'CrawlerDiscoverPage')
-export const CrawlerDomainsPage = lazyNamed(() => import('@/pages/CrawlerDomainsPage'), 'CrawlerDomainsPage')
-export const CrawlerHomePage = lazyNamed(() => import('@/pages/CrawlerHomePage'), 'CrawlerHomePage')
-export const CrawlerRunDetailPage = lazyNamed(() => import('@/pages/CrawlerRunDetailPage'), 'CrawlerRunDetailPage')
-export const CrawlerRunsPage = lazyNamed(() => import('@/pages/CrawlerRunsPage'), 'CrawlerRunsPage')
+export const CrawlerDiscoverPage = lazyNamed(() => import('@/pages/staff/CrawlerDiscoverPage'), 'CrawlerDiscoverPage')
+export const CrawlerDomainsPage = lazyNamed(() => import('@/pages/staff/CrawlerDomainsPage'), 'CrawlerDomainsPage')
+export const CrawlerHomePage = lazyNamed(() => import('@/pages/staff/CrawlerHomePage'), 'CrawlerHomePage')
+export const CrawlerRunDetailPage = lazyNamed(() => import('@/pages/staff/CrawlerRunDetailPage'), 'CrawlerRunDetailPage')
+export const CrawlerRunsPage = lazyNamed(() => import('@/pages/staff/CrawlerRunsPage'), 'CrawlerRunsPage')
 export const HomePage = lazyNamed(() => import('@/pages/HomePage'), 'HomePage')
-export const LeadDetailPage = lazyNamed(() => import('@/pages/LeadDetailPage'), 'LeadDetailPage')
-export const LeadsPage = lazyNamed(() => import('@/pages/LeadsPage'), 'LeadsPage')
+export const LeadDetailPage = lazyNamed(() => import('@/pages/staff/LeadDetailPage'), 'LeadDetailPage')
+export const LeadsPage = lazyNamed(() => import('@/pages/staff/LeadsPage'), 'LeadsPage')
 export const LoginPage = lazyNamed(() => import('@/pages/LoginPage'), 'LoginPage')
-export const ProspectDetailPage = lazyNamed(() => import('@/pages/ProspectDetailPage'), 'ProspectDetailPage')
-export const ProspectsPage = lazyNamed(() => import('@/pages/ProspectsPage'), 'ProspectsPage')
-export const RunDetailPage = lazyNamed(() => import('@/pages/RunDetailPage'), 'RunDetailPage')
-export const RunsPage = lazyNamed(() => import('@/pages/RunsPage'), 'RunsPage')
-export const TargetFormPage = lazyNamed(() => import('@/pages/TargetFormPage'), 'TargetFormPage')
-export const TargetsPage = lazyNamed(() => import('@/pages/TargetsPage'), 'TargetsPage')
+export const ProspectDetailPage = lazyNamed(() => import('@/pages/staff/ProspectDetailPage'), 'ProspectDetailPage')
+export const ProspectsPage = lazyNamed(() => import('@/pages/staff/ProspectsPage'), 'ProspectsPage')
+export const RunDetailPage = lazyNamed(() => import('@/pages/staff/RunDetailPage'), 'RunDetailPage')
+export const RunsPage = lazyNamed(() => import('@/pages/staff/RunsPage'), 'RunsPage')
+export const TargetFormPage = lazyNamed(() => import('@/pages/staff/TargetFormPage'), 'TargetFormPage')
+export const TargetsPage = lazyNamed(() => import('@/pages/staff/TargetsPage'), 'TargetsPage')

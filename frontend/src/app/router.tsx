@@ -34,6 +34,7 @@ import {
 } from '@/app/lazyPages'
 import { LoginLoadingFallback } from '@/components/LoginLoadingFallback'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
+import { RouteErrorPage } from '@/components/RouteErrorPage'
 import { AdminLayout } from '@/components/layout/AdminLayout'
 import { DashboardLayout } from '@/components/layout/DashboardLayout'
 
@@ -45,6 +46,7 @@ export const router = createBrowserRouter([
         <LoginPage />
       </Suspense>
     ),
+    errorElement: <RouteErrorPage />,
   },
   {
     path: '/',
@@ -53,6 +55,7 @@ export const router = createBrowserRouter([
         <DashboardLayout />
       </ProtectedRoute>
     ),
+    errorElement: <RouteErrorPage />,
     children: [
       { index: true, element: <HomePage /> },
       { path: 'targets', element: <TargetsPage /> },
@@ -79,6 +82,7 @@ export const router = createBrowserRouter([
         <AdminLayout />
       </ProtectedRoute>
     ),
+    errorElement: <RouteErrorPage />,
     children: [
       { index: true, element: <AdminHomePage /> },
       { path: 'users', element: <AdminUsersPage /> },
