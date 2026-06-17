@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+import os
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.db import transaction
 from rest_framework import status
 from rest_framework.authentication import SessionAuthentication
-from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework.decorators import authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from dashboard.api.decorators import dashboard_api_view
 from dashboard.api.permissions import IsDashboardAdminUser
+from dashboard.models import ActivityLog
 from dashboard.api.serializers import AISearchJobSerializer, AISearchResultSerializer
 from dashboard.permissions import scraper_group_name
 from dashboard.utils import log_activity
@@ -57,7 +61,127 @@ def _serialize_user(user, scraper_group: Group) -> dict:
     }
 
 
-@api_view(["GET"])
+def _serialize_activity_log(entry: ActivityLog) -> dict:
+    return {
+        "id": entry.id,
+        "created_at": entry.created_at.isoformat() if entry.created_at else None,
+        "user_id": entry.user_id,
+        "username": entry.user.get_username() if entry.user_id else None,
+        "action": entry.action,
+        "action_display": entry.get_action_display(),
+        "object_type": entry.object_type,
+        "object_id": entry.object_id,
+        "description": entry.description,
+        "metadata": entry.metadata or {},
+    }
+
+
+def _env_truthy(name: str, default: str = "0") -> bool:
+    return (os.getenv(name, default) or default).strip().lower() in {"1", "true", "t", "yes", "y", "on"}
+
+
+@dashboard_api_view(["GET"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardAdminUser])
+def activity_list(request: Request) -> Response:
+    qs = ActivityLog.objects.select_related("user").all().order_by("-created_at")
+    action = (request.query_params.get("action") or "").strip()
+    if action:
+        qs = qs.filter(action=action)
+    object_type = (request.query_params.get("object_type") or "").strip()
+    if object_type:
+        qs = qs.filter(object_type=object_type)
+    user_id = (request.query_params.get("user_id") or "").strip()
+    if user_id.isdigit():
+        qs = qs.filter(user_id=int(user_id))
+    search = (request.query_params.get("search") or "").strip()
+    if search:
+        qs = qs.filter(description__icontains=search)
+
+    page = max(1, int(request.query_params.get("page", "1")))
+    page_size = min(100, max(1, int(request.query_params.get("page_size", "25"))))
+    total = qs.count()
+    start = (page - 1) * page_size
+    end = start + page_size
+    items = [_serialize_activity_log(e) for e in qs[start:end]]
+    return Response(
+        {
+            "success": True,
+            "data": {
+                "items": items,
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+                "has_next": end < total,
+            },
+            "filters": {
+                "actions": [{"value": value, "label": label} for value, label in ActivityLog.ACTION_CHOICES],
+            },
+        }
+    )
+
+
+@dashboard_api_view(["GET"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardAdminUser])
+def settings_status(request: Request) -> Response:
+    gemini_key = (getattr(settings, "GEMINI_API_KEY", None) or "").strip()
+    gsheets_enabled = _env_truthy("GSHEETS_ENABLED", "1")
+    gsheets_creds = bool((os.getenv("GSHEETS_CREDENTIALS_JSON") or "").strip()) or bool(
+        (os.getenv("GSHEETS_CREDENTIALS_FILE") or "").strip()
+    )
+    gsheets_sheet = bool((os.getenv("GSHEETS_SPREADSHEET_ID") or "").strip())
+    perfex_enabled = _env_truthy("PERFEX_SYNC_ENABLED", "0")
+    perfex_base = bool((os.getenv("PERFEX_BASE_URL") or "").strip())
+    perfex_token = bool((os.getenv("PERFEX_API_TOKEN") or "").strip())
+
+    integrations = [
+        {
+            "id": "gemini",
+            "label": "Google Gemini (AI search & enrichment)",
+            "enabled": True,
+            "configured": bool(gemini_key),
+            "status": "ready" if gemini_key else "missing_api_key",
+            "hint": "Set GEMINI_API_KEY in server environment.",
+        },
+        {
+            "id": "gsheets",
+            "label": "Google Sheets sync",
+            "enabled": gsheets_enabled,
+            "configured": gsheets_creds and gsheets_sheet,
+            "status": (
+                "disabled"
+                if not gsheets_enabled
+                else ("ready" if gsheets_creds and gsheets_sheet else "incomplete")
+            ),
+            "hint": "Set GSHEETS_ENABLED, credentials (JSON or file), and GSHEETS_SPREADSHEET_ID.",
+        },
+        {
+            "id": "perfex",
+            "label": "Perfex CRM sync",
+            "enabled": perfex_enabled,
+            "configured": perfex_base and perfex_token,
+            "status": (
+                "disabled"
+                if not perfex_enabled
+                else ("ready" if perfex_base and perfex_token else "incomplete")
+            ),
+            "hint": "Set PERFEX_SYNC_ENABLED=1, PERFEX_BASE_URL, and PERFEX_API_TOKEN.",
+        },
+    ]
+    return Response(
+        {
+            "success": True,
+            "data": {
+                "environment": getattr(settings, "ENVIRONMENT", "unknown"),
+                "debug": settings.DEBUG,
+                "integrations": integrations,
+            },
+        }
+    )
+
+
+@dashboard_api_view(["GET"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardAdminUser])
 def users_list(request: Request) -> Response:
@@ -72,7 +196,7 @@ def users_list(request: Request) -> Response:
     return Response({"success": True, "data": _pagination(request, rows)})
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardAdminUser])
 def users_create_staff(request: Request) -> Response:
@@ -108,19 +232,20 @@ def users_create_staff(request: Request) -> Response:
     return Response({"success": True, "data": _serialize_user(user, scraper_group)}, status=status.HTTP_201_CREATED)
 
 
-@api_view(["PATCH"])
+@dashboard_api_view(["PATCH"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardAdminUser])
 def users_update(request: Request, user_id: int) -> Response:
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return Response({"success": False, "error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
     before = {
         "is_active": user.is_active,
         "is_staff": user.is_staff,
         "is_superuser": user.is_superuser,
     }
-    try:
-        user = User.objects.get(id=user_id)
-    except User.DoesNotExist:
-        return Response({"success": False, "error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
 
     gname = scraper_group_name()
     scraper_group, _ = Group.objects.get_or_create(name=gname)
@@ -180,7 +305,7 @@ _OWNERSHIP_MODELS = {
 }
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardAdminUser])
 def ownership_transfer(request: Request) -> Response:
@@ -263,7 +388,7 @@ def _serialize_scrape_run(run: ScrapeRun) -> dict:
     }
 
 
-@api_view(["GET"])
+@dashboard_api_view(["GET"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardAdminUser])
 def scraper_targets_list(request: Request) -> Response:
@@ -278,7 +403,7 @@ def scraper_targets_list(request: Request) -> Response:
     return Response({"success": True, "data": _pagination(request, rows)})
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardAdminUser])
 def scraper_target_trigger(request: Request, target_id: int) -> Response:
@@ -299,7 +424,7 @@ def scraper_target_trigger(request: Request, target_id: int) -> Response:
     return Response({"success": True, "message": f"Scrape triggered for {target.name}", "task_id": task.id})
 
 
-@api_view(["GET"])
+@dashboard_api_view(["GET"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardAdminUser])
 def scraper_runs_list(request: Request) -> Response:
@@ -314,7 +439,7 @@ def scraper_runs_list(request: Request) -> Response:
     return Response({"success": True, "data": _pagination(request, rows)})
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardAdminUser])
 def scraper_run_retry(request: Request, run_id: int) -> Response:
@@ -388,7 +513,7 @@ def _serialize_crawl_run(run: CrawlRun) -> dict:
     }
 
 
-@api_view(["GET"])
+@dashboard_api_view(["GET"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardAdminUser])
 def crawler_sources_list(request: Request) -> Response:
@@ -403,7 +528,7 @@ def crawler_sources_list(request: Request) -> Response:
     return Response({"success": True, "data": _pagination(request, rows)})
 
 
-@api_view(["PATCH"])
+@dashboard_api_view(["PATCH"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardAdminUser])
 def crawler_source_update(request: Request, source_id: int) -> Response:
@@ -435,7 +560,7 @@ def crawler_source_update(request: Request, source_id: int) -> Response:
     return Response({"success": True, "data": _serialize_crawl_source(source)})
 
 
-@api_view(["GET"])
+@dashboard_api_view(["GET"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardAdminUser])
 def crawler_domains_list(request: Request) -> Response:
@@ -453,7 +578,7 @@ def crawler_domains_list(request: Request) -> Response:
     return Response({"success": True, "data": _pagination(request, rows)})
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardAdminUser])
 def crawler_domain_trigger(request: Request, domain_id: int) -> Response:
@@ -481,7 +606,7 @@ def crawler_domain_trigger(request: Request, domain_id: int) -> Response:
     return Response({"success": True, "run_id": run.id})
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardAdminUser])
 def crawler_domains_reset_failed(request: Request) -> Response:
@@ -501,7 +626,7 @@ def crawler_domains_reset_failed(request: Request) -> Response:
     return Response({"success": True, "count": count})
 
 
-@api_view(["GET"])
+@dashboard_api_view(["GET"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardAdminUser])
 def crawler_runs_list(request: Request) -> Response:
@@ -516,7 +641,7 @@ def crawler_runs_list(request: Request) -> Response:
     return Response({"success": True, "data": _pagination(request, rows)})
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardAdminUser])
 def crawler_run_cancel(request: Request, run_id: int) -> Response:
@@ -547,7 +672,7 @@ def crawler_run_cancel(request: Request, run_id: int) -> Response:
     return Response({"success": True, "message": f"Run #{run.id} cancelled."})
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardAdminUser])
 def crawler_runs_cancel_all(request: Request) -> Response:
@@ -591,7 +716,7 @@ def _paginate_queryset(request: Request, qs, serializer_cls):
     }
 
 
-@api_view(["GET", "POST"])
+@dashboard_api_view(["GET", "POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardAdminUser])
 def admin_ai_search_jobs(request: Request) -> Response:
@@ -656,7 +781,7 @@ def admin_ai_search_jobs(request: Request) -> Response:
     return Response({"success": True, "data": _paginate_queryset(request, qs, AISearchJobSerializer)})
 
 
-@api_view(["GET"])
+@dashboard_api_view(["GET"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardAdminUser])
 def admin_ai_search_job_detail(request: Request, job_id: int) -> Response:

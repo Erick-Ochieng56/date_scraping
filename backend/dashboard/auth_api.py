@@ -85,6 +85,8 @@ def api_auth_me(request: HttpRequest) -> JsonResponse:
             }
         )
 
+    # Stale session (e.g. Django admin user without portal group) — clear so API calls get 401, not 403.
+    logout(request)
     return JsonResponse(
         {
             "authenticated": False,

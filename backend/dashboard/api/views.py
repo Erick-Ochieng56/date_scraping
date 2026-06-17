@@ -4,11 +4,12 @@ from datetime import timedelta
 
 from celery import current_app
 from django.conf import settings
+from django.core.cache import cache
 from django.db.models import Count, Q
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.authentication import SessionAuthentication
-from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework.decorators import authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -23,6 +24,7 @@ from crawler.models import (
     DiscoveredDomain,
 )
 from crawler.tasks import crawl_domain_task, discover_websites_task, run_ai_search_job
+from dashboard.api.decorators import dashboard_api_view
 from dashboard.api.permissions import IsDashboardPortalUser
 from dashboard.api.serializers import (
     AISearchJobSerializer,
@@ -68,7 +70,7 @@ def _owned_qs(request: Request, qs, owner_field: str = "owner"):
     return qs.filter(**{owner_field: request.user})
 
 
-@api_view(["GET", "POST"])
+@dashboard_api_view(["GET", "POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def targets_list(request: Request) -> Response:
@@ -92,7 +94,7 @@ def targets_list(request: Request) -> Response:
     return Response({"success": True, "data": _pagination(request, qs, ScrapeTargetSerializer)})
 
 
-@api_view(["GET", "PATCH"])
+@dashboard_api_view(["GET", "PATCH"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def target_detail(request: Request, target_id: int) -> Response:
@@ -117,7 +119,7 @@ def target_detail(request: Request, target_id: int) -> Response:
     return Response({"success": True, "data": serializer.data})
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def trigger_all_targets(request: Request) -> Response:
@@ -130,7 +132,7 @@ def trigger_all_targets(request: Request) -> Response:
     )
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def trigger_target(request: Request, target_id: int) -> Response:
@@ -150,7 +152,7 @@ def trigger_target(request: Request, target_id: int) -> Response:
     return Response({"success": True, "message": f"Scrape triggered for {target.name}", "task_id": task.id})
 
 
-@api_view(["GET"])
+@dashboard_api_view(["GET"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def scrape_runs_list(request: Request) -> Response:
@@ -164,7 +166,7 @@ def scrape_runs_list(request: Request) -> Response:
     return Response({"success": True, "data": _pagination(request, qs, ScrapeRunSerializer)})
 
 
-@api_view(["GET"])
+@dashboard_api_view(["GET"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def scrape_run_detail(request: Request, run_id: int) -> Response:
@@ -175,7 +177,7 @@ def scrape_run_detail(request: Request, run_id: int) -> Response:
     return Response({"success": True, "data": ScrapeRunSerializer(run).data})
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def scrape_run_retry(request: Request, run_id: int) -> Response:
@@ -192,7 +194,7 @@ def scrape_run_retry(request: Request, run_id: int) -> Response:
     return Response({"success": True, "message": "Retry queued", "task_id": task.id})
 
 
-@api_view(["GET"])
+@dashboard_api_view(["GET"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def crawl_runs_list(request: Request) -> Response:
@@ -206,7 +208,7 @@ def crawl_runs_list(request: Request) -> Response:
     return Response({"success": True, "data": _pagination(request, qs, CrawlRunSerializer)})
 
 
-@api_view(["GET"])
+@dashboard_api_view(["GET"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def crawl_run_detail(request: Request, run_id: int) -> Response:
@@ -226,7 +228,7 @@ def crawl_run_detail(request: Request, run_id: int) -> Response:
     return Response({"success": True, "data": data})
 
 
-@api_view(["GET"])
+@dashboard_api_view(["GET"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def crawl_run_domain_results(request: Request, run_id: int) -> Response:
@@ -242,7 +244,7 @@ def crawl_run_domain_results(request: Request, run_id: int) -> Response:
     return Response({"success": True, "data": _pagination(request, qs, CrawlRunDomainResultSerializer)})
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def crawl_trigger(request: Request) -> Response:
@@ -250,7 +252,7 @@ def crawl_trigger(request: Request) -> Response:
     return Response({"success": True, "message": "Crawler discovery queued", "task_id": task.id})
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def crawl_run_cancel(request: Request, run_id: int) -> Response:
@@ -275,7 +277,7 @@ def crawl_run_cancel(request: Request, run_id: int) -> Response:
     return Response({"success": True, "message": f"Run #{run.id} cancelled."})
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def crawl_runs_cancel_all(request: Request) -> Response:
@@ -295,7 +297,7 @@ def crawl_runs_cancel_all(request: Request) -> Response:
     return Response({"success": True, "cancelled": cancelled})
 
 
-@api_view(["GET"])
+@dashboard_api_view(["GET"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def crawl_sources_list(request: Request) -> Response:
@@ -306,7 +308,7 @@ def crawl_sources_list(request: Request) -> Response:
     return Response({"success": True, "data": _pagination(request, qs, CrawlSourceSerializer)})
 
 
-@api_view(["GET"])
+@dashboard_api_view(["GET"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def crawl_domains_list(request: Request) -> Response:
@@ -320,7 +322,7 @@ def crawl_domains_list(request: Request) -> Response:
     return Response({"success": True, "data": _pagination(request, qs, DiscoveredDomainSerializer)})
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def crawl_domain_trigger(request: Request, domain_id: int) -> Response:
@@ -350,7 +352,7 @@ def _apply_search(qs, request: Request, fields: list[str]):
     return qs.filter(q)
 
 
-@api_view(["GET"])
+@dashboard_api_view(["GET"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def prospects_list(request: Request) -> Response:
@@ -362,7 +364,7 @@ def prospects_list(request: Request) -> Response:
     return Response({"success": True, "data": _pagination(request, qs, ProspectSerializer)})
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def prospects_bulk_contacted(request: Request) -> Response:
@@ -374,7 +376,7 @@ def prospects_bulk_contacted(request: Request) -> Response:
     return Response({"success": True, "count": count})
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def prospects_bulk_convert(request: Request) -> Response:
@@ -391,7 +393,7 @@ def prospects_bulk_convert(request: Request) -> Response:
     return Response({"success": True, "count": converted, "errors": errors})
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def prospects_bulk_reject(request: Request) -> Response:
@@ -402,7 +404,7 @@ def prospects_bulk_reject(request: Request) -> Response:
     return Response({"success": True, "count": count})
 
 
-@api_view(["GET"])
+@dashboard_api_view(["GET"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def prospect_detail(request: Request, prospect_id: int) -> Response:
@@ -413,7 +415,7 @@ def prospect_detail(request: Request, prospect_id: int) -> Response:
     return Response({"success": True, "data": ProspectSerializer(prospect).data})
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def prospect_mark_contacted(request: Request, prospect_id: int) -> Response:
@@ -427,7 +429,7 @@ def prospect_mark_contacted(request: Request, prospect_id: int) -> Response:
     return Response({"success": True})
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def prospect_convert(request: Request, prospect_id: int) -> Response:
@@ -442,7 +444,7 @@ def prospect_convert(request: Request, prospect_id: int) -> Response:
     return Response({"success": True, "lead_id": lead.id})
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def prospect_reject(request: Request, prospect_id: int) -> Response:
@@ -455,7 +457,7 @@ def prospect_reject(request: Request, prospect_id: int) -> Response:
     return Response({"success": True})
 
 
-@api_view(["GET"])
+@dashboard_api_view(["GET"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def leads_list(request: Request) -> Response:
@@ -467,7 +469,7 @@ def leads_list(request: Request) -> Response:
     return Response({"success": True, "data": _pagination(request, qs, LeadSerializer)})
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def leads_bulk_interested(request: Request) -> Response:
@@ -476,7 +478,7 @@ def leads_bulk_interested(request: Request) -> Response:
     return Response({"success": True, "count": count})
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def leads_bulk_reject(request: Request) -> Response:
@@ -487,7 +489,7 @@ def leads_bulk_reject(request: Request) -> Response:
     return Response({"success": True, "count": count})
 
 
-@api_view(["GET"])
+@dashboard_api_view(["GET"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def lead_detail(request: Request, lead_id: int) -> Response:
@@ -498,7 +500,7 @@ def lead_detail(request: Request, lead_id: int) -> Response:
     return Response({"success": True, "data": LeadSerializer(lead).data})
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def lead_mark_interested(request: Request, lead_id: int) -> Response:
@@ -513,7 +515,7 @@ def lead_mark_interested(request: Request, lead_id: int) -> Response:
     return Response({"success": True})
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def lead_reject(request: Request, lead_id: int) -> Response:
@@ -529,7 +531,7 @@ def lead_reject(request: Request, lead_id: int) -> Response:
     return Response({"success": True})
 
 
-@api_view(["POST"])
+@dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def lead_sync_crm(request: Request, lead_id: int) -> Response:
@@ -547,10 +549,15 @@ def lead_sync_crm(request: Request, lead_id: int) -> Response:
     return Response({"success": True, "task_id": task.id})
 
 
-@api_view(["GET"])
+@dashboard_api_view(["GET"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def metrics_summary(request: Request) -> Response:
+    cache_key = f"dashboard:metrics_summary:{request.user.id}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return Response({"success": True, "data": cached})
+
     since = timezone.now() - timedelta(days=7)
     targets_qs = _owned_qs(request, ScrapeTarget.objects.all())
     scrape_recent = _owned_qs(request, ScrapeRun.objects.all()).filter(started_at__gte=since)
@@ -575,10 +582,11 @@ def metrics_summary(request: Request) -> Response:
             leads_qs.values("status").annotate(count=Count("id")).order_by("status")
         ),
     }
+    cache.set(cache_key, data, 60)
     return Response({"success": True, "data": data})
 
 
-@api_view(["GET", "POST"])
+@dashboard_api_view(["GET", "POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def ai_search_jobs(request: Request) -> Response:
@@ -620,7 +628,7 @@ def ai_search_jobs(request: Request) -> Response:
     return Response({"success": True, "data": _pagination(request, qs, AISearchJobSerializer)})
 
 
-@api_view(["GET"])
+@dashboard_api_view(["GET"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def ai_search_job_detail(request: Request, job_id: int) -> Response:

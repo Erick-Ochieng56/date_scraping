@@ -1,1 +1,4 @@
 /scripts
+
+backend/cert.crt
+backend/cert.key

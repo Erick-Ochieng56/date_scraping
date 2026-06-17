@@ -20,6 +20,10 @@ export const AdminCrawlerDomainsPage = lazyNamed(
   'AdminCrawlerDomainsPage',
 )
 export const AdminCrawlerOpsPage = lazyNamed(() => import('@/pages/admin/AdminCrawlerOpsPage'), 'AdminCrawlerOpsPage')
+export const CrawlerAdminLayout = lazyNamed(
+  () => import('@/features/admin/crawler/CrawlerAdminLayout'),
+  'CrawlerAdminLayout',
+)
 export const AdminCrawlerRunsPage = lazyNamed(() => import('@/pages/admin/AdminCrawlerRunsPage'), 'AdminCrawlerRunsPage')
 export const AdminCrawlerSourcesPage = lazyNamed(
   () => import('@/pages/admin/AdminCrawlerSourcesPage'),
@@ -29,6 +33,10 @@ export const AdminHomePage = lazyNamed(() => import('@/pages/admin/AdminHomePage
 export const AdminMonitoringPage = lazyNamed(() => import('@/pages/admin/AdminMonitoringPage'), 'AdminMonitoringPage')
 export const AdminPipelinePage = lazyNamed(() => import('@/pages/admin/AdminPipelinePage'), 'AdminPipelinePage')
 export const AdminScraperOpsPage = lazyNamed(() => import('@/pages/admin/AdminScraperOpsPage'), 'AdminScraperOpsPage')
+export const ScraperAdminLayout = lazyNamed(
+  () => import('@/features/admin/scraper/ScraperAdminLayout'),
+  'ScraperAdminLayout',
+)
 export const AdminScraperRunsPage = lazyNamed(() => import('@/pages/admin/AdminScraperRunsPage'), 'AdminScraperRunsPage')
 export const AdminScraperTargetsPage = lazyNamed(
   () => import('@/pages/admin/AdminScraperTargetsPage'),
@@ -44,6 +52,7 @@ export const AiSearchPage: LazyExoticComponent<ComponentType<{ variant: AiSearch
     return { default: Page }
   },
 )
+export const CrawlerLayout = lazyNamed(() => import('@/features/crawler/CrawlerLayout'), 'CrawlerLayout')
 export const CrawlerDiscoverPage = lazyNamed(() => import('@/pages/staff/CrawlerDiscoverPage'), 'CrawlerDiscoverPage')
 export const CrawlerDomainsPage = lazyNamed(() => import('@/pages/staff/CrawlerDomainsPage'), 'CrawlerDomainsPage')
 export const CrawlerHomePage = lazyNamed(() => import('@/pages/staff/CrawlerHomePage'), 'CrawlerHomePage')

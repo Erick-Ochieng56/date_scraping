@@ -135,6 +135,16 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
+    "DEFAULT_THROTTLE_RATES": {
+        "dashboard": "120/min",
+    },
+}
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "leads-app-default",
+    }
 }
 
 SIMPLE_JWT = {
@@ -152,9 +162,16 @@ _DEFAULT_ALLOWED_HOSTS = (
     "ngrok-free.app",
     ".ngrok-free.dev",
     "ngrok-free.dev",
+    ".ngrok.io",
+    "ngrok.io",
+    ".ngrok.app",
+    "ngrok.app",
 )
 _EXTRA_ALLOWED_HOSTS = _get_list("DJANGO_ALLOWED_HOSTS", default=[])
 ALLOWED_HOSTS = list(dict.fromkeys(list(_DEFAULT_ALLOWED_HOSTS) + _EXTRA_ALLOWED_HOSTS))
+
+# Public browser origin (e.g. https://abc.ngrok-free.dev) — used for CSRF/CORS when tunneling Django.
+_PUBLIC_ORIGIN = (_get_env("DJANGO_PUBLIC_ORIGIN", "") or "").strip().rstrip("/")
 
 # Vite build output (repo root / frontend / dist). Used when DJANGO_SERVE_SPA=1.
 _react_dist_raw = (_get_env("DJANGO_REACT_DIST_DIR", str(BASE_DIR.parent / "frontend" / "dist")) or "").strip()
@@ -327,6 +344,8 @@ if not DEBUG:
 
 # Browser Origin is the SPA host (e.g. Vite on :5173), not Django :8000 — required for CSRF on POST from the React app.
 _CSRF_TRUSTED = list(_get_list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[]))
+if _PUBLIC_ORIGIN and _PUBLIC_ORIGIN not in _CSRF_TRUSTED:
+    _CSRF_TRUSTED.append(_PUBLIC_ORIGIN)
 if DEBUG:
     for _origin in (
         "http://localhost:5173",
@@ -338,6 +357,24 @@ if DEBUG:
         if _origin not in _CSRF_TRUSTED:
             _CSRF_TRUSTED.append(_origin)
 CSRF_TRUSTED_ORIGINS = _CSRF_TRUSTED
+
+# CORS for split dev (Vite :5173 → API on ngrok or another host). Disabled when Django serves the SPA same-origin.
+_cors_disabled = _get_bool("DJANGO_DISABLE_CORS", default=SERVE_REACT_APP)
+if not _cors_disabled:
+    _cors_allowed = list(_get_list("DJANGO_CORS_ALLOWED_ORIGINS", default=[]))
+    if DEBUG:
+        for _origin in (
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "https://localhost:5173",
+            "https://127.0.0.1:5173",
+        ):
+            if _origin not in _cors_allowed:
+                _cors_allowed.append(_origin)
+    if _PUBLIC_ORIGIN and _PUBLIC_ORIGIN not in _cors_allowed:
+        _cors_allowed.append(_PUBLIC_ORIGIN)
+    if _cors_allowed:
+        CORS_ALLOWED_ORIGINS = _cors_allowed
 
 # --- Optional WhiteNoise (production only) ---
 # In development, runserver serves from STATICFILES_DIRS; WhiteNoise would serve
@@ -515,8 +552,15 @@ if SERVE_REACT_APP and REACT_DIST_DIR.is_dir():
         STATICFILES_DIRS = [*STATICFILES_DIRS, REACT_DIST_ASSETS_DIR]
 
 # ngrok (and similar) terminate TLS and forward HTTP: trust X-Forwarded-Proto for is_secure() etc.
-if _get_bool("DJANGO_BEHIND_HTTPS_PROXY", default=False):
+if _get_bool("DJANGO_BEHIND_HTTPS_PROXY", default=False) or (
+    DEBUG and _PUBLIC_ORIGIN.startswith("https://")
+):
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+if _get_bool("DJANGO_USE_X_FORWARDED_HOST", default=False) or (
+    DEBUG and _PUBLIC_ORIGIN.startswith("https://")
+):
+    USE_X_FORWARDED_HOST = True
 
 # Same-origin SPA + API: browser does not need CORS. Default-disable when serving the SPA from Django.
 if _get_bool("DJANGO_DISABLE_CORS", default=SERVE_REACT_APP):

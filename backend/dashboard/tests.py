@@ -4,6 +4,8 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from crawler.models import CrawlRun, CrawlRunStatus, CrawlRunTrigger, CrawlSource, DiscoveredDomain
+from dashboard.models import ActivityLog
+from dashboard.utils import log_activity
 from leads.models import Lead, LeadStatus, Prospect, ProspectStatus
 from scraper.models import ScrapeRun, ScrapeRunStatus, ScrapeTarget
 
@@ -79,6 +81,48 @@ class DashboardV1ApiTests(TestCase):
         self.assertEqual(resp.data["count"], 1)
         lead.refresh_from_db()
         self.assertEqual(lead.status, LeadStatus.INTERESTED)
+
+    def test_wizard_detect_platform_portal_user(self):
+        resp = self.client.get(
+            "/dashboard/wizard/detect-platform/",
+            {"url": "https://www.eventbrite.com/d/united-kingdom--london/events"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["platform"], "eventbrite")
+        self.assertTrue(data["detected"])
+        self.assertIn("item_selector", data["suggested_config"]["config"])
+
+    def test_wizard_create_target_sets_owner(self):
+        resp = self.client.post(
+            "/dashboard/wizard/create-target/",
+            {
+                "url": "https://example.com/events",
+                "name": "Wizard Portal Target",
+                "run_every_minutes": 90,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        data = resp.json()
+        self.assertTrue(data["success"])
+        target = ScrapeTarget.objects.get(pk=data["target_id"])
+        self.assertEqual(target.owner_id, self.user.id)
+        self.assertEqual(target.name, "Wizard Portal Target")
+        self.assertEqual(target.run_every_minutes, 90)
+
+    def test_wizard_create_target_name_conflict(self):
+        ScrapeTarget.objects.create(name="Taken", start_url="https://example.com/a", owner=self.user)
+        resp = self.client.post(
+            "/dashboard/wizard/create-target/",
+            {"url": "https://example.com/b", "name": "Taken"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 409)
+        data = resp.json()
+        self.assertFalse(data["success"])
+        self.assertTrue(data["existing"])
 
 
 class DashboardAdminApiTests(TestCase):
@@ -179,3 +223,38 @@ class DashboardAdminApiTests(TestCase):
         self.assertEqual(cancel_resp.status_code, 200)
         run.refresh_from_db()
         self.assertEqual(run.status, CrawlRunStatus.FAILED)
+
+    def test_admin_users_update_does_not_nameerror(self):
+        staff = get_user_model().objects.create_user(username="staff_patch", password="pass12345")
+        group, _ = Group.objects.get_or_create(name=scraper_group_name())
+        staff.groups.add(group)
+        resp = self.client.patch(
+            f"/dashboard/api/admin/v1/users/{staff.id}/",
+            {"is_active": False},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.data["success"])
+        staff.refresh_from_db()
+        self.assertFalse(staff.is_active)
+
+    def test_admin_activity_list(self):
+        log_activity(
+            action="user_created",
+            object_type="user",
+            object_id=self.admin.id,
+            description="Test audit entry",
+            user=self.admin,
+        )
+        resp = self.client.get("/dashboard/api/admin/v1/activity/?page_size=10")
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.data["success"])
+        self.assertGreaterEqual(resp.data["data"]["total"], 1)
+        self.assertIn("filters", resp.data)
+
+    def test_admin_settings_status(self):
+        resp = self.client.get("/dashboard/api/admin/v1/settings/status/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.data["success"])
+        ids = {row["id"] for row in resp.data["data"]["integrations"]}
+        self.assertEqual(ids, {"gemini", "gsheets", "perfex"})

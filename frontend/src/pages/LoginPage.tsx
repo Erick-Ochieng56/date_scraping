@@ -5,7 +5,7 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { LoginLoadingFallback } from '@/components/LoginLoadingFallback'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/AuthContext'
-import { loginErrorMessage } from '@/lib/api/auth'
+import { loginErrorMessage, fetchMe } from '@/lib/api/auth'
 
 export function LoginPage() {
   const { me, isLoading, login } = useAuth()
@@ -33,7 +33,10 @@ export function LoginPage() {
     setSubmitting(true)
     try {
       await login(username, password)
-      navigate(from === '/login' ? '/' : from, { replace: true })
+      const session = await fetchMe()
+      const roleHome = session.authenticated && session.role === 'admin' ? '/admin' : '/'
+      const dest = from === '/login' ? roleHome : from
+      navigate(dest, { replace: true })
     } catch (err) {
       setError(loginErrorMessage(err))
     } finally {
@@ -46,7 +49,7 @@ export function LoginPage() {
       <div className="w-full max-w-sm space-y-6 rounded-xl border border-border bg-card p-8 shadow-sm">
         <div className="text-center">
           <h1 className="text-xl font-semibold text-foreground">Scraper portal</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Sign in with your operator account (not staff).</p>
+          <p className="mt-1 text-sm text-muted-foreground">Sign in with your staff or admin portal account.</p>
         </div>
 
         <form className="space-y-4" onSubmit={onSubmit}>

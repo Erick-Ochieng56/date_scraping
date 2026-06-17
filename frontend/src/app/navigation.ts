@@ -1,4 +1,4 @@
-import { Globe, Home, LayoutDashboard, PlayCircle, Radio, Search, Sparkles, Target, Users, UserPlus } from 'lucide-react'
+import { LayoutDashboard, PlayCircle, Target, Users, UserPlus, Globe } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 export type NavItem = {
@@ -29,13 +29,7 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     label: 'Crawler',
-    items: [
-      { to: '/crawler', label: 'Crawler home', icon: Home },
-      { to: '/crawler/discover', label: 'Discover', icon: Search },
-      { to: '/crawler/domains', label: 'Domains', icon: Globe },
-      { to: '/crawler/runs', label: 'Crawl runs', icon: Radio },
-      { to: '/crawler/ai-search', label: 'AI search', icon: Sparkles },
-    ],
+    items: [{ to: '/crawler', label: 'Crawler', icon: Globe }],
   },
   {
     label: 'Pipeline',
