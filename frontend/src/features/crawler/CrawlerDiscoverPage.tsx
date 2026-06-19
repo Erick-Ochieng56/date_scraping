@@ -157,20 +157,7 @@ export function CrawlerDiscoverPage() {
         description="Search the open web for sites to add to your crawler queue. Serp results keep the landing page URL (e.g. /events/…) so the crawler starts on that page. Preview, trim the list, then enqueue or enqueue + crawl."
       />
 
-      <div className="rounded-lg border border-border bg-card p-4">
-        <h3 className="text-sm font-medium text-foreground">How it works</h3>
-        <ol className="mt-2 list-inside list-decimal space-y-1 text-sm text-muted-foreground">
-          <li>Enter a short search phrase (what you would type into a search engine).</li>
-          <li>
-            Preview loads landing URLs from results — uncheck rows you do not want. You can paste a specific event or
-            tender URL under the table.
-          </li>
-          <li>
-            <strong>Add to queue</strong> saves domains as pending with that landing URL as <code>source_url</code>.{' '}
-            <strong>Queue & crawl</strong> also starts a crawl run for domains that are due.
-          </li>
-        </ol>
-      </div>
+
 
       <AlertBanner message={banner.message} error={banner.error} />
 

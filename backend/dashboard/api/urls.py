@@ -22,6 +22,11 @@ urlpatterns = [
     path("crawl-domains/<int:domain_id>/trigger/", views.crawl_domain_trigger, name="v1_crawl_domain_trigger"),
     path("ai-search/jobs/<int:job_id>/", views.ai_search_job_detail, name="v1_ai_search_job_detail"),
     path("ai-search/jobs/", views.ai_search_jobs, name="v1_ai_search_jobs"),
+    path(
+        "ai-search/results/<int:result_id>/promote/",
+        views.ai_search_result_promote,
+        name="v1_ai_search_result_promote",
+    ),
     path("prospects/", views.prospects_list, name="v1_prospects_list"),
     path("prospects/<int:prospect_id>/", views.prospect_detail, name="v1_prospect_detail"),
     path("prospects/<int:prospect_id>/mark-contacted/", views.prospect_mark_contacted, name="v1_prospect_mark_contacted"),

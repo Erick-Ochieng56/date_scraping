@@ -189,6 +189,15 @@ GEMINI_ANALYSIS_MODEL = (
 GEMINI_GROUNDED_MODEL = (
     _get_env("GEMINI_GROUNDED_MODEL", "gemini-2.5-flash") or "gemini-2.5-flash"
 ).strip()
+GEMINI_GROUNDED_MAX_REMOTE_CALLS = int(_get_env("GEMINI_GROUNDED_MAX_REMOTE_CALLS", "5") or "5")
+AI_SEARCH_MIN_SCORE = int(_get_env("AI_SEARCH_MIN_SCORE", "80") or "80")
+AI_SEARCH_PROMOTE_MIN_SCORE = int(_get_env("AI_SEARCH_PROMOTE_MIN_SCORE", "80") or "80")
+# When true (default), AI search jobs require GEMINI_API_KEY for page extraction.
+AI_SEARCH_REQUIRE_GEMINI = _get_bool("AI_SEARCH_REQUIRE_GEMINI", default=True)
+# Require active tender/RFP/event hiring on page (not institutional homepages).
+AI_SEARCH_REQUIRE_ACTIVE_BUYER = _get_bool("AI_SEARCH_REQUIRE_ACTIVE_BUYER", default=True)
+# Max Gemini page extractions per job (quota control).
+AI_SEARCH_MAX_GEMINI_EXTRACTS = int(_get_env("AI_SEARCH_MAX_GEMINI_EXTRACTS", "12") or "12")
 
 
 # Application definition
@@ -486,6 +495,16 @@ CELERY_BEAT_SCHEDULE = {
 }
 
 # Crawler (domain discovery) — primary pipeline; set CRAWLER_ENABLED=0 to disable
+CRAWLER_GEO_MODE = (_get_env("CRAWLER_GEO_MODE", "east_africa") or "east_africa").strip().lower()
+CRAWLER_DEFAULT_REGION = (
+    _get_env(
+        "CRAWLER_DEFAULT_REGION",
+        "Kenya Uganda Tanzania Rwanda Burundi South Sudan Ethiopia East Africa EAC",
+    )
+    or "Kenya Uganda Tanzania Rwanda Burundi South Sudan Ethiopia East Africa EAC"
+).strip()
+CRAWLER_AUTO_DERIVE_COMPETITOR_SIGNALS = _get_bool("CRAWLER_AUTO_DERIVE_COMPETITOR_SIGNALS", default=True)
+
 if _get_bool("CRAWLER_ENABLED", default=True):
     crawler_interval = int(_get_env("CRAWLER_DISCOVERY_INTERVAL_SECONDS", "43200") or "43200")
     CELERY_BEAT_SCHEDULE["crawler-discover-websites"] = {

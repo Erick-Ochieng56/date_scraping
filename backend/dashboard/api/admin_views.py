@@ -12,6 +12,7 @@ from rest_framework.decorators import authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.exceptions import ValidationError
 
 from dashboard.api.decorators import dashboard_api_view
 from dashboard.api.permissions import IsDashboardAdminUser
@@ -21,7 +22,9 @@ from dashboard.permissions import scraper_group_name
 from dashboard.utils import log_activity
 from scraper.models import ScrapeRun, ScrapeRunStatus, ScrapeTarget
 from scraper.tasks import scrape_target
-from crawler.models import AISearchJob, CrawlRun, CrawlRunStatus, CrawlRunTrigger, CrawlSource, DiscoveredDomain
+from crawler.models import AISearchJob, AISearchResult, CrawlRun, CrawlRunStatus, CrawlRunTrigger, CrawlSource, DiscoveredDomain
+from crawler.discovery import _get_serper_api_key
+from crawler.services.promote_ai_result import promote_ai_search_result_to_prospect
 from crawler.tasks import crawl_domain_task, run_ai_search_job
 from leads.models import Lead, Prospect
 from celery import current_app
@@ -30,9 +33,43 @@ from django.utils import timezone
 User = get_user_model()
 
 
+def _parse_positive_int(value, *, field: str, default: int, minimum: int = 1, maximum: int | None = None) -> int:
+    if value is None or str(value).strip() == "":
+        parsed = default
+    else:
+        try:
+            parsed = int(str(value).strip())
+        except (TypeError, ValueError) as exc:
+            raise ValidationError({field: f"{field} must be an integer."}) from exc
+    if parsed < minimum:
+        parsed = minimum
+    if maximum is not None and parsed > maximum:
+        parsed = maximum
+    return parsed
+
+
+def _parse_optional_bool(value, *, field: str) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "t", "yes", "y", "on"}:
+        return True
+    if normalized in {"0", "false", "f", "no", "n", "off"}:
+        return False
+    raise ValidationError({field: f"{field} must be a boolean value."})
+
+
 def _pagination(request: Request, rows: list[dict]):
-    page = max(1, int(request.query_params.get("page", "1")))
-    page_size = min(100, max(1, int(request.query_params.get("page_size", "25"))))
+    page = _parse_positive_int(request.query_params.get("page"), field="page", default=1, minimum=1)
+    page_size = _parse_positive_int(
+        request.query_params.get("page_size"),
+        field="page_size",
+        default=25,
+        minimum=1,
+        maximum=100,
+    )
     total = len(rows)
     start = (page - 1) * page_size
     end = start + page_size
@@ -80,6 +117,22 @@ def _env_truthy(name: str, default: str = "0") -> bool:
     return (os.getenv(name, default) or default).strip().lower() in {"1", "true", "t", "yes", "y", "on"}
 
 
+def _setting_or_env_str(setting_name: str, env_name: str, default: str = "") -> str:
+    raw = getattr(settings, setting_name, None)
+    if raw is not None:
+        return str(raw).strip()
+    return (os.getenv(env_name, default) or default).strip()
+
+
+def _setting_or_env_bool(setting_name: str, env_name: str, default: str = "0") -> bool:
+    raw = getattr(settings, setting_name, None)
+    if isinstance(raw, bool):
+        return raw
+    if raw is not None:
+        return str(raw).strip().lower() in {"1", "true", "t", "yes", "y", "on"}
+    return _env_truthy(env_name, default)
+
+
 @dashboard_api_view(["GET"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardAdminUser])
@@ -98,8 +151,14 @@ def activity_list(request: Request) -> Response:
     if search:
         qs = qs.filter(description__icontains=search)
 
-    page = max(1, int(request.query_params.get("page", "1")))
-    page_size = min(100, max(1, int(request.query_params.get("page_size", "25"))))
+    page = _parse_positive_int(request.query_params.get("page"), field="page", default=1, minimum=1)
+    page_size = _parse_positive_int(
+        request.query_params.get("page_size"),
+        field="page_size",
+        default=25,
+        minimum=1,
+        maximum=100,
+    )
     total = qs.count()
     start = (page - 1) * page_size
     end = start + page_size
@@ -126,14 +185,14 @@ def activity_list(request: Request) -> Response:
 @permission_classes([IsAuthenticated, IsDashboardAdminUser])
 def settings_status(request: Request) -> Response:
     gemini_key = (getattr(settings, "GEMINI_API_KEY", None) or "").strip()
-    gsheets_enabled = _env_truthy("GSHEETS_ENABLED", "1")
-    gsheets_creds = bool((os.getenv("GSHEETS_CREDENTIALS_JSON") or "").strip()) or bool(
-        (os.getenv("GSHEETS_CREDENTIALS_FILE") or "").strip()
+    gsheets_enabled = _setting_or_env_bool("GSHEETS_ENABLED", "GSHEETS_ENABLED", "1")
+    gsheets_creds = bool(_setting_or_env_str("GSHEETS_CREDENTIALS_JSON", "GSHEETS_CREDENTIALS_JSON")) or bool(
+        _setting_or_env_str("GSHEETS_CREDENTIALS_FILE", "GSHEETS_CREDENTIALS_FILE")
     )
-    gsheets_sheet = bool((os.getenv("GSHEETS_SPREADSHEET_ID") or "").strip())
-    perfex_enabled = _env_truthy("PERFEX_SYNC_ENABLED", "0")
-    perfex_base = bool((os.getenv("PERFEX_BASE_URL") or "").strip())
-    perfex_token = bool((os.getenv("PERFEX_API_TOKEN") or "").strip())
+    gsheets_sheet = bool(_setting_or_env_str("GSHEETS_SPREADSHEET_ID", "GSHEETS_SPREADSHEET_ID"))
+    perfex_enabled = _setting_or_env_bool("PERFEX_SYNC_ENABLED", "PERFEX_SYNC_ENABLED", "0")
+    perfex_base = bool(_setting_or_env_str("PERFEX_BASE_URL", "PERFEX_BASE_URL"))
+    perfex_token = bool(_setting_or_env_str("PERFEX_API_TOKEN", "PERFEX_API_TOKEN"))
 
     integrations = [
         {
@@ -251,7 +310,7 @@ def users_update(request: Request, user_id: int) -> Response:
     scraper_group, _ = Group.objects.get_or_create(name=gname)
 
     role = request.data.get("role")
-    is_active = request.data.get("is_active")
+    is_active = _parse_optional_bool(request.data.get("is_active"), field="is_active")
 
     if is_active is not None:
         if user.id == request.user.id and is_active is False:
@@ -259,7 +318,7 @@ def users_update(request: Request, user_id: int) -> Response:
                 {"success": False, "error": "You cannot deactivate your own account."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        user.is_active = bool(is_active)
+        user.is_active = is_active
 
     if role is not None:
         if role not in {"admin", "staff"}:
@@ -701,8 +760,14 @@ def crawler_runs_cancel_all(request: Request) -> Response:
 
 
 def _paginate_queryset(request: Request, qs, serializer_cls):
-    page = max(1, int(request.query_params.get("page", "1")))
-    page_size = min(100, max(1, int(request.query_params.get("page_size", "25"))))
+    page = _parse_positive_int(request.query_params.get("page"), field="page", default=1, minimum=1)
+    page_size = _parse_positive_int(
+        request.query_params.get("page_size"),
+        field="page_size",
+        default=25,
+        minimum=1,
+        maximum=100,
+    )
     total = qs.count()
     start = (page - 1) * page_size
     end = start + page_size
@@ -721,9 +786,14 @@ def _paginate_queryset(request: Request, qs, serializer_cls):
 @permission_classes([IsAuthenticated, IsDashboardAdminUser])
 def admin_ai_search_jobs(request: Request) -> Response:
     if request.method == "POST":
-        if not (getattr(settings, "GEMINI_API_KEY", None) or "").strip():
+        if not _get_serper_api_key() and not (getattr(settings, "GEMINI_API_KEY", None) or "").strip():
             return Response(
-                {"success": False, "error": "Gemini API is not configured on the server (GEMINI_API_KEY)."},
+                {
+                    "success": False,
+                    "error": (
+                        "AI search is not configured. Set GEMINI_API_KEY and/or SERPER_API_KEY on the server."
+                    ),
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         raw_owner = request.data.get("owner_id")
@@ -797,6 +867,54 @@ def admin_ai_search_job_detail(request: Request, job_id: int) -> Response:
             "data": {
                 "job": AISearchJobSerializer(job).data,
                 "results": _paginate_queryset(request, res_qs, AISearchResultSerializer),
+            },
+        }
+    )
+
+
+@dashboard_api_view(["POST"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardAdminUser])
+def admin_ai_search_result_promote(request: Request, result_id: int) -> Response:
+    try:
+        result = AISearchResult.objects.select_related("job", "job__owner").get(pk=result_id)
+    except AISearchResult.DoesNotExist:
+        return Response({"success": False, "error": "Result not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    from crawler.services.ai_page_extract import result_promotable
+
+    if not result_promotable(result):
+        return Response(
+            {
+                "success": False,
+                "error": "Result score is below the minimum required for promotion.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    prospect, created = promote_ai_search_result_to_prospect(
+        result,
+        owner_id=result.job.owner_id,
+    )
+    result.refresh_from_db()
+    if created:
+        log_activity(
+            action="prospect_created",
+            object_type="prospect",
+            object_id=prospect.id,
+            description=(
+                f"Admin promoted AI search result #{result.id} ({result.domain}) "
+                f"to prospect for owner {result.job.owner.get_username()}"
+            ),
+            user=request.user,
+        )
+    return Response(
+        {
+            "success": True,
+            "data": {
+                "prospect_id": prospect.id,
+                "created": created,
+                "result": AISearchResultSerializer(result).data,
             },
         }
     )

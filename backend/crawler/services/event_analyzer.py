@@ -7,6 +7,7 @@ from datetime import date
 from django.conf import settings
 
 from crawler.services.gemini_client import generate_text
+from crawler.services.geo_filter import ai_geo_rules_block, default_region, geo_strict_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +33,15 @@ def analyze_event_page(
     combined = "\n\n---PAGE BREAK---\n\n".join(chunks)[:30_000]
     model_name = getattr(settings, "GEMINI_ANALYSIS_MODEL", "gemini-2.5-flash")
 
+    today = date.today().isoformat()
+    geo_rules = ""
+    if geo_strict_enabled():
+        geo_rules = f"\n{ai_geo_rules_block(default_region())}\nOnly extract events located in East Africa.\n"
+
     prompt = f"""
 You are a lead qualification assistant for a Language Service Provider (LSP).
 Today's date is {today}.
-
+{geo_rules}
 Analyze this website and extract ALL events that would likely need professional
 translation, interpretation, or localization services.
 

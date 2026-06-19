@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
-from urllib.parse import urlparse
 
 from crawler.models import CrawlRun, DiscoveredDomain, EventProspect
 from crawler.services.event_analyzer import analyze_event_page
-from crawler.utils import normalize_url
+from crawler.services.event_validation import (
+    accept_event_candidate,
+    adjusted_event_score,
+    parse_event_date,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -17,18 +19,6 @@ def _resolve_owner_id(crawl_run: CrawlRun, discovered_domain: DiscoveredDomain) 
     if discovered_domain.owner_id:
         return int(discovered_domain.owner_id)
     return None
-
-
-def _event_url_is_specific(event_url: str) -> bool:
-    """True when ``event_url`` points at a path, query, or fragment beyond the site root."""
-    u = normalize_url((event_url or "").strip())
-    if not u or not u.lower().startswith(("http://", "https://")):
-        return False
-    p = urlparse(u)
-    path = (p.path or "").strip("/")
-    if path:
-        return True
-    return bool((p.query or "").strip())
 
 
 def process_event_domain(
@@ -64,23 +54,16 @@ def process_event_domain(
     events_created = 0
 
     for event_data in analysis.get("events", []):
-        raw_score = int(event_data.get("translation_need_score", 0))
-        event_url = (event_data.get("event_url") or "").strip()
-        if not _event_url_is_specific(event_url):
-            raw_score = max(0, raw_score - 30)
-
-        if raw_score < 40:
+        accepted, _reason = accept_event_candidate(event_data)
+        if not accepted:
             continue
+
+        raw_score = adjusted_event_score(event_data)
 
         event_date = None
         raw_date = event_data.get("event_date", "")
         if raw_date:
-            try:
-                event_date = date.fromisoformat(raw_date)
-                if event_date < date.today():
-                    continue
-            except ValueError:
-                pass
+            event_date = parse_event_date(str(raw_date))
 
         event_name = event_data.get("event_name", "Unknown Event") or "Unknown Event"
         organizer_domain = discovered_domain.domain

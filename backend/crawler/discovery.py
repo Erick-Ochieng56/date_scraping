@@ -17,6 +17,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from crawler.models import CrawlSource, DiscoveredDomain
+from crawler.services.geo_filter import ensure_query_has_geo, serper_geo_payload
 from crawler.utils import normalize_domain_url, normalize_url
 
 logger = logging.getLogger(__name__)
@@ -122,7 +123,7 @@ def discover_websites_serper(query: str, max_results: int = 20) -> list[Discover
         logger.debug("SERPER_API_KEY not set; skipping Serper discovery")
         return []
 
-    payload = {"q": q, "num": min(max_results, 100)}
+    payload = {"q": q, "num": min(max_results, 100), **serper_geo_payload()}
     headers = {
         "X-API-KEY": api_key,
         "Content-Type": "application/json",
@@ -259,7 +260,7 @@ def discover_websites_bing(query: str, max_results: int = 20) -> list[DiscoveryH
     return hits[:max_results]
 
 
-def discover_websites(query: str, max_results: int = 20) -> list[DiscoveryHit]:
+def discover_websites(query: str, max_results: int = 20, *, region: str = "") -> list[DiscoveryHit]:
     """
     Discover sites for a query.
 
@@ -267,7 +268,7 @@ def discover_websites(query: str, max_results: int = 20) -> list[DiscoveryHit]:
     Returns ``DiscoveryHit`` rows: ``domain`` is ``https://host`` (no path),
     ``source_url`` is the SERP landing URL (may include path/query).
     """
-    q = (query or "").strip()
+    q = ensure_query_has_geo((query or "").strip(), region)
     if not q:
         return []
 

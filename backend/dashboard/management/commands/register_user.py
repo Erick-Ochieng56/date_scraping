@@ -42,7 +42,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--role",
             choices=("scraper", "staff"),
-            default="scraper",
+            default=None,
             help="scraper = React portal + API; staff = admin dashboard + /admin/.",
         )
         parser.add_argument(
@@ -67,13 +67,13 @@ class Command(BaseCommand):
             raise CommandError("Username is required.")
 
         email = (options.get("email") or "").strip()
-        role = options["role"]
+        requested_role = options["role"]
         password = options.get("password")
         no_input = options["no_input"]
         update = options["update"]
         superuser = options["superuser"]
 
-        if superuser and role != "staff":
+        if superuser and requested_role != "staff":
             raise CommandError("--superuser is only valid with --role staff.")
 
         User = get_user_model()
@@ -95,6 +95,7 @@ class Command(BaseCommand):
             raise CommandError(
                 f'User "{username}" already exists. Use --update to change password/role.'
             )
+        role = requested_role if requested_role is not None else ("scraper" if not exists else None)
 
         gname = scraper_group_name()
         group, _ = Group.objects.get_or_create(name=gname)
@@ -117,7 +118,9 @@ class Command(BaseCommand):
                 if email:
                     user.email = email
 
-            if role == "scraper":
+            if role is None:
+                self.stdout.write("Role unchanged (existing user).")
+            elif role == "scraper":
                 user.is_staff = False
                 user.is_superuser = False
                 user.groups.add(group)

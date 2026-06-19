@@ -1,7 +1,9 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.core.management import call_command
 from django.test import TestCase
 from rest_framework.test import APIClient
+from io import StringIO
 
 from crawler.models import CrawlRun, CrawlRunStatus, CrawlRunTrigger, CrawlSource, DiscoveredDomain
 from dashboard.models import ActivityLog
@@ -82,19 +84,20 @@ class DashboardV1ApiTests(TestCase):
         lead.refresh_from_db()
         self.assertEqual(lead.status, LeadStatus.INTERESTED)
 
-    def test_wizard_detect_platform_portal_user(self):
+    def test_targets_list_rejects_invalid_page(self):
+        resp = self.client.get("/dashboard/api/v1/targets/?page=abc")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_wizard_detect_platform_rejects_portal_user(self):
         resp = self.client.get(
             "/dashboard/wizard/detect-platform/",
             {"url": "https://www.eventbrite.com/d/united-kingdom--london/events"},
         )
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 403)
         data = resp.json()
-        self.assertTrue(data["success"])
-        self.assertEqual(data["platform"], "eventbrite")
-        self.assertTrue(data["detected"])
-        self.assertIn("item_selector", data["suggested_config"]["config"])
+        self.assertFalse(data["success"])
 
-    def test_wizard_create_target_sets_owner(self):
+    def test_wizard_create_target_rejects_portal_user(self):
         resp = self.client.post(
             "/dashboard/wizard/create-target/",
             {
@@ -104,13 +107,9 @@ class DashboardV1ApiTests(TestCase):
             },
             format="json",
         )
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 403)
         data = resp.json()
-        self.assertTrue(data["success"])
-        target = ScrapeTarget.objects.get(pk=data["target_id"])
-        self.assertEqual(target.owner_id, self.user.id)
-        self.assertEqual(target.name, "Wizard Portal Target")
-        self.assertEqual(target.run_every_minutes, 90)
+        self.assertFalse(data["success"])
 
     def test_wizard_create_target_name_conflict(self):
         ScrapeTarget.objects.create(name="Taken", start_url="https://example.com/a", owner=self.user)
@@ -258,3 +257,77 @@ class DashboardAdminApiTests(TestCase):
         self.assertTrue(resp.data["success"])
         ids = {row["id"] for row in resp.data["data"]["integrations"]}
         self.assertEqual(ids, {"gemini", "gsheets", "perfex"})
+
+    def test_admin_users_update_accepts_string_false(self):
+        staff = get_user_model().objects.create_user(username="staff_bool", password="pass12345")
+        group, _ = Group.objects.get_or_create(name=scraper_group_name())
+        staff.groups.add(group)
+        resp = self.client.patch(
+            f"/dashboard/api/admin/v1/users/{staff.id}/",
+            {"is_active": "false"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        staff.refresh_from_db()
+        self.assertFalse(staff.is_active)
+
+    def test_admin_users_update_rejects_invalid_boolean(self):
+        staff = get_user_model().objects.create_user(username="staff_invalid_bool", password="pass12345")
+        group, _ = Group.objects.get_or_create(name=scraper_group_name())
+        staff.groups.add(group)
+        resp = self.client.patch(
+            f"/dashboard/api/admin/v1/users/{staff.id}/",
+            {"is_active": "sometimes"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_admin_activity_list_rejects_invalid_page(self):
+        resp = self.client.get("/dashboard/api/admin/v1/activity/?page=abc")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_wizard_endpoints_allow_admin(self):
+        detect = self.client.get(
+            "/dashboard/wizard/detect-platform/",
+            {"url": "https://www.eventbrite.com/d/united-kingdom--london/events"},
+        )
+        self.assertEqual(detect.status_code, 200)
+        detect_data = detect.json()
+        self.assertTrue(detect_data["success"])
+        self.assertEqual(detect_data["platform"], "eventbrite")
+
+        create = self.client.post(
+            "/dashboard/wizard/create-target/",
+            {
+                "url": "https://example.com/events",
+                "name": "Wizard Admin Target",
+                "run_every_minutes": 90,
+            },
+            format="json",
+        )
+        self.assertEqual(create.status_code, 201)
+        create_data = create.json()
+        self.assertTrue(create_data["success"])
+
+
+class RegisterUserCommandTests(TestCase):
+    def test_update_keeps_existing_admin_role_by_default(self):
+        User = get_user_model()
+        user = User.objects.create_user(
+            username="opsadmin",
+            password="oldpass123",
+            is_staff=True,
+            is_superuser=True,
+        )
+        out = StringIO()
+        call_command(
+            "register_user",
+            "opsadmin",
+            "--update",
+            "--password",
+            "newpass123",
+            stdout=out,
+        )
+        user.refresh_from_db()
+        self.assertTrue(user.is_staff)
+        self.assertTrue(user.is_superuser)

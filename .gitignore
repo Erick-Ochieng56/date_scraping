@@ -2,3 +2,7 @@
 
 backend/cert.crt
 backend/cert.key
+backend/celerybeat-schedule*
+backend/db.sqlite3
+**/__pycache__/
+**/*.pyc

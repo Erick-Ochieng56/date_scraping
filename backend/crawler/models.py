@@ -292,6 +292,7 @@ class AISearchJob(models.Model):
     queries_generated = models.JSONField(default=list)
     domains_discovered = models.PositiveIntegerField(default=0)
     prospects_created = models.PositiveIntegerField(default=0)
+    qualification_log = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ["-created_at"]

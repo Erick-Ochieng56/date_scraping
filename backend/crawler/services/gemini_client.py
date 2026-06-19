@@ -34,6 +34,7 @@ def generate_text(
     model: str,
     prompt: str,
     tools: list[Any] | None = None,
+    maximum_remote_calls: int | None = None,
 ) -> str:
     """
     Run a single-turn generate request; returns concatenated model text.
@@ -44,7 +45,23 @@ def generate_text(
     from google.genai import types
 
     client = get_genai_client()
-    config = types.GenerateContentConfig(tools=tools) if tools else None
+    if tools:
+        max_calls = maximum_remote_calls
+        if max_calls is None:
+            try:
+                max_calls = int(getattr(settings, "GEMINI_GROUNDED_MAX_REMOTE_CALLS", 5))
+            except (TypeError, ValueError):
+                max_calls = 5
+        config = types.GenerateContentConfig(
+            tools=tools,
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                maximum_remote_calls=max(1, max_calls),
+            ),
+        )
+    else:
+        config = types.GenerateContentConfig(
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+        )
     resp = client.models.generate_content(
         model=model,
         contents=prompt,

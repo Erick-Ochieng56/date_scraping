@@ -10,6 +10,8 @@ from django.conf import settings
 from google.genai import types
 
 from crawler.services.gemini_client import generate_text
+from crawler.services.company_discovery import COMPANY_FIRST_GROUNDED_RULES, company_first_query_templates
+from crawler.services.geo_filter import ai_geo_rules_block, resolve_region
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +66,11 @@ def _strip_code_fence(raw: str) -> str:
 def _query_has_buyer_intent(text: str) -> bool:
     low = (text or "").lower()
     return any(m in low for m in _INTENT_MARKERS)
+
+
+def text_has_buyer_intent(text: str) -> bool:
+    """True when page or query text contains LSP buyer/procurement signals."""
+    return _query_has_buyer_intent(text)
 
 
 def _is_broad_event_only_seed(seed: str) -> bool:
@@ -122,11 +129,13 @@ def _boost_queries_for_lsp(
     Inject high-intent procurement / multilingual-event queries and ensure buyer signals.
     """
     seed = (seed_topic or "").strip()
-    geo = (region or "").strip() or "Kenya Uganda Tanzania Rwanda East Africa"
+    geo = resolve_region(region)
     ind = (industry or "").strip()
     ind_bit = f"{ind} " if ind else ""
 
-    inject: list[dict] = []
+    inject: list[dict] = list(
+        company_first_query_templates(region=geo, industry=industry, seed=seed)
+    )
     if _is_broad_event_only_seed(seed):
         inject.extend(
             [
@@ -141,8 +150,8 @@ def _boost_queries_for_lsp(
                     "expected_prospect_type": "association_or_corporate_events",
                 },
                 {
-                    "query": f"{ind_bit}UNGM OR reliefweb interpretation translation services tender",
-                    "intent": "High-intent NGO / multilateral procurement language needs",
+                    "query": f"{ind_bit}{geo} UNGM OR reliefweb interpretation translation services tender",
+                    "intent": "High-intent NGO / multilateral procurement language needs (East Africa)",
                     "expected_prospect_type": "ngo_or_donor_funded",
                 },
             ]
@@ -209,14 +218,9 @@ def generate_search_queries(
     count: int = 10,
 ) -> list[dict]:
     model_name = getattr(settings, "GEMINI_ANALYSIS_MODEL", "gemini-2.5-flash")
+    region = resolve_region(region)
     industry_line = f"Industry / sector focus: {industry}" if industry else ""
-    region_line = (
-        f"Geographic focus (anchor searches here; default East Africa if blank): {region}"
-        if region
-        else "Geographic focus: prefer Kenya, Uganda, Tanzania, Rwanda, Ethiopia, "
-        "South Sudan, DRC — anchor every query with at least one regional token "
-        "unless the seed is already global procurement (UNGM, World Bank)."
-    )
+    region_line = ai_geo_rules_block(region)
 
     prompt = f"""
 {_LSP_SERVICE_CONTEXT}
@@ -240,7 +244,9 @@ Critical rules:
   cross-border litigation, patient information multilingual, conference AV + interpretation.
 - EXCLUDE queries optimized to find translation agencies (e.g. "top translation companies").
 - Mix organization types: conference organizers, INGOs, ministries, hospitals, law firms,
-  universities, associations, ecommerce regional HQs.
+  universities, associations, chambers of commerce, corporates.
+- Target NAMED individual organizations — not event directories (Eventbrite, 10times, Cvent).
+- Add -eventbrite -10times -directory to queries when searching for company buyers.
 
 Return ONLY valid JSON array:
 [
@@ -288,10 +294,11 @@ def grounded_prospect_search(
     if not (getattr(settings, "GEMINI_API_KEY", None) or "").strip():
         return []
 
-    region_line = f"Geographic focus: {region}" if region else (
-        "Geographic focus: prioritize Kenya and East Africa; include pan-African "
-        "and multilateral institutions when relevant."
-    )
+    from datetime import date
+
+    today = date.today().isoformat()
+    region = resolve_region(region)
+    region_line = ai_geo_rules_block(region)
     prompt = f"""
 {_LSP_SERVICE_CONTEXT}
 
@@ -302,6 +309,8 @@ equipment — not language agencies.
 
 Topic / hook from the user: "{topic}"
 {region_line}
+
+{COMPANY_FIRST_GROUNDED_RULES}
 
 Prefer:
 - Conference organizers or venues publishing RFPs for interpretation or AV
@@ -320,6 +329,10 @@ For each prospect return:
 - contact_email (if found, else "")
 
 EXCLUDE translation agencies, LSPs, freelance marketplaces for linguists only.
+EXCLUDE past events (before {today}), event directories with no buyer signal, and
+organizations you cannot verify from search results.
+When the topic is event-related, only include events on or after {today} with evidence
+from a real page URL.
 
 Return ONLY a JSON array of objects.
 """
@@ -365,3 +378,62 @@ def validate_landing_url(url: str, *, timeout: float = 12.0) -> bool:
         return r.status_code < 500
     except Exception:
         return False
+
+
+def serp_company_prospects(
+    queries: list[dict],
+    *,
+    region: str = "",
+    max_total: int = 45,
+    max_per_query: int = 6,
+) -> list[dict]:
+    """
+    Company-first discovery via Serper/Bing — avoids Gemini grounded search quota.
+    """
+    from urllib.parse import urlparse
+
+    from crawler.discovery import discover_websites
+    from crawler.services.directory_filter import is_directory_or_aggregator
+
+    prospects: list[dict] = []
+    seen: set[str] = set()
+
+    for q_entry in (queries or [])[:10]:
+        if not isinstance(q_entry, dict):
+            continue
+        q_str = (q_entry.get("query") or "").strip()
+        if not q_str:
+            continue
+        intent = (q_entry.get("intent") or "").strip()
+        org_type = (q_entry.get("expected_prospect_type") or "unknown")[:120]
+
+        for hit in discover_websites(q_str, max_results=max_per_query, region=region):
+            host = (hit.get("domain") or "").strip()
+            if "://" in host:
+                host = urlparse(host).netloc.lower().removeprefix("www.")
+            else:
+                host = host.lower().removeprefix("www.")
+            if not host or host in seen:
+                continue
+
+            landing = (hit.get("source_url") or "").strip()
+            flagged, _ = is_directory_or_aggregator(host, url=landing)
+            if flagged:
+                continue
+
+            seen.add(host)
+            prospects.append(
+                {
+                    "domain": host,
+                    "source_url": landing,
+                    "org_name": "",
+                    "org_type": org_type,
+                    "why_needs_translation": intent or "Matched company-first search query.",
+                    "international_signals": [],
+                    "contact_email": "",
+                }
+            )
+            if len(prospects) >= max_total:
+                return prospects
+
+    return prospects

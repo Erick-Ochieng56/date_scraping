@@ -5,7 +5,7 @@ import json
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.http import require_GET, require_POST
 
-from dashboard.permissions import dashboard_api_user
+from dashboard.permissions import staff_json_api_user
 from dashboard.utils import log_activity
 from scraper.models import ScrapeTarget, ScrapeTargetType
 from scraper.services.auto_discover import auto_create_target, detect_platform_type
@@ -23,7 +23,7 @@ def _target_type_value(raw) -> str:
 
 
 @require_GET
-@dashboard_api_user
+@staff_json_api_user
 def wizard_detect_platform(request: HttpRequest) -> JsonResponse:
     """Detect listing platform from URL and return suggested scrape target config."""
     url = (request.GET.get("url") or "").strip()
@@ -52,7 +52,7 @@ def wizard_detect_platform(request: HttpRequest) -> JsonResponse:
 
 
 @require_POST
-@dashboard_api_user
+@staff_json_api_user
 def wizard_create_target(request: HttpRequest) -> JsonResponse:
     """Create a scrape target using auto-detected platform config plus optional overrides."""
     try:

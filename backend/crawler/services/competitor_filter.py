@@ -22,6 +22,18 @@ BASE_COMPETITOR_KEYWORDS = [
     "language bureau",
 ]
 
+_LSP_SELLER_PHRASES = (
+    "we offer translation",
+    "we provide interpretation",
+    "we provide translation",
+    "our team of translators",
+    "our interpreters",
+    "language services company",
+    "certified translators",
+    "professional translation services",
+    "hire our linguists",
+)
+
 GENERIC_COMPETITOR_ORG_TYPES = {
     "translation_agency",
     "lsp",
@@ -59,7 +71,10 @@ def is_likely_competitor(
     page_texts: list[str],
     crawl_source: CrawlSource | None = None,
     org_type_hint: str = "",
+    landing_url: str = "",
 ) -> tuple[bool, str]:
+    from crawler.services.active_buyer import is_buyer_procurement_context
+
     keywords = build_keyword_set(crawl_source)
     domain_lower = (domain or "").lower().strip()
 
@@ -71,11 +86,15 @@ def is_likely_competitor(
         if kw in domain_lower:
             return True, f"Domain contains keyword: '{kw}'"
 
-    combined = " ".join(page_texts)[:5000].lower()
+    combined = " ".join(page_texts)[:8000].lower()
+    buyer_context = is_buyer_procurement_context(combined)
+
     hits = [kw for kw in keywords if kw in combined]
 
-    # Require more evidence than two weak substrings (buyer pages can mention e.g.
-    # "translation" + "localization" in unrelated contexts).
+    seller_hits = [p for p in _LSP_SELLER_PHRASES if p in combined]
+    if len(seller_hits) >= 1 and len(hits) >= 1:
+        return True, f"Content matches LSP seller signals: {seller_hits[:3]}"
+
     if len(hits) >= 3:
         return True, f"Content matches keywords: {hits[:5]}"
 
@@ -84,9 +103,10 @@ def is_likely_competitor(
         if ot in org_lower:
             return True, f"Org type matches generic competitor type: {ot}"
 
-    for pat in _ORG_HARD_BLOCK_PATTERNS:
-        if re.search(pat, combined) or re.search(pat, org_lower):
-            return True, f"Content/org-type matches LSP pattern: /{pat}/"
+    if not buyer_context:
+        for pat in _ORG_HARD_BLOCK_PATTERNS:
+            if re.search(pat, combined) or re.search(pat, org_lower):
+                return True, f"Content/org-type matches LSP pattern: /{pat}/"
 
     if crawl_source and crawl_source.competitor_org_types:
         for ot in crawl_source.competitor_org_types:

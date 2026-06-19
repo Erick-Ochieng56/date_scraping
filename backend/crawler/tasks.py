@@ -98,20 +98,21 @@ def discover_websites_task(self, initiated_by_id: int | None = None) -> dict[str
             sources_qs = sources_qs.filter(owner_id=initiated_by_id)
         sources = list(sources_qs.order_by("priority", "id"))
         new_domain_ids: list[int] = []
-        from crawler.services.competitor_filter import is_likely_competitor
+        from crawler.services.prospect_verify import filter_discovery_hit
 
         for source in sources:
             hits = discover_websites(source.discovery_query, max_results=20)
-            # Drop obvious LSP/competitor sites before they enter the crawl queue.
             filtered_hits = []
             for hit in hits:
-                flagged, _ = is_likely_competitor(
-                    domain=hit.get("domain", ""),
-                    page_texts=[hit.get("source_url", "")],
-                    crawl_source=source,
-                )
-                if not flagged:
-                    filtered_hits.append(hit)
+                ok, reason = filter_discovery_hit(hit, source)
+                if not ok:
+                    logger.info(
+                        "Discovery dropped %s: %s",
+                        hit.get("domain", ""),
+                        reason,
+                    )
+                    continue
+                filtered_hits.append(hit)
             created = save_discovered_domains(filtered_hits, source=source, owner_id=initiated_by_id)
             stats["domains_discovered"] += int(created)
 
@@ -453,18 +454,58 @@ def _increment_crawl_run_domain_stats(
 @shared_task(soft_time_limit=300, time_limit=330)
 def run_ai_search_job(job_id: int) -> dict[str, Any]:
     from crawler.models import AISearchJob, AISearchResult, DiscoveredDomain
+    from crawler.discovery import _get_serper_api_key
     from crawler.services.ai_search import (
         generate_search_queries,
         grounded_prospect_search,
-        validate_domain_exists,
-        validate_landing_url,
+        serp_company_prospects,
     )
-    from crawler.services.competitor_filter import is_likely_competitor
+    from crawler.services.ai_page_extract import gemini_extract_enabled, qualify_ai_search_candidate
+    from crawler.services.prospect_verify import fetch_page_for_qualification
+    from django.conf import settings
+
+    def _record_drop(
+        drops: list[dict[str, str]],
+        summary: dict[str, int],
+        *,
+        domain: str,
+        url: str,
+        reason: str,
+    ) -> None:
+        reason = (reason or "unknown")[:500]
+        drops.append({"domain": domain, "url": url[:500], "reason": reason})
+        bucket = reason.split(".")[0][:80] or "unknown"
+        summary[bucket] = summary.get(bucket, 0) + 1
 
     try:
         job = AISearchJob.objects.get(pk=job_id)
         job.status = "generating"
         job.save(update_fields=["status", "updated_at"])
+
+        gemini_on = gemini_extract_enabled()
+        serper_on = bool(_get_serper_api_key())
+        require_gemini = bool(getattr(settings, "AI_SEARCH_REQUIRE_GEMINI", True))
+        logger.info(
+            "AI search job %s start: gemini=%s serper=%s require_gemini=%s",
+            job_id,
+            "on" if gemini_on else "off",
+            "on" if serper_on else "off",
+            require_gemini,
+        )
+        if serper_on and not gemini_on:
+            logger.warning(
+                "AI search job %s: SERPER without GEMINI — page extraction disabled; "
+                "qualification uses rules only. Set GEMINI_API_KEY in backend/.env and restart Celery.",
+                job_id,
+            )
+        if require_gemini and not gemini_on:
+            job.status = "failed"
+            job.error_text = (
+                "GEMINI_API_KEY is required for AI search page extraction. "
+                "Set it in backend/.env and restart the Celery worker."
+            )
+            job.save(update_fields=["status", "error_text", "updated_at"])
+            return {"job_id": job_id, "error": job.error_text}
 
         queries = generate_search_queries(
             seed_topic=job.seed_topic,
@@ -475,48 +516,27 @@ def run_ai_search_job(job_id: int) -> dict[str, Any]:
         job.status = "searching"
         job.save(update_fields=["queries_generated", "status", "updated_at"])
 
-        prospects = grounded_prospect_search(
-            topic=job.seed_topic,
-            region=job.region,
-        )
+        use_serp_first = serper_on
+        if use_serp_first:
+            prospects = serp_company_prospects(queries, region=job.region, max_total=45)
+        else:
+            prospects = []
 
-        if not prospects:
-            seen: set[str] = set()
-            for q_entry in (queries or [])[:8]:
-                if not isinstance(q_entry, dict):
-                    continue
-                q_str = (q_entry.get("query") or "").strip()
-                if not q_str:
-                    continue
-                for hit in discover_websites(q_str, max_results=6):
-                    host = (urlparse(hit["domain"]).netloc or "").lower().removeprefix("www.")
-                    if not host or host in seen:
-                        continue
-                    seen.add(host)
-                    prospects.append(
-                        {
-                            "domain": host,
-                            "source_url": hit.get("source_url") or "",
-                            "org_name": "",
-                            "org_type": (q_entry.get("expected_prospect_type") or "unknown")[
-                                :120
-                            ],
-                            "why_needs_translation": (
-                                (q_entry.get("intent") or "").strip()[:500]
-                                or "Matched via web search for a generated query."
-                            ),
-                            "international_signals": [],
-                            "contact_email": "",
-                        }
-                    )
-                    if len(prospects) >= 45:
-                        break
-                if len(prospects) >= 45:
-                    break
+        if not prospects and gemini_on:
+            prospects = grounded_prospect_search(
+                topic=job.seed_topic,
+                region=job.region,
+            )
 
-        # Cap how many hosts we probe so one job cannot block the worker for many minutes.
+        if not prospects and not use_serp_first:
+            prospects = serp_company_prospects(queries, region=job.region, max_total=45)
+
         prospects = prospects[:35]
         domains_found = 0
+        drops: list[dict[str, str]] = []
+        drop_summary: dict[str, int] = {}
+        gemini_extracts_left = int(getattr(settings, "AI_SEARCH_MAX_GEMINI_EXTRACTS", 12) or 12)
+
         for prospect in prospects:
             domain = (prospect.get("domain") or "").strip().lower()
             domain = domain.removeprefix("www.")
@@ -534,26 +554,39 @@ def run_ai_search_job(job_id: int) -> dict[str, Any]:
                 raw_src = "https://" + raw_src.lstrip("/")
             landing = normalize_url(raw_src) if raw_src else ""
 
-            reachable = False
-            if landing:
-                reachable = validate_landing_url(landing, timeout=5.0)
-            if not reachable:
-                reachable = validate_domain_exists(domain, timeout=5.0)
-            if not reachable:
+            fetch_url = landing or f"https://{domain}"
+            fetch_ok, page_text, fetch_reason = fetch_page_for_qualification(
+                fetch_url,
+                timeout=5.0,
+            )
+            if not fetch_ok:
+                _record_drop(drops, drop_summary, domain=domain, url=fetch_url, reason=fetch_reason)
+                logger.info("AI search dropped %s: %s", domain, fetch_reason)
                 continue
 
-            flagged, _ = is_likely_competitor(
-                domain,
-                [
-                    str(prospect.get("why_needs_translation", "")),
-                    str(prospect.get("org_type", "")),
-                    str(prospect.get("org_name", "")),
-                    str(prospect.get("source_url", "")),
-                ],
-                org_type_hint=str(prospect.get("org_type", "")),
+            verified, verify_reason, enriched = qualify_ai_search_candidate(
+                {**prospect, "domain": domain, "source_url": landing or raw_src},
+                seed_topic=job.seed_topic,
+                page_text=page_text,
+                allow_gemini=gemini_extracts_left > 0,
             )
-            if flagged:
+            if gemini_extracts_left > 0 and enriched.get("extraction"):
+                gemini_extracts_left -= 1
+            if not verified:
+                _record_drop(drops, drop_summary, domain=domain, url=fetch_url, reason=verify_reason)
+                logger.info("AI search dropped %s: %s", domain, verify_reason)
                 continue
+
+            prospect = enriched
+            raw_payload = prospect if isinstance(prospect, dict) else {}
+            if isinstance(raw_payload, dict):
+                raw_payload = {
+                    k: v
+                    for k, v in raw_payload.items()
+                    if k != "extraction"
+                }
+                if prospect.get("extraction"):
+                    raw_payload["extraction"] = prospect["extraction"]
 
             ai_result = AISearchResult.objects.create(
                 job=job,
@@ -563,7 +596,16 @@ def run_ai_search_job(job_id: int) -> dict[str, Any]:
                 why_needs_translation=prospect.get("why_needs_translation", "") or "",
                 international_signals=prospect.get("international_signals") or [],
                 contact_email=prospect.get("contact_email", "") or "",
-                raw_data=prospect if isinstance(prospect, dict) else {},
+                raw_data={
+                    **raw_payload,
+                    "source_url": landing or raw_src,
+                    "translation_need_score": prospect.get("translation_need_score"),
+                    "evidence_snippet": prospect.get("evidence_snippet", ""),
+                    "buyer_signal_type": prospect.get("buyer_signal_type", ""),
+                    "action_date": prospect.get("action_date", ""),
+                    "action_date_raw": prospect.get("action_date_raw", ""),
+                    "has_active_procurement": prospect.get("has_active_procurement"),
+                },
             )
 
             hit = coerce_discovery_hit({"domain": domain, "source_url": landing})
@@ -605,8 +647,20 @@ def run_ai_search_job(job_id: int) -> dict[str, Any]:
             ai_result.save(update_fields=["queued_domain"])
 
         job.domains_discovered = domains_found
+        job.qualification_log = {
+            "providers": {
+                "gemini": gemini_on,
+                "serper": serper_on,
+            },
+            "candidates_seen": len(prospects),
+            "dropped_count": len(drops),
+            "drop_summary": drop_summary,
+            "drops": drops[:50],
+        }
         job.status = "done"
-        job.save(update_fields=["domains_discovered", "status", "updated_at"])
+        job.save(
+            update_fields=["domains_discovered", "qualification_log", "status", "updated_at"]
+        )
         return {"job_id": job_id, "domains_discovered": domains_found}
 
     except SoftTimeLimitExceeded:

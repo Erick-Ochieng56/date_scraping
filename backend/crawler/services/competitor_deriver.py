@@ -2,12 +2,21 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 
 from django.conf import settings
 
 from crawler.services.gemini_client import generate_text
 
 logger = logging.getLogger(__name__)
+
+_FALLBACK_SIGNALS = {
+    "competitor_keywords": ["translation agency", "language service provider", "localization vendor"],
+    "competitor_org_types": ["translation_agency", "lsp", "localization_vendor"],
+    "prospect_org_types": [],
+    "prospect_signals": [],
+    "reasoning": "Fallback defaults",
+}
 
 
 def _strip_code_fence(raw: str) -> str:
@@ -48,7 +57,27 @@ Return ONLY valid JSON with this schema:
 }}
 """
 
-    raw_text = generate_text(model=model_name, prompt=prompt)
+
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        try:
+            raw_text = generate_text(model=model_name, prompt=prompt)
+            break
+        except Exception as exc:
+            last_exc = exc
+            err = str(exc)
+            if ("429" in err or "RESOURCE_EXHAUSTED" in err) and attempt == 0:
+                time.sleep(3)
+                continue
+            if "429" in err or "RESOURCE_EXHAUSTED" in err:
+                logger.warning("derive_competitor_signals rate limited; using fallback defaults")
+                return dict(_FALLBACK_SIGNALS)
+            raise
+    else:
+        if last_exc is not None:
+            raise last_exc
+        raw_text = ""
+
     raw = _strip_code_fence(raw_text)
 
     try:

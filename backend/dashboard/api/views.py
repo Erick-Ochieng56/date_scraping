@@ -13,9 +13,11 @@ from rest_framework.decorators import authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.exceptions import ValidationError
 
 from crawler.models import (
     AISearchJob,
+    AISearchResult,
     CrawlRun,
     CrawlRunDomainResult,
     CrawlRunStatus,
@@ -23,6 +25,8 @@ from crawler.models import (
     CrawlSource,
     DiscoveredDomain,
 )
+from crawler.discovery import _get_serper_api_key
+from crawler.services.promote_ai_result import promote_ai_search_result_to_prospect
 from crawler.tasks import crawl_domain_task, discover_websites_task, run_ai_search_job
 from dashboard.api.decorators import dashboard_api_view
 from dashboard.api.permissions import IsDashboardPortalUser
@@ -44,9 +48,30 @@ from scraper.models import ScrapeRun, ScrapeRunStatus, ScrapeTarget
 from scraper.tasks import scrape_target
 
 
+def _parse_positive_int(value, *, field: str, default: int, minimum: int = 1, maximum: int | None = None) -> int:
+    if value is None or str(value).strip() == "":
+        parsed = default
+    else:
+        try:
+            parsed = int(str(value).strip())
+        except (TypeError, ValueError) as exc:
+            raise ValidationError({field: f"{field} must be an integer."}) from exc
+    if parsed < minimum:
+        parsed = minimum
+    if maximum is not None and parsed > maximum:
+        parsed = maximum
+    return parsed
+
+
 def _pagination(request: Request, queryset, serializer_cls):
-    page = max(1, int(request.query_params.get("page", "1")))
-    page_size = min(100, max(1, int(request.query_params.get("page_size", "25"))))
+    page = _parse_positive_int(request.query_params.get("page"), field="page", default=1, minimum=1)
+    page_size = _parse_positive_int(
+        request.query_params.get("page_size"),
+        field="page_size",
+        default=25,
+        minimum=1,
+        maximum=100,
+    )
     total = queryset.count()
     start = (page - 1) * page_size
     end = start + page_size
@@ -586,14 +611,28 @@ def metrics_summary(request: Request) -> Response:
     return Response({"success": True, "data": data})
 
 
+def _ai_search_configured() -> bool:
+    gemini = bool((getattr(settings, "GEMINI_API_KEY", None) or "").strip())
+    serper = bool(_get_serper_api_key())
+    if getattr(settings, "AI_SEARCH_REQUIRE_GEMINI", True):
+        return gemini
+    return gemini or serper
+
+
 @dashboard_api_view(["GET", "POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def ai_search_jobs(request: Request) -> Response:
     if request.method == "POST":
-        if not (getattr(settings, "GEMINI_API_KEY", None) or "").strip():
+        if not _ai_search_configured():
             return Response(
-                {"success": False, "error": "Gemini API is not configured on the server (GEMINI_API_KEY)."},
+                {
+                    "success": False,
+                    "error": (
+                        "AI search is not configured. Set GEMINI_API_KEY on the server "
+                        "(and SERPER_API_KEY for company-first discovery)."
+                    ),
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         seed_topic = (request.data.get("seed_topic") or "").strip()
@@ -644,6 +683,57 @@ def ai_search_job_detail(request: Request, job_id: int) -> Response:
             "data": {
                 "job": AISearchJobSerializer(job).data,
                 "results": _pagination(request, res_qs, AISearchResultSerializer),
+            },
+        }
+    )
+
+
+@dashboard_api_view(["POST"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def ai_search_result_promote(request: Request, result_id: int) -> Response:
+    try:
+        result = AISearchResult.objects.select_related("job").get(pk=result_id)
+    except AISearchResult.DoesNotExist:
+        return Response({"success": False, "error": "Result not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    if not _owned_qs(request, AISearchJob.objects.filter(pk=result.job_id)).exists():
+        return Response({"success": False, "error": "Result not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    from crawler.services.ai_page_extract import result_promotable
+
+    if not result_promotable(result):
+        return Response(
+            {
+                "success": False,
+                "error": (
+                    "This result does not meet the minimum lead score for promotion. "
+                    "Run a new search or wait for crawl analysis."
+                ),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    prospect, created = promote_ai_search_result_to_prospect(
+        result,
+        owner_id=request.user.id,
+    )
+    result.refresh_from_db()
+    if created:
+        log_activity(
+            action="prospect_created",
+            object_type="prospect",
+            object_id=prospect.id,
+            description=f"Promoted AI search result #{result.id} ({result.domain}) to prospect",
+            user=request.user,
+        )
+    return Response(
+        {
+            "success": True,
+            "data": {
+                "prospect_id": prospect.id,
+                "created": created,
+                "result": AISearchResultSerializer(result).data,
             },
         }
     )

@@ -164,6 +164,12 @@ class ProspectSerializer(serializers.ModelSerializer):
 class AISearchResultSerializer(serializers.ModelSerializer):
     queued_domain_id = serializers.IntegerField(read_only=True, allow_null=True)
     source_url = serializers.SerializerMethodField()
+    promoted_prospect_id = serializers.SerializerMethodField()
+    translation_need_score = serializers.SerializerMethodField()
+    evidence_snippet = serializers.SerializerMethodField()
+    buyer_signal_type = serializers.SerializerMethodField()
+    action_date = serializers.SerializerMethodField()
+    promotable = serializers.SerializerMethodField()
 
     def get_source_url(self, obj):
         raw = obj.raw_data if isinstance(obj.raw_data, dict) else {}
@@ -175,6 +181,37 @@ class AISearchResultSerializer(serializers.ModelSerializer):
             return qd.source_url
         dom = (obj.domain or "").strip()
         return f"https://{dom}" if dom and "://" not in dom else dom
+
+    def get_promoted_prospect_id(self, obj):
+        raw = obj.raw_data if isinstance(obj.raw_data, dict) else {}
+        pid = raw.get("promoted_prospect_id")
+        try:
+            return int(pid) if pid is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def get_translation_need_score(self, obj):
+        from crawler.services.ai_page_extract import result_translation_need_score
+
+        return result_translation_need_score(obj)
+
+    def get_evidence_snippet(self, obj):
+        raw = obj.raw_data if isinstance(obj.raw_data, dict) else {}
+        return (raw.get("evidence_snippet") or "")[:2000]
+
+    def get_buyer_signal_type(self, obj):
+        raw = obj.raw_data if isinstance(obj.raw_data, dict) else {}
+        return (raw.get("buyer_signal_type") or "")[:80]
+
+    def get_action_date(self, obj):
+        from crawler.services.ai_page_extract import result_action_date
+
+        return result_action_date(obj)
+
+    def get_promotable(self, obj):
+        from crawler.services.ai_page_extract import result_promotable
+
+        return result_promotable(obj)
 
     class Meta:
         model = AISearchResult
@@ -188,6 +225,12 @@ class AISearchResultSerializer(serializers.ModelSerializer):
             "international_signals",
             "contact_email",
             "queued_domain_id",
+            "promoted_prospect_id",
+            "translation_need_score",
+            "evidence_snippet",
+            "buyer_signal_type",
+            "action_date",
+            "promotable",
             "created_at",
         ]
 
@@ -210,6 +253,7 @@ class AISearchJobSerializer(serializers.ModelSerializer):
             "queries_generated",
             "domains_discovered",
             "prospects_created",
+            "qualification_log",
             "created_at",
             "updated_at",
         ]
@@ -222,6 +266,7 @@ class AISearchJobSerializer(serializers.ModelSerializer):
             "queries_generated",
             "domains_discovered",
             "prospects_created",
+            "qualification_log",
             "created_at",
             "updated_at",
         ]

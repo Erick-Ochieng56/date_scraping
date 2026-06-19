@@ -3,7 +3,7 @@ import { type ColumnDef } from '@tanstack/react-table'
 import { useEffect, useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { Link } from 'react-router-dom'
-import { ExternalLink, RefreshCw, Sparkles } from 'lucide-react'
+import { ExternalLink, RefreshCw, Sparkles, UserPlus } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { aiSearchFormSchema, type AiSearchFormValues } from '@/features/ai-search/schema'
@@ -16,6 +16,8 @@ import {
   listAdminAiSearchJobs,
   listAdminUsers,
   listAiSearchJobs,
+  promoteAdminAiSearchResult,
+  promoteAiSearchResult,
 } from '@/shared/api'
 import type { AISearchJob, AISearchResult } from '@/shared/api/types'
 import { AlertBanner } from '@/shared/components/AlertBanner'
@@ -35,7 +37,12 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
   const [banner, setBanner] = useState<{ message?: string; error?: string }>({})
 
   const form = useForm<AiSearchFormValues>({
-    defaultValues: { seedTopic: '', industry: '', region: '', delegateOwnerId: '' },
+    defaultValues: {
+      seedTopic: '',
+      industry: '',
+      region: 'Kenya Uganda Tanzania Rwanda Burundi South Sudan Ethiopia East Africa',
+      delegateOwnerId: '',
+    },
   })
 
   const usersQ = useQuery({
@@ -128,6 +135,21 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
     onError: (err) => setBanner({ error: getApiErrorMessage(err) }),
   })
 
+  const promoteM = useMutation({
+    mutationFn: (resultId: number) =>
+      isAdmin ? promoteAdminAiSearchResult(resultId) : promoteAiSearchResult(resultId),
+    onSuccess: (res) => {
+      if (!res.success || !res.data) {
+        setBanner({ error: res.error ?? 'Could not promote result.' })
+        return
+      }
+      const label = res.data.created ? 'Created prospect' : 'Linked existing prospect'
+      setBanner({ message: `${label} #${res.data.prospect_id}.` })
+      void qc.invalidateQueries({ queryKey: ['ai-search-job', variant, selectedId] })
+    },
+    onError: (err) => setBanner({ error: getApiErrorMessage(err) }),
+  })
+
   const onSubmit = form.handleSubmit((raw) => {
     setBanner({})
     const parsed = aiSearchFormSchema.safeParse(raw)
@@ -140,6 +162,7 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
 
   const backHref = isAdmin ? '/admin/crawler' : '/crawler'
   const domainsHref = isAdmin ? '/admin/crawler/domains' : '/crawler/domains'
+  const prospectsHref = isAdmin ? '/admin/pipeline' : '/prospects'
 
   const jobColumns = useMemo<ColumnDef<AISearchJob, unknown>[]>(
     () => [
@@ -197,6 +220,38 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
         },
       },
       {
+        id: 'score',
+        header: 'Score',
+        cell: ({ row }) => {
+          const score = row.original.translation_need_score
+          if (score == null) return <span className="text-muted-foreground">—</span>
+          const warm = score >= 80 ? 'text-green-700 dark:text-green-400' : score >= 60 ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'
+          return <span className={`font-mono text-sm font-medium ${warm}`}>{score}</span>
+        },
+      },
+      {
+        id: 'action_date',
+        header: 'Date',
+        cell: ({ row }) => {
+          const d = row.original.action_date
+          return d ? <span className="font-mono text-xs">{d}</span> : <span className="text-muted-foreground">—</span>
+        },
+      },
+      {
+        id: 'signal',
+        header: 'Signal',
+        cell: ({ row }) => row.original.buyer_signal_type || '—',
+      },
+      {
+        id: 'evidence',
+        header: 'Evidence',
+        cell: ({ row }) => (
+          <span className="max-w-[14rem] truncate text-xs text-muted-foreground" title={row.original.evidence_snippet || row.original.why_needs_translation}>
+            {row.original.evidence_snippet || row.original.why_needs_translation || '—'}
+          </span>
+        ),
+      },
+      {
         id: 'org',
         header: 'Org',
         cell: ({ row }) => row.original.org_name || row.original.org_type || '—',
@@ -209,21 +264,47 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
         ),
       },
       {
-        id: 'open',
+        id: 'actions',
         header: 'Actions',
         cell: ({ row }) => {
           const url = row.original.source_url || `https://${row.original.domain}`
+          const prospectId = row.original.promoted_prospect_id
+          const canPromote = row.original.promotable !== false
           return (
-            <Button variant="ghost" size="sm" asChild>
-              <a href={url} target="_blank" rel="noreferrer">
-                <ExternalLink className="h-4 w-4" />
-              </a>
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="sm" asChild>
+                <a href={url} target="_blank" rel="noreferrer" title="Open source page">
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              </Button>
+              {prospectId ? (
+                <Button variant="outline" size="sm" asChild>
+                  <Link to={isAdmin ? prospectsHref : `${prospectsHref}/${prospectId}`}>
+                    Prospect #{prospectId}
+                  </Link>
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={promoteM.isPending || !canPromote}
+                  onClick={() => promoteM.mutate(row.original.id)}
+                  title={
+                    canPromote
+                      ? 'Create prospect from this result'
+                      : 'Score below minimum for promotion (see server AI_SEARCH_PROMOTE_MIN_SCORE)'
+                  }
+                >
+                  <UserPlus className="mr-1 h-4 w-4" />
+                  Promote
+                </Button>
+              )}
+            </div>
           )
         },
       },
     ],
-    []
+    [isAdmin, promoteM.isPending, prospectsHref]
   )
 
   return (
@@ -232,8 +313,8 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
         title="AI prospect search"
         description={
           isAdmin
-            ? 'Gemini proposes buyer-intent queries and discovers domains. Optionally delegate queue ownership to a staff user. Requires GEMINI_API_KEY; SERPER_API_KEY improves SERP results.'
-            : 'Gemini proposes buyer-intent queries and discovers domains for your crawler queue. Requires GEMINI_API_KEY; SERPER_API_KEY improves SERP results.'
+            ? 'Serper finds buyer pages; Gemini scores each landing page for lead quality (score ≥ 60). Promote high-confidence results to prospects.'
+            : 'Company-first Serper discovery plus Gemini page scoring. Only lead-worthy hits (score ≥ 60) are saved; promote them directly to your pipeline.'
         }
         actions={
           <>
@@ -289,8 +370,12 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
               <FormField label="Industry (optional)" htmlFor="industry">
                 <Input id="industry" placeholder="NGO, legal, medical…" {...form.register('industry')} />
               </FormField>
-              <FormField label="Region (optional)" htmlFor="region">
-                <Input id="region" placeholder="Kenya, East Africa, EAC…" {...form.register('region')} />
+              <FormField label="Region" htmlFor="region">
+                <Input
+                  id="region"
+                  placeholder="Defaults to East Africa when strict geo mode is on"
+                  {...form.register('region')}
+                />
               </FormField>
             </div>
             <Button type="submit" disabled={createM.isPending}>
@@ -364,7 +449,11 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
             getRowId={(r) => String(r.id)}
           />
           <p className="mt-3 text-xs text-muted-foreground">
-            Queued domains appear in the{' '}
+            Use <strong>Promote</strong> to add a verified result to{' '}
+            <Link className="underline" to={prospectsHref}>
+              prospects
+            </Link>{' '}
+            without waiting for crawl scoring. Queued domains also appear in the{' '}
             <Link className="underline" to={domainsHref}>
               crawler domain queue
             </Link>

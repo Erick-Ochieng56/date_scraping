@@ -10,6 +10,7 @@ import type {
   CrawlRunDomainResult,
   CrawlSource,
   Paginated,
+  AISearchResult,
 } from './types'
 
 export async function listCrawlRuns(params?: { page?: number; page_size?: number; status?: string; trigger?: string }) {
@@ -129,4 +130,13 @@ export async function getAiSearchJob(jobId: number, params?: { page?: number; pa
     { params }
   )
   return data.data
+}
+
+export async function promoteAiSearchResult(resultId: number) {
+  const { data } = await apiClient.post<{
+    success: boolean
+    data?: { prospect_id: number; created: boolean; result: AISearchResult }
+    error?: string
+  }>(`/dashboard/api/v1/ai-search/results/${resultId}/promote/`)
+  return data
 }

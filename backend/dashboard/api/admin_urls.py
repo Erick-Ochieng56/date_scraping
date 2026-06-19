@@ -23,4 +23,9 @@ urlpatterns = [
     path("crawler/runs/cancel-all/", admin_views.crawler_runs_cancel_all, name="admin_v1_crawler_runs_cancel_all"),
     path("ai-search/jobs/<int:job_id>/", admin_views.admin_ai_search_job_detail, name="admin_v1_ai_search_job_detail"),
     path("ai-search/jobs/", admin_views.admin_ai_search_jobs, name="admin_v1_ai_search_jobs"),
+    path(
+        "ai-search/results/<int:result_id>/promote/",
+        admin_views.admin_ai_search_result_promote,
+        name="admin_v1_ai_search_result_promote",
+    ),
 ]

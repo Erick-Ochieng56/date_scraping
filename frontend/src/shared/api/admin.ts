@@ -9,6 +9,7 @@ import type {
   AdminUser,
   AISearchJob,
   AISearchJobDetail,
+  AISearchResult,
   CrawlRun,
   CrawlSource,
   CrawlDomain,
@@ -229,4 +230,13 @@ export async function getAdminAiSearchJob(jobId: number, params?: { page?: numbe
     { params }
   )
   return data.data
+}
+
+export async function promoteAdminAiSearchResult(resultId: number) {
+  const { data } = await apiClient.post<{
+    success: boolean
+    data?: { prospect_id: number; created: boolean; result: AISearchResult }
+    error?: string
+  }>(`/dashboard/api/admin/v1/ai-search/results/${resultId}/promote/`)
+  return data
 }

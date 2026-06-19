@@ -72,6 +72,12 @@ export type AISearchResult = {
   international_signals: string[]
   contact_email: string
   queued_domain_id: number | null
+  promoted_prospect_id: number | null
+  translation_need_score: number | null
+  evidence_snippet: string
+  buyer_signal_type: string
+  action_date: string
+  promotable: boolean
   created_at: string
 }
 
