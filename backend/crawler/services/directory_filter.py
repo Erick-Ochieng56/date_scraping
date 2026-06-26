@@ -36,6 +36,7 @@ DIRECTORY_DOMAIN_FRAGMENTS = (
     "documents1.worldbank.org",
     "dww.show",
     "afromedia.network",
+    "globalvoiceskenya.com",
 )
 
 _DIRECTORY_PATH_HINTS = (

@@ -6,6 +6,10 @@ export type PreviewRow = {
   landing: string
 }
 
+export type DroppedRow = PreviewRow & {
+  dropReason: string
+}
+
 export const DISCOVER_EXAMPLE_QUERIES = [
   'translation conference Europe',
   'NGO language services Africa',
@@ -52,6 +56,26 @@ export function hitsToRows(hits: CrawlerDiscoveryHit[]): PreviewRow[] {
       id: landing || `${domain}-${i}`,
       domain,
       landing,
+    }
+  })
+}
+
+export function droppedToRows(hits: CrawlerDiscoveryHit[]): DroppedRow[] {
+  return hits.map((h, i) => {
+    const landing = (h.source_url || h.domain || '').trim()
+    let domain = (h.domain || '').trim()
+    if (!domain && landing) {
+      try {
+        domain = new URL(landing).origin
+      } catch {
+        domain = landing
+      }
+    }
+    return {
+      id: `dropped-${landing || `${domain}-${i}`}`,
+      domain,
+      landing,
+      dropReason: (h.drop_reason || 'Did not pass qualification').trim(),
     }
   })
 }

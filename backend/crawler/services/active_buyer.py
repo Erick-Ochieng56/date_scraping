@@ -152,6 +152,35 @@ _DATE_TEXT_RE = re.compile(
     re.IGNORECASE,
 )
 
+_ISO_DATE_RE = re.compile(r"\b(20\d{2}-\d{2}-\d{2})\b")
+
+# Truncate page text before sidebars/footers that pollute year checks (e.g. 2026 news widgets).
+_FOOTER_MARKERS = (
+    "contact us",
+    "read more about",
+    "#### news",
+    "\nnews\n",
+    "#### faq",
+    "case tracker",
+    "volunteer",
+    "go to campaign",
+)
+
+_DEADLINE_CONTEXT_PHRASES = (
+    "deadline",
+    "closing date",
+    "submit by",
+    "submission deadline",
+    "should reach",
+    "must reach",
+    "reach ",
+    " by ",
+    "due date",
+    "no later than",
+    "before ",
+    "closes on",
+)
+
 
 def _host_from(domain: str = "", url: str = "") -> str:
     host = urlparse((domain or url or "").strip()).netloc.lower().removeprefix("www.")
@@ -172,6 +201,14 @@ def _looks_like_past_event_text(event_date_raw: str = "", extra_text: str = "") 
 
 def _year_tokens_in_text(text: str) -> list[int]:
     return [int(y) for y in re.findall(r"\b(19\d{2}|20\d{2})\b", text or "")]
+
+
+def crawler_require_active_buyer() -> bool:
+    from django.conf import settings
+
+    if hasattr(settings, "CRAWLER_REQUIRE_ACTIVE_BUYER"):
+        return bool(settings.CRAWLER_REQUIRE_ACTIVE_BUYER)
+    return bool(getattr(settings, "AI_SEARCH_REQUIRE_ACTIVE_BUYER", True))
 
 
 def is_buyer_procurement_context(text: str) -> bool:
@@ -467,10 +504,103 @@ def has_active_buyer_signal(page_text: str, *, url: str = "", domain: str = "") 
     return True, ""
 
 
+def _years_embedded_in_url(url: str) -> list[int]:
+    """Find 4-digit years anywhere in a URL (path, slug, query) — catches ...42014, /2014/, etc."""
+    return [int(y) for y in re.findall(r"(?:19|20)\d{2}", (url or "").lower())]
+
+
+def _normalize_date_phrase(raw: str) -> str:
+    return re.sub(r"(\d{1,2})(?:st|nd|rd|th)", r"\1", (raw or "").strip(), flags=re.IGNORECASE)
+
+
+def _primary_opportunity_text(text: str, *, max_chars: int = 6000) -> str:
+    """Main article body only — exclude sidebars/news blocks that add unrelated future years."""
+    body = (text or "").strip()
+    if not body:
+        return ""
+    low = body.lower()
+    cut = len(body)
+    for marker in _FOOTER_MARKERS:
+        idx = low.find(marker)
+        if idx > 400:
+            cut = min(cut, idx)
+    return body[: min(cut, max_chars)]
+
+
+def _parse_dates_in_chunk(chunk: str) -> list[date]:
+    found: list[date] = []
+    for iso in _ISO_DATE_RE.findall(chunk):
+        parsed = parse_event_date(iso)
+        if parsed:
+            found.append(parsed)
+    for match in _DATE_TEXT_RE.finditer(chunk):
+        parsed = parse_event_date(_normalize_date_phrase(match.group(1)))
+        if parsed:
+            found.append(parsed)
+    for match in re.finditer(
+        r"\b(\d{1,2})(?:st|nd|rd|th)?\s+"
+        r"(January|February|March|April|May|June|July|August|September|October|November|December)"
+        r"\s*,?\s*(20\d{2})\b",
+        chunk,
+        re.IGNORECASE,
+    ):
+        parsed = parse_event_date(f"{match.group(1)} {match.group(2)} {match.group(3)}")
+        if parsed:
+            found.append(parsed)
+    return found
+
+
+def _procurement_deadline_dates(text: str) -> list[date]:
+    """Dates appearing near submission/closing language in the primary opportunity section."""
+    primary = _primary_opportunity_text(text)
+    dates: list[date] = []
+    for chunk in re.split(r"[\n\r]+|(?<=\.)\s+", primary):
+        chunk = chunk.strip()
+        if len(chunk) < 12:
+            continue
+        cl = chunk.lower()
+        if not any(p in cl for p in _DEADLINE_CONTEXT_PHRASES):
+            if not any(p in cl for p in ("rfp", "tender", "expression of interest", "eoi")):
+                continue
+        dates.extend(_parse_dates_in_chunk(chunk))
+    return dates
+
+
+def _language_chunks_with_current_deadline(text: str, *, today: date) -> bool:
+    """True when a language-service line item is tied to a current/future procurement date."""
+    primary = _primary_opportunity_text(text)
+    deadlines = _procurement_deadline_dates(text)
+    has_future_deadline = any(d >= today for d in deadlines)
+    has_past_only_deadline = bool(deadlines) and all(d < today for d in deadlines)
+
+    if has_past_only_deadline:
+        return False
+
+    for chunk in _portal_opportunity_chunks(primary):
+        if not _mentions_language_opportunity(chunk):
+            continue
+        if not (
+            is_buyer_procurement_context(chunk)
+            or "rfp" in chunk.lower()
+            or "tender" in chunk.lower()
+            or "eoi" in chunk.lower()
+        ):
+            continue
+        if _chunk_is_current_opportunity(chunk, today=today):
+            return True
+
+    if has_future_deadline and _mentions_language_opportunity(primary):
+        return True
+    return False
+
+
 def url_looks_stale(url: str, *, today: date | None = None) -> bool:
-    """Reject document URLs anchored to old years (e.g. /2011/, 20182019)."""
+    """Reject URLs anchored to old years in path, slug, or reference codes (e.g. ...42014, /2014/)."""
     today = today or date.today()
     u = (url or "").lower()
+    embedded = _years_embedded_in_url(u)
+    if embedded and max(embedded) < today.year - 1:
+        return True
     for match in _STALE_URL_YEAR.finditer(u):
         year = int(match.group(0).strip("/_-")[:4])
         if year < today.year - 1:
@@ -503,30 +633,49 @@ def check_forward_timeline(
             return False, reason
         return portal_has_current_language_opportunity(text, today=today)
 
-    if url and url_looks_stale(url, today=today) and not is_buyer_procurement_context(text):
+    if url and url_looks_stale(url, today=today):
         return False, "URL points to archived document from a past year."
+
+    primary = _primary_opportunity_text(text)
+
+    deadlines = _procurement_deadline_dates(text)
+    if deadlines:
+        if all(d < today for d in deadlines):
+            past = min(deadlines).isoformat()
+            return False, f"Procurement deadline {past} is in the past."
+
+    url_years = _years_embedded_in_url(url or "")
+    if url_years and max(url_years) < today.year and not any(d >= today for d in deadlines):
+        return False, "URL references a past procurement year with no current deadline."
 
     for raw in (action_date, action_date_raw):
         parsed = parse_event_date(raw)
         if parsed and parsed < today:
             return False, f"Opportunity date {parsed.isoformat()} is in the past."
 
-    if _looks_like_past_event_text(action_date_raw, extra_text=text):
-        if not any(p in text.lower() for p in _OPEN_OR_FUTURE_PHRASES):
-            future_year_mentioned = any(y >= today.year for y in _year_tokens_in_text(text))
+    if _looks_like_past_event_text(action_date_raw, extra_text=primary):
+        if not any(p in primary.lower() for p in _OPEN_OR_FUTURE_PHRASES):
+            future_year_mentioned = any(y >= today.year for y in _year_tokens_in_text(primary))
             if not future_year_mentioned:
                 return False, "Page describes a past or archived event."
 
-    years = _year_tokens_in_text(text)
+    years = _year_tokens_in_text(primary)
     if years:
         has_future = any(y >= today.year for y in years)
         has_past_only = all(y < today.year for y in years)
-        if has_past_only and not any(p in text.lower() for p in _OPEN_OR_FUTURE_PHRASES):
-            return False, "Page only references past years with no current opportunity."
+        if has_past_only and not any(p in primary.lower() for p in _OPEN_OR_FUTURE_PHRASES):
+            if not any(d >= today for d in deadlines):
+                return False, "Page only references past years with no current opportunity."
 
         if not has_future and max(years) < today.year:
-            if not is_buyer_procurement_context(text):
+            if not is_buyer_procurement_context(primary) and not any(d >= today for d in deadlines):
                 return False, "Content appears historical with no forward-looking date."
+
+    if is_buyer_procurement_context(primary) and _mentions_language_opportunity(primary):
+        if deadlines and all(d < today for d in deadlines):
+            return False, "Language-service procurement deadline is in the past."
+        if not deadlines and url_years and max(url_years) < today.year:
+            return False, "Language-service opportunity is from a past year."
 
     return True, ""
 
@@ -557,6 +706,14 @@ def passes_active_buyer_gate(
 
     if has_active_procurement is True:
         return True, ""
+
+    primary = _primary_opportunity_text(page_text)
+    if _mentions_language_opportunity(primary) and is_buyer_procurement_context(primary):
+        today = today or date.today()
+        if not _language_chunks_with_current_deadline(page_text, today=today):
+            return False, (
+                "Language-service opportunity is outdated (past deadline or past reference year)."
+            )
 
     if is_procurement_portal_url(url):
         host = _host_from(domain, url)

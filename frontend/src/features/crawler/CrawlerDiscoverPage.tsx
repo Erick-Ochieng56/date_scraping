@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Copy, ExternalLink, Plus, Search, Trash2 } from 'lucide-react'
+import { Copy, ExternalLink, Plus, Search, Trash2, ChevronDown, ChevronRight } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -7,8 +7,10 @@ import { Button } from '@/components/ui/button'
 import {
   DISCOVER_EXAMPLE_QUERIES,
   DISCOVER_MAX_OPTIONS,
+  droppedToRows,
   hitsToRows,
   normalizeDiscoveryEntry,
+  type DroppedRow,
   type PreviewRow,
   urlsToRows,
 } from '@/features/crawler/discoverUtils'
@@ -26,6 +28,8 @@ export function CrawlerDiscoverPage() {
   const [maxResults, setMaxResults] = useState<number>(20)
   const [manualUrl, setManualUrl] = useState('')
   const [previewRows, setPreviewRows] = useState<PreviewRow[]>([])
+  const [droppedRows, setDroppedRows] = useState<DroppedRow[]>([])
+  const [showDropped, setShowDropped] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [banner, setBanner] = useState<{ message?: string; error?: string }>({})
   const [lastQueue, setLastQueue] = useState<{
@@ -47,12 +51,21 @@ export function CrawlerDiscoverPage() {
     },
     onSuccess: (data) => {
       const rows = data.hits && data.hits.length > 0 ? hitsToRows(data.hits) : urlsToRows(data.urls ?? [])
+      const dropped = droppedToRows(data.dropped ?? [])
       setPreviewRows(rows)
+      setDroppedRows(dropped)
+      setShowDropped(dropped.length > 0 && rows.length === 0)
       setSelected(new Set(rows.map((r) => r.id)))
       if (rows.length === 0) {
         setBanner({
           message:
-            'No URLs returned — try a different phrase or check Serper/Bing configuration on the server.',
+            dropped.length > 0
+              ? `No URLs passed qualification — ${dropped.length} result(s) were filtered. Expand “Filtered out” below to see each URL and reason.`
+              : 'No URLs returned — try a different phrase or check Serper/Bing configuration on the server.',
+        })
+      } else if (dropped.length > 0) {
+        setBanner({
+          message: `${rows.length} qualified URL(s) shown. ${dropped.length} Serp result(s) filtered out — see “Filtered out” below for details.`,
         })
       }
     },
@@ -136,6 +149,8 @@ export function CrawlerDiscoverPage() {
 
   const clearPreview = () => {
     setPreviewRows([])
+    setDroppedRows([])
+    setShowDropped(false)
     setSelected(new Set())
     setLastQueue(null)
     setBanner({})
@@ -386,6 +401,86 @@ export function CrawlerDiscoverPage() {
           </Button>
         </div>
       </div>
+
+      {droppedRows.length > 0 ? (
+        <div className="rounded-lg border border-border bg-card">
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left hover:bg-muted/40"
+            onClick={() => setShowDropped((open) => !open)}
+            aria-expanded={showDropped}
+          >
+            <div className="flex items-center gap-2">
+              {showDropped ? (
+                <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+              ) : (
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+              )}
+              <h3 className="font-semibold text-foreground">Filtered out</h3>
+              <span className="text-xs text-muted-foreground">
+                {droppedRows.length} Serp result(s) did not pass qualification
+              </span>
+            </div>
+          </button>
+          {showDropped ? (
+            <div className="border-t border-border">
+              <p className="px-4 py-2 text-xs text-muted-foreground">
+                These URLs were returned by search but rejected (past tenders, aggregators, LSP sellers,
+                careers hubs, geo mismatch, PDFs, etc.).
+              </p>
+              <div className="overflow-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-muted">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Site base</th>
+                      <th className="px-3 py-2 text-left">Landing URL</th>
+                      <th className="px-3 py-2 text-left">Why filtered</th>
+                      <th className="px-3 py-2 text-left">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {droppedRows.map((row) => (
+                      <tr key={row.id} className="border-t border-border">
+                        <td className="max-w-[10rem] truncate px-3 py-2 font-mono text-xs">{row.domain}</td>
+                        <td className="max-w-0 px-3 py-2">
+                          <a
+                            className="break-all text-primary underline-offset-4 hover:underline"
+                            href={row.landing}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {row.landing}
+                          </a>
+                        </td>
+                        <td className="px-3 py-2 text-muted-foreground">{row.dropReason}</td>
+                        <td className="whitespace-nowrap px-3 py-2">
+                          <div className="flex flex-wrap gap-1">
+                            <Button size="sm" variant="ghost" className="h-8 px-2" asChild title="Open in new tab">
+                              <a href={row.landing} target="_blank" rel="noreferrer">
+                                <ExternalLink className="size-3.5" aria-hidden />
+                              </a>
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 px-2"
+                              title="Copy landing URL"
+                              onClick={() => void copyUrl(row.landing)}
+                            >
+                              <Copy className="size-3.5" aria-hidden />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }

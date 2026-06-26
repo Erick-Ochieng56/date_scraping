@@ -137,12 +137,15 @@ export type CrawlDomain = {
 export type CrawlerDiscoveryHit = {
   domain: string
   source_url: string
+  drop_reason?: string
 }
 
 export type CrawlerPreviewResponse = {
   success: boolean
   hits?: CrawlerDiscoveryHit[]
   urls: string[]
+  dropped?: CrawlerDiscoveryHit[]
+  dropped_count?: number
 }
 
 export type CrawlRunDomainResult = {

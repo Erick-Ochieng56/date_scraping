@@ -104,7 +104,11 @@ def discover_websites_task(self, initiated_by_id: int | None = None) -> dict[str
             hits = discover_websites(source.discovery_query, max_results=20)
             filtered_hits = []
             for hit in hits:
-                ok, reason = filter_discovery_hit(hit, source)
+                ok, reason = filter_discovery_hit(
+                    hit,
+                    source,
+                    seed_topic=(source.discovery_query or ""),
+                )
                 if not ok:
                     logger.info(
                         "Discovery dropped %s: %s",

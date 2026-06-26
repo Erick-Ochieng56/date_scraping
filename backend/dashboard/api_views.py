@@ -116,13 +116,17 @@ def api_crawler_preview(request: HttpRequest) -> JsonResponse:
             return JsonResponse({"success": True, "urls": []})
 
         from crawler.discovery import discover_websites
+        from crawler.services.discovery_qualify import filter_discovery_hits
 
         hits = discover_websites(query=query, max_results=max_results)
+        kept, dropped = filter_discovery_hits(hits, seed_topic=query)
         return JsonResponse(
             {
                 "success": True,
-                "hits": hits,
-                "urls": [h["source_url"] for h in hits],
+                "hits": kept,
+                "urls": [h["source_url"] for h in kept],
+                "dropped": dropped,
+                "dropped_count": len(dropped),
             }
         )
     except Exception as e:
@@ -147,6 +151,7 @@ def api_crawler_queue(request: HttpRequest) -> JsonResponse:
 
         from crawler.discovery import discover_websites, discovery_hits_from_user_payload, save_discovered_domains
         from crawler.models import CrawlRun, CrawlRunStatus, CrawlRunTrigger, CrawlSource, DiscoveredDomain
+        from crawler.services.discovery_qualify import filter_discovery_hits
 
         if not urls:
             if not query:
@@ -164,6 +169,20 @@ def api_crawler_queue(request: HttpRequest) -> JsonResponse:
                 discovery_query=query,
                 source_type="search",
                 defaults={"name": f"Manual: {query}", "enabled": False, "priority": 5},
+            )
+
+        hits, _dropped = filter_discovery_hits(hits, source, seed_topic=query)
+
+        if not hits:
+            return JsonResponse(
+                {
+                    "success": True,
+                    "queued": 0,
+                    "run_id": None,
+                    "domain_ids": [],
+                    "new_domains": 0,
+                    "filtered_out": len(_dropped),
+                }
             )
 
         created_count = save_discovered_domains(hits, source=source, owner_id=None)

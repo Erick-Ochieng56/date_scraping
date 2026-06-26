@@ -196,7 +196,8 @@ AI_SEARCH_PROMOTE_MIN_SCORE = int(_get_env("AI_SEARCH_PROMOTE_MIN_SCORE", "80") 
 AI_SEARCH_REQUIRE_GEMINI = _get_bool("AI_SEARCH_REQUIRE_GEMINI", default=True)
 # Require active tender/RFP/event hiring on page (not institutional homepages).
 AI_SEARCH_REQUIRE_ACTIVE_BUYER = _get_bool("AI_SEARCH_REQUIRE_ACTIVE_BUYER", default=True)
-# Max Gemini page extractions per job (quota control).
+# Require active tender/RFP on crawled discovery hits (same rules as AI search).
+CRAWLER_REQUIRE_ACTIVE_BUYER = _get_bool("CRAWLER_REQUIRE_ACTIVE_BUYER", default=True)
 AI_SEARCH_MAX_GEMINI_EXTRACTS = int(_get_env("AI_SEARCH_MAX_GEMINI_EXTRACTS", "12") or "12")
 
 

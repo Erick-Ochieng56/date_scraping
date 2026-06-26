@@ -1,4 +1,5 @@
 from datetime import date
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
@@ -11,8 +12,10 @@ from crawler.services.active_buyer import (
     is_generic_hub_page,
     is_procurement_portal_url,
     is_verifiable_procurement_portal,
+    passes_active_buyer_gate,
     portal_has_current_language_opportunity,
     preflight_candidate_page,
+    url_looks_stale,
 )
 from crawler.services.competitor_filter import is_likely_competitor
 from crawler.services.directory_filter import is_directory_or_aggregator
@@ -428,3 +431,139 @@ class ActiveBuyerTests(TestCase):
             allow_gemini=False,
         )
         self.assertTrue(ok, reason)
+
+
+class DiscoveryQualifyTests(TestCase):
+    @patch("crawler.services.discovery_qualify.fetch_page_for_qualification")
+    def test_rejects_tender_aggregator(self, mock_fetch):
+        mock_fetch.return_value = (
+            True,
+            "Tender for interpretation services closing 2026.",
+            "",
+        )
+        from crawler.services.discovery_qualify import filter_discovery_hit
+
+        ok, reason = filter_discovery_hit(
+            {
+                "domain": "https://www.kenyatenders.com",
+                "source_url": "https://www.kenyatenders.com/tender/interpretation",
+            }
+        )
+        self.assertFalse(ok)
+        self.assertIn("aggregator", reason.lower())
+
+    @patch("crawler.services.discovery_qualify.fetch_page_for_qualification")
+    def test_rejects_stale_pdf_url(self, mock_fetch):
+        mock_fetch.return_value = (False, "", "PDF document (skipped)")
+        from crawler.services.discovery_qualify import filter_discovery_hit
+
+        ok, reason = filter_discovery_hit(
+            {
+                "domain": "https://www.idlo.int",
+                "source_url": "https://www.idlo.int/sites/default/files/itb_no_n_148-2024_ken.pdf",
+            }
+        )
+        self.assertFalse(ok)
+        self.assertTrue(
+            "pdf" in reason.lower() or "archived" in reason.lower(),
+            reason,
+        )
+
+    @patch("crawler.services.discovery_qualify.fetch_page_for_qualification")
+    @override_settings(CRAWLER_GEO_MODE="global", CRAWLER_REQUIRE_ACTIVE_BUYER=True)
+    def test_rejects_kelinkenya_2014_rfp_url(self, mock_fetch):
+        from crawler.services.discovery_qualify import filter_discovery_hit
+
+        ok, reason = filter_discovery_hit(
+            {
+                "domain": "https://www.kelinkenya.org",
+                "source_url": (
+                    "https://www.kelinkenya.org/request-for-proposal-for-goods-and-services-"
+                    "rfp-kelinfaoeoi42014"
+                ),
+            }
+        )
+        self.assertFalse(ok)
+        self.assertIn("archived", reason.lower())
+        mock_fetch.assert_not_called()
+
+    @patch("crawler.services.discovery_qualify.fetch_page_for_qualification")
+    @override_settings(CRAWLER_GEO_MODE="global", CRAWLER_REQUIRE_ACTIVE_BUYER=True)
+    def test_accepts_current_rfp_landing(self, mock_fetch):
+        mock_fetch.return_value = (
+            True,
+            (
+                "Request for proposal for simultaneous interpretation services. "
+                "Closing date 30 September 2026. Submit to procurement@example.or.ke."
+            ),
+            "",
+        )
+        from crawler.services.discovery_qualify import filter_discovery_hit
+
+        ok, reason = filter_discovery_hit(
+            {
+                "domain": "https://www.afhea.org",
+                "source_url": "https://afhea.org/request-for-quotation-rfq-interpretation-and-translation-services",
+            }
+        )
+        self.assertTrue(ok, reason)
+
+
+class StaleOpportunityTests(TestCase):
+    def test_url_detects_year_embedded_in_slug(self):
+        url = "https://www.kelinkenya.org/request-for-proposal-for-goods-and-services-rfp-kelinfaoeoi42014"
+        self.assertTrue(url_looks_stale(url, today=date(2026, 6, 19)))
+
+    def test_rejects_kelin_2014_framework_eoi_page(self):
+        page = (
+            "Request for proposal for goods and services RFP # KELIN/FAO/EOI/4/2014. "
+            "KELIN wishes to invite reputable firms to express interest. "
+            "KELIN/FAO/EOI/4/2014 (u) Provision of translation and sign language interpretation services. "
+            "This information should reach KELIN Kenya by 28th February, 2014 by 1500Hrs."
+        )
+        ok, reason = check_forward_timeline(
+            page,
+            url="https://www.kelinkenya.org/request-for-proposal-for-goods-and-services-rfp-kelinfaoeoi42014",
+            today=date(2026, 6, 19),
+        )
+        self.assertFalse(ok)
+        self.assertIn("past", reason.lower())
+
+    def test_sidebar_future_years_do_not_rescue_past_rfp(self):
+        page = (
+            "Request for proposal RFP # KELIN/FAO/EOI/4/2014. "
+            "Provision of translation and sign language interpretation services. "
+            "Submit by 28th February, 2014. "
+            "Contact us\nNews\nJune 16, 2026\nLatest press release from 2026."
+        )
+        ok, reason = passes_active_buyer_gate(
+            page,
+            url="https://www.kelinkenya.org/current-rfp-interpretation",
+            today=date(2026, 6, 19),
+        )
+        self.assertFalse(ok)
+        self.assertIn("past", reason.lower())
+
+    @patch("crawler.services.discovery_qualify.fetch_page_for_qualification")
+    @override_settings(CRAWLER_GEO_MODE="global", CRAWLER_REQUIRE_ACTIVE_BUYER=True)
+    def test_discovery_rejects_kelinkenya_2014_rfp_body(self, mock_fetch):
+        mock_fetch.return_value = (
+            True,
+            (
+                "Request for proposal for goods and services RFP # KELIN/FAO/EOI/4/2014. "
+                "KELIN/FAO/EOI/4/2014 (u) Provision of translation and sign language interpretation services. "
+                "This information should reach KELIN Kenya by 28th February, 2014 by 1500Hrs. "
+                "Contact us\nNews\nJune 16, 2026"
+            ),
+            "",
+        )
+        from crawler.services.discovery_qualify import filter_discovery_hit
+
+        ok, reason = filter_discovery_hit(
+            {
+                "domain": "https://www.kelinkenya.org",
+                "source_url": "https://www.kelinkenya.org/current-rfp-interpretation",
+            }
+        )
+        self.assertFalse(ok)
+        self.assertIn("past", reason.lower())

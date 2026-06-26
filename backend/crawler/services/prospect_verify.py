@@ -203,44 +203,34 @@ def filter_discovery_hit(
     crawl_source: CrawlSource | None = None,
     *,
     seed_topic: str = "",
+    strict_active_buyer: bool | None = None,
 ) -> tuple[bool, str]:
-    """
-    Fetch SERP landing page, drop LSPs and weak/irrelevant hits before queueing crawl.
-    """
-    domain = (hit.get("domain") or "").strip()
-    landing = (hit.get("source_url") or domain or "").strip()
-    page_text = fetch_page_text_snippet(landing) if landing else ""
-    texts = [page_text, landing, str(hit.get("title", ""))]
+    """Delegate to shared discovery qualification (active buyer + timeline rules)."""
+    from crawler.services.discovery_qualify import filter_discovery_hit as _filter
 
-    geo_ok, geo_reason = passes_geo_gate(*texts, domain=domain)
-    if not geo_ok:
-        return False, geo_reason
-
-    flagged_dir, dir_reason = is_directory_or_aggregator(
-        domain,
-        url=landing,
-        page_text=page_text,
+    return _filter(
+        hit,
+        crawl_source,
+        seed_topic=seed_topic,
+        strict_active_buyer=strict_active_buyer,
     )
-    if flagged_dir:
-        return False, dir_reason
 
-    flagged, reason = is_likely_competitor(
-        domain,
-        [t for t in texts if t],
-        crawl_source=crawl_source,
+
+def filter_discovery_hits(
+    hits: list[dict[str, Any]],
+    crawl_source: CrawlSource | None = None,
+    *,
+    seed_topic: str = "",
+    strict_active_buyer: bool | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    from crawler.services.discovery_qualify import filter_discovery_hits as _filter_many
+
+    return _filter_many(
+        hits,
+        crawl_source,
+        seed_topic=seed_topic,
+        strict_active_buyer=strict_active_buyer,
     )
-    if flagged:
-        return False, reason
-
-    if page_text:
-        ok, why = page_supports_prospect(
-            page_text,
-            org_name="",
-            seed_topic=seed_topic or (crawl_source.discovery_query if crawl_source else ""),
-        )
-        if not ok:
-            return False, why
-    return True, ""
 
 
 def verify_ai_prospect(
