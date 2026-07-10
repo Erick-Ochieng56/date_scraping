@@ -70,6 +70,23 @@ export function AdminSettingsPage() {
           ))
         )}
       </div>
+
+      <div className="space-y-3">
+        <h3 className="font-semibold text-foreground">Quality thresholds</h3>
+        <p className="text-sm text-muted-foreground">
+          Read-only values from server environment. Update via deployment config (.env).
+        </p>
+        {(data?.thresholds ?? []).map((row) => (
+          <div key={row.id} className="rounded-lg border border-border bg-card p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-medium text-foreground">{row.label}</p>
+              <span className="text-lg font-semibold tabular-nums">{row.value}</span>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">{row.description}</p>
+            <p className="mt-1 text-xs text-muted-foreground">Env: {row.env_var}</p>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

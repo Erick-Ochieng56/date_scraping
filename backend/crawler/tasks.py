@@ -13,7 +13,7 @@ from collections import Counter
 from typing import Any
 from urllib.parse import urlparse
 
-from celery import shared_task
+from celery import current_app, shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 from django.db import transaction
 from django.utils import timezone
@@ -42,9 +42,19 @@ from crawler.services.domain_pipeline import run_post_analyzer_ai_pipeline
 logger = logging.getLogger(__name__)
 
 
+def _run_is_stopped(run_id: int) -> bool:
+    run = CrawlRun.objects.filter(id=run_id).only("status", "ends_at").first()
+    if not run:
+        return True
+    if run.status != CrawlRunStatus.RUNNING:
+        return True
+    if run.ends_at and timezone.now() >= run.ends_at:
+        return True
+    return False
+
+
 def _run_is_cancelled(run_id: int) -> bool:
-    run = CrawlRun.objects.filter(id=run_id).only("status").first()
-    return bool(run and run.status != CrawlRunStatus.RUNNING)
+    return _run_is_stopped(run_id)
 
 
 def _get_crawler_config() -> dict[str, Any]:
@@ -62,6 +72,114 @@ def _get_crawler_config() -> dict[str, Any]:
     }
 
 
+def _get_session_config() -> dict[str, Any]:
+    """Crawl session caps layered on top of base crawler config."""
+    return {
+        **_get_crawler_config(),
+        "max_domains_per_cycle": int(
+            os.getenv("CRAWLER_SESSION_MAX_DOMAINS_PER_CYCLE", "50") or "50"
+        ),
+        "cycle_interval_seconds": int(
+            os.getenv("CRAWLER_SESSION_CYCLE_INTERVAL_SECONDS", "600") or "600"
+        ),
+    }
+
+
+def _default_cycle_stats() -> dict[str, Any]:
+    return {
+        "domains_discovered": 0,
+        "domains_crawled": 0,
+        "domains_failed": 0,
+        "pages_crawled": 0,
+        "prospects_created": 0,
+        "prospects_updated": 0,
+        "high_score_leads": 0,
+        "medium_score_leads": 0,
+        "services_detected": {},
+    }
+
+
+def run_discovery_cycle(
+    run: CrawlRun,
+    *,
+    initiated_by_id: int | None = None,
+    max_domains: int | None = None,
+) -> dict[str, Any]:
+    """
+    One discovery burst + enqueue pending domains for an existing CrawlRun.
+    Used by one-shot discovery and session coordinator cycles.
+    """
+    config = dict(run.config or _get_crawler_config())
+    if max_domains is None:
+        max_domains = int(config.get("max_domains_per_run", 500))
+
+    stats = dict(run.stats or _default_cycle_stats())
+    for key, default in _default_cycle_stats().items():
+        stats.setdefault(key, default if not isinstance(default, dict) else dict(default))
+
+    from crawler.services.prospect_verify import filter_discovery_hit
+
+    sources_qs = CrawlSource.objects.filter(enabled=True)
+    if initiated_by_id:
+        sources_qs = sources_qs.filter(owner_id=initiated_by_id)
+    sources = list(sources_qs.order_by("priority", "id"))
+
+    domain_ids: list[int] = []
+    for source in sources:
+        if _run_is_stopped(run.id):
+            break
+        hits = discover_websites(source.discovery_query, max_results=20)
+        filtered_hits = []
+        for hit in hits:
+            ok, reason = filter_discovery_hit(
+                hit,
+                source,
+                seed_topic=(source.discovery_query or ""),
+            )
+            if not ok:
+                logger.info(
+                    "Discovery dropped %s: %s",
+                    hit.get("domain", ""),
+                    reason,
+                )
+                continue
+            filtered_hits.append(hit)
+        created = save_discovered_domains(
+            filtered_hits, source=source, owner_id=initiated_by_id
+        )
+        stats["domains_discovered"] = int(stats.get("domains_discovered") or 0) + int(created)
+
+    pending_qs = DiscoveredDomain.objects.filter(crawl_status="pending")
+    if initiated_by_id:
+        pending_qs = pending_qs.filter(owner_id=initiated_by_id)
+    pending = list(
+        pending_qs.order_by("priority", "first_seen_at").values_list("id", flat=True)[
+            :max_domains
+        ]
+    )
+    domain_ids.extend(pending)
+
+    enqueued = 0
+    for domain_id in domain_ids:
+        if _run_is_stopped(run.id):
+            break
+        CrawlRunDomainResult.objects.get_or_create(
+            crawl_run_id=run.id,
+            domain_id=domain_id,
+            defaults={"state": "queued"},
+        )
+        crawl_domain_task.delay(
+            domain_id=domain_id, run_id=run.id, owner_id=initiated_by_id
+        )
+        enqueued += 1
+
+    run.domains_queued = int(run.domains_queued or 0) + enqueued
+    run.stats = stats
+    run.save(update_fields=["domains_queued", "stats"])
+
+    return {"domains_enqueued": enqueued, "stats": stats}
+
+
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
 def discover_websites_task(self, initiated_by_id: int | None = None) -> dict[str, Any]:
     """
@@ -76,77 +194,26 @@ def discover_websites_task(self, initiated_by_id: int | None = None) -> dict[str
         started_at=timezone.now(),
         task_id=getattr(self.request, "id", "") or "",
         config=config,
+        stats=_default_cycle_stats(),
     )
 
-    stats: dict[str, Any] = {
-        "domains_discovered": 0,
-        "domains_crawled": 0,
-        "domains_failed": 0,
-        "pages_crawled": 0,
-        "prospects_created": 0,
-        "prospects_updated": 0,
-        "high_score_leads": 0,
-        "medium_score_leads": 0,
-        "services_detected": {},
-    }
-
-    max_domains = config.get("max_domains_per_run", 500)
-
     try:
-        sources_qs = CrawlSource.objects.filter(enabled=True)
-        if initiated_by_id:
-            sources_qs = sources_qs.filter(owner_id=initiated_by_id)
-        sources = list(sources_qs.order_by("priority", "id"))
-        new_domain_ids: list[int] = []
-        from crawler.services.prospect_verify import filter_discovery_hit
-
-        for source in sources:
-            hits = discover_websites(source.discovery_query, max_results=20)
-            filtered_hits = []
-            for hit in hits:
-                ok, reason = filter_discovery_hit(
-                    hit,
-                    source,
-                    seed_topic=(source.discovery_query or ""),
-                )
-                if not ok:
-                    logger.info(
-                        "Discovery dropped %s: %s",
-                        hit.get("domain", ""),
-                        reason,
-                    )
-                    continue
-                filtered_hits.append(hit)
-            created = save_discovered_domains(filtered_hits, source=source, owner_id=initiated_by_id)
-            stats["domains_discovered"] += int(created)
-
-        pending_qs = DiscoveredDomain.objects.filter(crawl_status="pending")
-        if initiated_by_id:
-            pending_qs = pending_qs.filter(owner_id=initiated_by_id)
-        pending = list(
-            pending_qs
-            .order_by("priority", "first_seen_at")
-            .values_list("id", flat=True)[:max_domains]
+        result = run_discovery_cycle(
+            run,
+            initiated_by_id=initiated_by_id,
+            max_domains=config.get("max_domains_per_run", 500),
         )
-        new_domain_ids.extend(pending)
-
-        for domain_id in new_domain_ids:
-            CrawlRunDomainResult.objects.get_or_create(
-                crawl_run_id=run.id,
-                domain_id=domain_id,
-                defaults={"state": "queued"},
-            )
-            crawl_domain_task.delay(domain_id=domain_id, run_id=run.id, owner_id=initiated_by_id)
-
-        run.domains_queued = len(new_domain_ids)
-        run.stats = stats
+        run.refresh_from_db()
         run.status = CrawlRunStatus.SUCCESS
-        return {"run_id": run.id, "domains_queued": len(new_domain_ids), "stats": stats}
+        return {
+            "run_id": run.id,
+            "domains_queued": result["domains_enqueued"],
+            "stats": result["stats"],
+        }
     except Exception as exc:
         logger.exception("discover_websites_task failed: %s", exc)
         run.status = CrawlRunStatus.FAILED
         run.error_text = str(exc)
-        run.stats = stats
         raise
     finally:
         run.finished_at = timezone.now()
@@ -453,8 +520,226 @@ def _increment_crawl_run_domain_stats(
         )
 
 
-# Bound wall time: Gemini + many httpx checks can otherwise exceed worker patience and
-# leave the UI polling forever without a terminal status.
+def _maybe_notify_session_progress(run: CrawlRun) -> None:
+    """Periodic summary for long sessions (default: every 2h when duration >= 6h)."""
+    from dashboard.utils import notify_crawl_session
+
+    duration = int(run.duration_minutes or 0)
+    min_duration = int(os.getenv("CRAWLER_SESSION_PROGRESS_MIN_DURATION_MINUTES", "360") or "360")
+    if duration < min_duration:
+        return
+
+    interval_min = int(os.getenv("CRAWLER_SESSION_PROGRESS_NOTIFY_MINUTES", "120") or "120")
+    now = timezone.now()
+    stats = dict(run.stats or {})
+    last_raw = stats.get("last_progress_notification_at")
+    if last_raw:
+        try:
+            from django.utils.dateparse import parse_datetime
+
+            last_at = parse_datetime(str(last_raw))
+            if last_at and timezone.is_naive(last_at):
+                last_at = timezone.make_aware(last_at)
+        except Exception:
+            last_at = None
+    else:
+        last_at = run.started_at
+
+    if not last_at:
+        return
+    elapsed_min = (now - last_at).total_seconds() / 60
+    if elapsed_min < interval_min:
+        return
+
+    if run.owner_id:
+        from django.contrib.auth import get_user_model
+
+        owner = get_user_model().objects.filter(id=run.owner_id).first()
+        if owner:
+            notify_crawl_session(owner, run, "progress")
+
+    stats["last_progress_notification_at"] = now.isoformat()
+    run.stats = stats
+    run.save(update_fields=["stats"])
+
+
+@shared_task
+def enqueue_due_crawl_schedules() -> dict[str, int]:
+    """
+    Start crawl sessions for enabled schedules whose interval has elapsed.
+    Skips owners who already have an active session.
+    """
+    from django.db import transaction
+
+    from crawler.models import CrawlSchedule
+    from crawler.services.crawl_session import (
+        SessionStartError,
+        default_schedule_session_minutes,
+        start_crawl_session_for_user,
+        user_has_active_crawl_session,
+    )
+
+    now = timezone.now()
+    started = 0
+    skipped = 0
+
+    schedule_ids = list(
+        CrawlSchedule.objects.filter(enabled=True).values_list("id", flat=True)
+    )
+    for schedule_id in schedule_ids:
+        with transaction.atomic():
+            schedule = (
+                CrawlSchedule.objects.select_for_update()
+                .select_related("owner")
+                .filter(id=schedule_id, enabled=True)
+                .first()
+            )
+            if not schedule or not schedule.owner_id:
+                skipped += 1
+                continue
+
+            if user_has_active_crawl_session(schedule.owner_id):
+                skipped += 1
+                continue
+
+            if schedule.last_started_at:
+                elapsed_min = (now - schedule.last_started_at).total_seconds() / 60
+                if elapsed_min < schedule.interval_minutes:
+                    skipped += 1
+                    continue
+
+            duration = schedule.session_duration_minutes or default_schedule_session_minutes()
+            try:
+                start_crawl_session_for_user(
+                    schedule.owner,
+                    duration,
+                    notify=True,
+                )
+            except SessionStartError:
+                skipped += 1
+                continue
+
+            schedule.last_started_at = now
+            schedule.save(update_fields=["last_started_at", "updated_at"])
+            started += 1
+
+    return {"started": started, "skipped": skipped}
+
+
+@shared_task(bind=True, max_retries=2, default_retry_delay=30)
+def crawl_session_coordinator_task(self, run_id: int) -> dict[str, Any]:
+    """
+    Session loop: discovery cycle + domain enqueue until ends_at or cancel.
+    Re-queues itself with countdown between cycles.
+    """
+    run = CrawlRun.objects.filter(id=run_id).first()
+    if not run or run.trigger != CrawlRunTrigger.SESSION:
+        return {"run_id": run_id, "skipped": "not_session"}
+    if _run_is_stopped(run_id):
+        return {"run_id": run_id, "skipped": "stopped"}
+
+    config = dict(run.config or _get_session_config())
+    max_per_cycle = int(config.get("max_domains_per_cycle", 50))
+    cycle_interval = int(config.get("cycle_interval_seconds", 600))
+
+    try:
+        result = run_discovery_cycle(
+            run,
+            initiated_by_id=run.owner_id,
+            max_domains=max_per_cycle,
+        )
+        run.refresh_from_db()
+        run.cycles_completed = int(run.cycles_completed or 0) + 1
+        run.last_cycle_at = timezone.now()
+        run.coordinator_task_id = getattr(self.request, "id", "") or ""
+        run.save(
+            update_fields=["cycles_completed", "last_cycle_at", "coordinator_task_id"]
+        )
+
+        _maybe_notify_session_progress(run)
+
+        if run.ends_at and timezone.now() >= run.ends_at:
+            finalize_crawl_session.delay(run_id, reason="deadline")
+            return {
+                "run_id": run_id,
+                "cycle": run.cycles_completed,
+                "domains_enqueued": result["domains_enqueued"],
+                "finalizing": "deadline",
+            }
+
+        crawl_session_coordinator_task.apply_async(
+            args=[run_id],
+            countdown=cycle_interval,
+        )
+        return {
+            "run_id": run_id,
+            "cycle": run.cycles_completed,
+            "domains_enqueued": result["domains_enqueued"],
+        }
+    except Exception as exc:
+        logger.exception("crawl_session_coordinator_task failed run_id=%s: %s", run_id, exc)
+        finalize_crawl_session.delay(run_id, reason="failed", error=str(exc))
+        raise
+
+
+@shared_task
+def finalize_crawl_session(
+    run_id: int, reason: str = "completed", error: str = ""
+) -> dict[str, Any]:
+    """Mark a crawl session finished and notify the initiating user."""
+    from dashboard.utils import notify_crawl_session
+
+    with transaction.atomic():
+        run = CrawlRun.objects.select_for_update().filter(id=run_id).first()
+        if not run or run.status != CrawlRunStatus.RUNNING:
+            return {"run_id": run_id, "skipped": True}
+
+        if run.coordinator_task_id:
+            try:
+                current_app.control.revoke(run.coordinator_task_id, terminate=False)
+            except Exception:
+                pass
+
+        run.finished_at = timezone.now()
+        if reason in ("cancelled",):
+            run.status = CrawlRunStatus.FAILED
+            if not run.error_text:
+                run.error_text = "Cancelled by user."
+        elif reason == "failed":
+            run.status = CrawlRunStatus.FAILED
+            run.error_text = (error or "Session failed.")[:2000]
+        else:
+            run.status = CrawlRunStatus.SUCCESS
+            if reason == "deadline":
+                run.error_text = ""
+        run.save(update_fields=["status", "error_text", "finished_at"])
+
+    if run.owner_id:
+        from django.contrib.auth import get_user_model
+
+        owner = get_user_model().objects.filter(id=run.owner_id).first()
+        if owner:
+            notify_crawl_session(owner, run, reason)
+
+    return {"run_id": run_id, "reason": reason, "status": run.status}
+
+
+@shared_task
+def sweep_expired_crawl_sessions() -> dict[str, Any]:
+    """Backup finalizer for sessions whose ETA finalize was missed."""
+    now = timezone.now()
+    expired = list(
+        CrawlRun.objects.filter(
+            status=CrawlRunStatus.RUNNING,
+            trigger=CrawlRunTrigger.SESSION,
+            ends_at__lte=now,
+        ).values_list("id", flat=True)
+    )
+    for run_id in expired:
+        finalize_crawl_session.delay(run_id, reason="deadline")
+    return {"finalized": len(expired)}
+
+
 @shared_task(soft_time_limit=300, time_limit=330)
 def run_ai_search_job(job_id: int) -> dict[str, Any]:
     from crawler.models import AISearchJob, AISearchResult, DiscoveredDomain

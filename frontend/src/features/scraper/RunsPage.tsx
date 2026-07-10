@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { getApiErrorMessage } from '@/shared/api/errors'
@@ -12,6 +12,7 @@ import { DataTable } from '@/shared/components/DataTable'
 import { ListPagination } from '@/shared/components/ListPagination'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { RunStatusBadge } from '@/shared/components/RunStatusBadge'
+import { TextLink } from '@/shared/components/TextLink'
 import { Select } from '@/shared/components/Select'
 import { pollIntervalWhenRunning } from '@/shared/hooks/usePollWhen'
 import { useServerList } from '@/shared/hooks/useServerList'
@@ -80,9 +81,7 @@ export function RunsPage() {
         accessorKey: 'id',
         header: 'Run',
         cell: ({ row }) => (
-          <Link className="font-medium text-primary hover:underline" to={`/runs/${row.original.id}`}>
-            #{row.original.id}
-          </Link>
+          <TextLink to={`/runs/${row.original.id}`}>#{row.original.id}</TextLink>
         ),
       },
       { accessorKey: 'target_name', header: 'Target' },
@@ -131,7 +130,7 @@ export function RunsPage() {
   )
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Scrape runs"
         description="Manual scraper runs for individual targets. The list auto-refreshes while any run is in progress."

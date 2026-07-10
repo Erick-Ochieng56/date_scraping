@@ -7,6 +7,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 
 from dashboard.permissions import StaffDashboardMixin
+from dashboard.spa_redirect import SpaRedirectMixin
 from django.db.models import Count, Q
 from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, redirect
@@ -30,7 +31,8 @@ from leads.models import Lead, LeadStatus, Prospect, ProspectStatus
 from scraper.models import ScrapeRun, ScrapeRunStatus, ScrapeTarget
 
 
-class DashboardHomeView(LoginRequiredMixin, TemplateView):
+class DashboardHomeView(SpaRedirectMixin, LoginRequiredMixin, TemplateView):
+    spa_redirect = "/"
     """Main dashboard home page with real-time stats."""
 
     template_name = "dashboard/index.html"
@@ -181,11 +183,13 @@ class DashboardHomeView(LoginRequiredMixin, TemplateView):
         return context
 
 
-class CrawlerHomeView(LoginRequiredMixin, TemplateView):
+class CrawlerHomeView(SpaRedirectMixin, LoginRequiredMixin, TemplateView):
+    spa_redirect = "/crawler"
     template_name = "dashboard/crawler_home.html"
 
 
-class CrawlSourceListView(StaffDashboardMixin, ListView):
+class CrawlSourceListView(SpaRedirectMixin, StaffDashboardMixin, ListView):
+    spa_redirect = "/crawler"
     model = CrawlSource
     template_name = "dashboard/crawler_sources.html"
     context_object_name = "sources"
@@ -195,21 +199,24 @@ class CrawlSourceListView(StaffDashboardMixin, ListView):
         return super().get_queryset().order_by("priority", "id")
 
 
-class CrawlSourceCreateView(StaffDashboardMixin, CreateView):
+class CrawlSourceCreateView(SpaRedirectMixin, StaffDashboardMixin, CreateView):
+    spa_redirect = "/crawler"
     model = CrawlSource
     form_class = CrawlSourceForm
     template_name = "dashboard/crawler_source_form.html"
     success_url = reverse_lazy("dashboard:crawler_sources")
 
 
-class CrawlSourceUpdateView(StaffDashboardMixin, UpdateView):
+class CrawlSourceUpdateView(SpaRedirectMixin, StaffDashboardMixin, UpdateView):
+    spa_redirect = "/crawler"
     model = CrawlSource
     form_class = CrawlSourceForm
     template_name = "dashboard/crawler_source_form.html"
     success_url = reverse_lazy("dashboard:crawler_sources")
 
 
-class DiscoveredDomainListView(LoginRequiredMixin, ListView):
+class DiscoveredDomainListView(SpaRedirectMixin, LoginRequiredMixin, ListView):
+    spa_redirect = "/crawler/domains"
     model = DiscoveredDomain
     template_name = "dashboard/crawler_domains.html"
     context_object_name = "domains"
@@ -240,16 +247,19 @@ class DiscoveredDomainListView(LoginRequiredMixin, ListView):
         return context
 
 
-class CrawlerDiscoverView(LoginRequiredMixin, TemplateView):
+class CrawlerDiscoverView(SpaRedirectMixin, LoginRequiredMixin, TemplateView):
+    spa_redirect = "/crawler/discover"
     template_name = "dashboard/crawler_discover.html"
 
 
-class TargetWizardView(StaffDashboardMixin, TemplateView):
+class TargetWizardView(SpaRedirectMixin, StaffDashboardMixin, TemplateView):
+    spa_redirect = "/targets/new"
     """Wizard for creating scrape targets with auto-detection."""
     template_name = 'dashboard/target_wizard.html'
 
 
-class TargetEditView(StaffDashboardMixin, UpdateView):
+class TargetEditView(SpaRedirectMixin, StaffDashboardMixin, UpdateView):
+    spa_redirect_pattern = "/targets/{pk}"
     """Edit an existing scrape target in the dashboard."""
     model = ScrapeTarget
     form_class = TargetEditForm
@@ -271,7 +281,8 @@ class TargetEditView(StaffDashboardMixin, UpdateView):
         return super().form_valid(form)
 
 
-class TargetListView(LoginRequiredMixin, ListView):
+class TargetListView(SpaRedirectMixin, LoginRequiredMixin, ListView):
+    spa_redirect = "/targets"
     """List all scrape targets."""
 
     model = ScrapeTarget
@@ -307,7 +318,8 @@ class TargetListView(LoginRequiredMixin, ListView):
         return context
 
 
-class TargetDetailView(LoginRequiredMixin, DetailView):
+class TargetDetailView(SpaRedirectMixin, LoginRequiredMixin, DetailView):
+    spa_redirect_pattern = "/targets/{pk}"
     """View and edit scrape target details."""
 
     model = ScrapeTarget
@@ -348,7 +360,8 @@ class TargetDetailView(LoginRequiredMixin, DetailView):
         return context
 
 
-class CrawlTargetListView(StaffDashboardMixin, ListView):
+class CrawlTargetListView(SpaRedirectMixin, StaffDashboardMixin, ListView):
+    spa_redirect = "/crawler"
     """List all crawl targets (CrawlSource). Separate from scrape targets."""
 
     model = CrawlSource
@@ -378,7 +391,8 @@ class CrawlTargetListView(StaffDashboardMixin, ListView):
         return context
 
 
-class CrawlTargetDetailView(StaffDashboardMixin, DetailView):
+class CrawlTargetDetailView(SpaRedirectMixin, StaffDashboardMixin, DetailView):
+    spa_redirect = "/crawler"
     """View a single crawl target (CrawlSource) and recent domains from it."""
 
     model = CrawlSource
@@ -396,7 +410,8 @@ class CrawlTargetDetailView(StaffDashboardMixin, DetailView):
         return context
 
 
-class RunListView(LoginRequiredMixin, ListView):
+class RunListView(SpaRedirectMixin, LoginRequiredMixin, ListView):
+    spa_redirect = "/runs"
     """List all scrape runs."""
 
     model = ScrapeRun
@@ -432,7 +447,8 @@ class RunListView(LoginRequiredMixin, ListView):
         return context
 
 
-class RunDetailView(LoginRequiredMixin, DetailView):
+class RunDetailView(SpaRedirectMixin, LoginRequiredMixin, DetailView):
+    spa_redirect_pattern = "/runs/{pk}"
     """View scrape run details (scraper only; crawler runs use CrawlRunDetailView)."""
 
     model = ScrapeRun
@@ -451,7 +467,8 @@ class RunDetailView(LoginRequiredMixin, DetailView):
         return context
 
 
-class CrawlRunListView(LoginRequiredMixin, ListView):
+class CrawlRunListView(SpaRedirectMixin, LoginRequiredMixin, ListView):
+    spa_redirect = "/crawler/runs"
     """List all crawler discovery runs (CrawlRun)."""
 
     model = CrawlRun
@@ -477,7 +494,8 @@ class CrawlRunListView(LoginRequiredMixin, ListView):
         return context
 
 
-class CrawlRunDetailView(LoginRequiredMixin, DetailView):
+class CrawlRunDetailView(SpaRedirectMixin, LoginRequiredMixin, DetailView):
+    spa_redirect_pattern = "/crawler/runs/{pk}"
     """View crawler run details with per-domain results."""
 
     model = CrawlRun
@@ -541,7 +559,8 @@ class CrawlRunDetailView(LoginRequiredMixin, DetailView):
         return context
 
 
-class ProspectCreateView(LoginRequiredMixin, CreateView):
+class ProspectCreateView(SpaRedirectMixin, LoginRequiredMixin, CreateView):
+    spa_redirect = "/prospects/new"
     """Add a new prospect from the dashboard."""
     model = Prospect
     form_class = ProspectCreateForm
@@ -563,7 +582,8 @@ class ProspectCreateView(LoginRequiredMixin, CreateView):
         return response
 
 
-class ProspectListView(LoginRequiredMixin, ListView):
+class ProspectListView(SpaRedirectMixin, LoginRequiredMixin, ListView):
+    spa_redirect = "/prospects"
     """List all prospects with filtering and search."""
 
     model = Prospect
@@ -617,7 +637,8 @@ class ProspectListView(LoginRequiredMixin, ListView):
         return context
 
 
-class ProspectDetailView(LoginRequiredMixin, DetailView):
+class ProspectDetailView(SpaRedirectMixin, LoginRequiredMixin, DetailView):
+    spa_redirect_pattern = "/prospects/{pk}"
     """View prospect details."""
 
     model = Prospect
@@ -650,7 +671,8 @@ class ProspectDetailView(LoginRequiredMixin, DetailView):
         return context
 
 
-class LeadCreateView(LoginRequiredMixin, CreateView):
+class LeadCreateView(SpaRedirectMixin, LoginRequiredMixin, CreateView):
+    spa_redirect = "/leads/new"
     """Add a new lead from the dashboard."""
     model = Lead
     form_class = LeadCreateForm
@@ -672,7 +694,8 @@ class LeadCreateView(LoginRequiredMixin, CreateView):
         return response
 
 
-class LeadListView(LoginRequiredMixin, ListView):
+class LeadListView(SpaRedirectMixin, LoginRequiredMixin, ListView):
+    spa_redirect = "/leads"
     """List all leads with filtering and search."""
 
     model = Lead
@@ -727,7 +750,8 @@ class LeadListView(LoginRequiredMixin, ListView):
         return context
 
 
-class LeadDetailView(LoginRequiredMixin, DetailView):
+class LeadDetailView(SpaRedirectMixin, LoginRequiredMixin, DetailView):
+    spa_redirect_pattern = "/leads/{pk}"
     """View lead details."""
 
     model = Lead
@@ -766,7 +790,8 @@ class LeadDetailView(LoginRequiredMixin, DetailView):
         return context
 
 
-class ErrorMonitoringView(StaffDashboardMixin, TemplateView):
+class ErrorMonitoringView(SpaRedirectMixin, StaffDashboardMixin, TemplateView):
+    spa_redirect = "/"
     """Dedicated view for failed scrape runs, failed crawl runs, and error summary."""
 
     template_name = "dashboard/error_monitoring.html"
@@ -815,7 +840,8 @@ class ErrorMonitoringView(StaffDashboardMixin, TemplateView):
         return context
 
 
-class ActivityLogListView(StaffDashboardMixin, ListView):
+class ActivityLogListView(SpaRedirectMixin, StaffDashboardMixin, ListView):
+    spa_redirect = "/"
     """View activity log (audit trail) with optional filters."""
 
     model = ActivityLog

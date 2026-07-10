@@ -1,6 +1,7 @@
 export function crawlTriggerLabel(trigger: string) {
   if (trigger === 'scheduled') return 'Scheduled'
   if (trigger === 'manual') return 'Manual'
+  if (trigger === 'session') return 'Session'
   return trigger
 }
 

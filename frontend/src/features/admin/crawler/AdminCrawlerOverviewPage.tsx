@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
+import { AdminActiveCrawlSessionsPanel } from '@/features/admin/crawler/AdminActiveCrawlSessionsPanel'
 import { CrawlerAdminStatsCards } from '@/features/admin/crawler/CrawlerAdminStatsCards'
 import { PageHeader } from '@/shared/components/PageHeader'
 
@@ -13,6 +14,8 @@ export function AdminCrawlerOverviewPage() {
       />
 
       <CrawlerAdminStatsCards />
+
+      <AdminActiveCrawlSessionsPanel />
 
       <div className="rounded-lg border border-border bg-card p-4">
         <h3 className="font-semibold text-foreground">Quick links</h3>

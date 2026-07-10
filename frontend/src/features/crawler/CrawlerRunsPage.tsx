@@ -6,6 +6,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { invalidateCrawlerQueries } from '@/features/crawler/queryKeys'
 import { crawlTriggerLabel, truncateText } from '@/features/crawler/utils'
+import { formatDurationMinutes } from '@/features/crawler/crawlSessionPresets'
 import { getApiErrorMessage } from '@/shared/api/errors'
 import { cancelAllRunningCrawls, cancelCrawlRun, listCrawlRuns, triggerCrawler } from '@/shared/api/crawler'
 import type { CrawlRun } from '@/shared/api/types'
@@ -14,6 +15,7 @@ import { DataTable } from '@/shared/components/DataTable'
 import { ListPagination } from '@/shared/components/ListPagination'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { RunStatusBadge } from '@/shared/components/RunStatusBadge'
+import { TextLink } from '@/shared/components/TextLink'
 import { Select } from '@/shared/components/Select'
 import { pollIntervalWhenRunning } from '@/shared/hooks/usePollWhen'
 import { useServerList } from '@/shared/hooks/useServerList'
@@ -90,15 +92,30 @@ export function CrawlerRunsPage() {
         accessorKey: 'id',
         header: 'Run',
         cell: ({ row }) => (
-          <Link className="font-medium text-primary hover:underline" to={`/crawler/runs/${row.original.id}`}>
-            #{row.original.id}
-          </Link>
+          <TextLink to={`/crawler/runs/${row.original.id}`}>#{row.original.id}</TextLink>
         ),
       },
       {
         accessorKey: 'trigger',
         header: 'Trigger',
-        cell: ({ row }) => crawlTriggerLabel(row.original.trigger),
+        cell: ({ row }) => {
+          const label = crawlTriggerLabel(row.original.trigger)
+          if (row.original.trigger === 'session' && row.original.duration_minutes) {
+            const ends = row.original.ends_at
+              ? ` · ends ${new Date(row.original.ends_at).toLocaleTimeString()}`
+              : ''
+            return (
+              <span title={`${formatDurationMinutes(row.original.duration_minutes)} session${ends}`}>
+                {label}
+                <span className="block text-xs text-muted-foreground">
+                  {formatDurationMinutes(row.original.duration_minutes)}
+                  {ends}
+                </span>
+              </span>
+            )
+          }
+          return label
+        },
       },
       {
         accessorKey: 'status',
@@ -166,7 +183,7 @@ export function CrawlerRunsPage() {
   )
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Crawl runs"
         description="Discovery and domain crawl jobs — separate from manual scraper runs under Scraper."
@@ -205,6 +222,7 @@ export function CrawlerRunsPage() {
           <option value="">All triggers</option>
           <option value="manual">Manual</option>
           <option value="scheduled">Scheduled</option>
+          <option value="session">Session</option>
         </Select>
       </div>
 

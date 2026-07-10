@@ -151,6 +151,16 @@ The **crawler** is a primary pipeline that discovers domains (e.g. via Bing), cr
 - **Config (env):** `CRAWLER_MAX_DOMAINS_PER_RUN` (default 500), `CRAWLER_MIN_SCORE_THRESHOLD` (default 40), `CRAWLER_RATE_LIMIT_SECONDS` (default 1.5). Optional: `SERPER_API_KEY` (when set, discovery and manual keyword search use Serper.dev Google Search API instead of Bing).
 - Configure **CrawlSources** in Django admin (`/admin/crawler/crawlsource/`) to define discovery queries.
 
+### Crawl sessions (bounded discovery windows)
+
+Staff can start a **crawl session** from the React app (`/crawler`) with a duration (30m–24h or custom minutes). The coordinator re-runs discovery on an interval until `ends_at`, then stops automatically.
+
+- **Enable:** `CRAWLER_SESSION_ENABLED=1` (default on). Set `0` to disable session starts (one-shot discovery still works).
+- **Caps:** `CRAWLER_SESSION_MAX_DOMAINS_PER_CYCLE` (50), `CRAWLER_SESSION_CYCLE_INTERVAL_SECONDS` (600), `CRAWLER_SESSION_MAX_ACTIVE_PER_USER` (1).
+- **Long sessions:** progress in-app notifications every `CRAWLER_SESSION_PROGRESS_NOTIFY_MINUTES` (120) when duration ≥ 6h.
+- **Requires:** Celery worker + Beat (sweep task `sweep-expired-crawl-sessions` every 60s as backup finalizer).
+- **Admin:** view/stop all active sessions at `/admin/crawler`.
+
 ## Manual Triggers
 
 ### Trigger Scrape via Admin:

@@ -4,15 +4,17 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
+import { ScrapeSessionPanel } from '@/features/scraper/ScrapeSessionPanel'
 import { filterTargets, hasItemSelector, targetTypeLabel } from '@/features/scraper/utils'
 import { getApiErrorMessage } from '@/shared/api/errors'
-import { listTargets, triggerTarget } from '@/shared/api/scraper'
+import { listTargets, triggerAllTargets, triggerTarget } from '@/shared/api/scraper'
 import type { Target } from '@/shared/api/types'
 import { AlertBanner } from '@/shared/components/AlertBanner'
 import { DataTable } from '@/shared/components/DataTable'
 import { Input } from '@/shared/components/Input'
 import { ListPagination } from '@/shared/components/ListPagination'
 import { PageHeader } from '@/shared/components/PageHeader'
+import { ExternalTextLink } from '@/shared/components/TextLink'
 import { useDebouncedValue } from '@/shared/hooks/useDebouncedValue'
 
 const PAGE_SIZE = 25
@@ -59,6 +61,18 @@ export function TargetsPage() {
     onError: (err) => setBanner({ error: getApiErrorMessage(err, 'Could not start scrape.') }),
   })
 
+  const triggerAllM = useMutation({
+    mutationFn: () => triggerAllTargets(),
+    onSuccess: (data) => {
+      setBanner({ message: data.message ?? `Queued ${data.count ?? 0} scrape(s).` })
+      void qc.invalidateQueries({ queryKey: ['targets'] })
+      void qc.invalidateQueries({ queryKey: ['scrape-runs'] })
+    },
+    onError: (err) => setBanner({ error: getApiErrorMessage(err, 'Could not trigger scrapes.') }),
+  })
+
+  const enabledCount = filtered.filter((t) => t.enabled).length
+
   const columns = useMemo<ColumnDef<Target, unknown>[]>(
     () => [
       {
@@ -75,14 +89,9 @@ export function TargetsPage() {
         accessorKey: 'start_url',
         header: 'Start URL',
         cell: ({ row }) => (
-          <a
-            className="block max-w-[200px] break-all text-primary underline-offset-4 hover:underline"
-            href={row.original.start_url}
-            target="_blank"
-            rel="noreferrer"
-          >
+          <ExternalTextLink className="block max-w-[200px] break-all" href={row.original.start_url}>
             {row.original.start_url}
-          </a>
+          </ExternalTextLink>
         ),
       },
       {
@@ -146,12 +155,19 @@ export function TargetsPage() {
   )
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Scrape targets"
-        description="Each target is one listing page (URL + CSS selectors). Configure selectors, then run scrapes manually — there is no “scrape all” for staff."
+        description="Each target is one listing page (URL + CSS selectors). Run scrapes per target or trigger all enabled targets at once."
         actions={
           <>
+            <Button
+              variant="outline"
+              disabled={enabledCount === 0 || triggerAllM.isPending}
+              onClick={() => triggerAllM.mutate()}
+            >
+              {triggerAllM.isPending ? 'Queuing…' : `Scrape all enabled (${enabledCount})`}
+            </Button>
             <Button variant="outline" asChild>
               <Link to="/targets/new?mode=manual">Manual setup</Link>
             </Button>
@@ -163,6 +179,8 @@ export function TargetsPage() {
       />
 
       <AlertBanner message={banner.message} error={banner.error} />
+
+      <ScrapeSessionPanel onBanner={setBanner} />
 
       <div className="flex flex-wrap gap-2">
         <Input

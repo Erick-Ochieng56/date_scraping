@@ -1,4 +1,4 @@
-import { LayoutDashboard, PlayCircle, Target, Users, UserPlus, Globe } from 'lucide-react'
+import { Bell, Calendar, LayoutDashboard, PlayCircle, Target, UserCircle, Users, UserPlus, Globe } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 export type NavItem = {
@@ -18,7 +18,11 @@ export type NavSection = {
 export const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Overview',
-    items: [{ to: '/', label: 'Dashboard', icon: LayoutDashboard }],
+    items: [
+      { to: '/', label: 'Dashboard', icon: LayoutDashboard },
+      { to: '/notifications', label: 'Notifications', icon: Bell },
+      { to: '/profile', label: 'Profile', icon: UserCircle },
+    ],
   },
   {
     label: 'Scraper',
@@ -35,6 +39,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: 'Pipeline',
     items: [
       { to: '/prospects', label: 'Prospects', icon: UserPlus },
+      { to: '/event-prospects', label: 'Event prospects', icon: Calendar },
       { to: '/leads', label: 'Leads', icon: Users },
     ],
   },

@@ -4,8 +4,11 @@ export * from './scraper'
 export * from './crawler'
 export * from './pipeline'
 export * from './metrics'
+export * from './notifications'
+export * from './profile'
 export * from './admin'
 export * from './wizard'
+export * from './eventProspects'
 
 // Legacy endpoints kept for backward compatibility
 import { apiClient } from '@/lib/api/client'

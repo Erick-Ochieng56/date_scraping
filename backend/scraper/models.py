@@ -20,6 +20,45 @@ class ScrapeRunTrigger(models.TextChoices):
     MANUAL = "manual", "Manual"
 
 
+class ScrapeSessionStatus(models.TextChoices):
+    RUNNING = "running", "Running"
+    SUCCESS = "success", "Success"
+    FAILED = "failed", "Failed"
+
+
+class ScrapeSession(models.Model):
+    """
+    Bounded scrape window: coordinator enqueues due enabled targets on an interval
+    until ends_at. Separate from per-target ScrapeRun records.
+    """
+
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="scrape_sessions")
+    status = models.CharField(
+        max_length=20,
+        choices=ScrapeSessionStatus.choices,
+        default=ScrapeSessionStatus.RUNNING,
+    )
+    started_at = models.DateTimeField(default=timezone.now)
+    finished_at = models.DateTimeField(blank=True, null=True)
+    ends_at = models.DateTimeField(null=True, blank=True)
+    duration_minutes = models.PositiveIntegerField(null=True, blank=True)
+    coordinator_task_id = models.CharField(max_length=255, blank=True, default="")
+    cycles_completed = models.PositiveIntegerField(default=0)
+    last_cycle_at = models.DateTimeField(null=True, blank=True)
+    error_text = models.TextField(blank=True, default="")
+    stats = models.JSONField(blank=True, default=dict)
+
+    class Meta:
+        ordering = ["-started_at"]
+        indexes = [
+            models.Index(fields=["status", "owner"]),
+            models.Index(fields=["-started_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"ScrapeSession {self.id} @ {self.started_at:%Y-%m-%d %H:%M} ({self.status})"
+
+
 class ScrapeTarget(models.Model):
     """
     A configured source to scrape.

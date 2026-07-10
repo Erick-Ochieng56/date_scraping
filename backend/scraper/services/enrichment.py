@@ -289,7 +289,7 @@ class DetailPageEnricher:
 
 
 def enrich_prospect(
-    prospect_id: int, platform: str = "generic", use_playwright: bool = False
+    prospect_id: int, platform: str = "generic", use_playwright: bool = False, *, force: bool = False
 ) -> dict[str, Any]:
     """
     Enrich a Prospect by visiting its detail page.
@@ -312,8 +312,8 @@ def enrich_prospect(
     if not prospect.source_url:
         return {"success": False, "error": "No source URL to enrich"}
 
-    # Don't re-enrich if already has contact info
-    if prospect.email or prospect.company:
+    # Don't re-enrich if already has contact info (unless forced from UI)
+    if not force and prospect.email and (prospect.company or prospect.phone_raw):
         logger.info(f"Prospect {prospect_id} already has enrichment data, skipping")
         return {"success": True, "skipped": True, "reason": "Already enriched"}
 

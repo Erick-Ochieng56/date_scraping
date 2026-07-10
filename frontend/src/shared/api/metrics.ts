@@ -1,9 +1,16 @@
 import { apiClient } from '@/lib/api/client'
 
-import type { MetricsSummary, RunsStreamPayload } from './types'
+import type { MetricsSummary, QualityMetrics, RunsStreamPayload } from './types'
+
+export { fetchNotifications, markAllNotificationsRead, markNotificationRead } from './notifications'
 
 export async function fetchMetricsSummary() {
   const { data } = await apiClient.get<{ success: boolean; data: MetricsSummary }>('/dashboard/api/v1/metrics/summary/')
+  return data.data
+}
+
+export async function fetchQualityMetrics() {
+  const { data } = await apiClient.get<{ success: boolean; data: QualityMetrics }>('/dashboard/api/v1/metrics/quality/')
   return data.data
 }
 

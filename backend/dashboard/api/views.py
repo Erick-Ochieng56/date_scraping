@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import timedelta
 
 from celery import current_app
@@ -22,30 +23,50 @@ from crawler.models import (
     CrawlRunDomainResult,
     CrawlRunStatus,
     CrawlRunTrigger,
+    CrawlSchedule,
     CrawlSource,
     DiscoveredDomain,
+    EventProspect,
 )
 from crawler.discovery import _get_serper_api_key
+from crawler.services.crawl_session import SessionStartError, start_crawl_session_for_user
 from crawler.services.promote_ai_result import promote_ai_search_result_to_prospect
-from crawler.tasks import crawl_domain_task, discover_websites_task, run_ai_search_job
+from crawler.tasks import (
+    crawl_domain_task,
+    discover_websites_task,
+    run_ai_search_job,
+)
 from dashboard.api.decorators import dashboard_api_view
 from dashboard.api.permissions import IsDashboardPortalUser
 from dashboard.api.serializers import (
     AISearchJobSerializer,
     AISearchResultSerializer,
+    CrawlSessionStartSerializer,
+    CrawlScheduleSerializer,
     CrawlSourceSerializer,
     CrawlRunDomainResultSerializer,
     DiscoveredDomainSerializer,
     CrawlRunSerializer,
+    EventProspectSerializer,
     LeadSerializer,
+    LeadWriteSerializer,
     ProspectSerializer,
+    ProspectWriteSerializer,
     ScrapeRunSerializer,
+    ScrapeSessionSerializer,
+    ScrapeSessionStartSerializer,
     ScrapeTargetSerializer,
 )
-from dashboard.utils import log_activity
+from dashboard.api.duplicates import find_lead_duplicates, find_prospect_duplicates
+from dashboard.api.metrics_quality import build_discovery_drop_metrics, build_quality_metrics
+from dashboard.models import Notification
+from dashboard.utils import log_activity, notify_crawl_session
 from leads.models import Lead, LeadStatus, Prospect, ProspectStatus
 from scraper.models import ScrapeRun, ScrapeRunStatus, ScrapeTarget
-from scraper.tasks import scrape_target
+from scraper.models import ScrapeSession, ScrapeSessionStatus
+from scraper.services.scrape_session import SessionStartError as ScrapeSessionStartError
+from scraper.services.scrape_session import start_scrape_session_for_user
+from scraper.tasks import finalize_scrape_session, scrape_target
 
 
 def _parse_positive_int(value, *, field: str, default: int, minimum: int = 1, maximum: int | None = None) -> int:
@@ -148,12 +169,28 @@ def target_detail(request: Request, target_id: int) -> Response:
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def trigger_all_targets(request: Request) -> Response:
+    targets = list(_owned_qs(request, ScrapeTarget.objects.filter(enabled=True)))
+    if not targets:
+        return Response({"success": False, "error": "No enabled targets to scrape."}, status=status.HTTP_400_BAD_REQUEST)
+    task_ids: list[str] = []
+    for target in targets:
+        task = scrape_target.delay(target_id=target.id, trigger="manual", initiated_by_id=request.user.id)
+        task_ids.append(str(task.id))
+        log_activity(
+            action="scrape_triggered",
+            object_type="target",
+            object_id=target.id,
+            description=f"Bulk scrape triggered for {target.name}",
+            user=request.user,
+            metadata={"task_id": task.id, "bulk": True},
+        )
     return Response(
         {
-            "success": False,
-            "error": "Scraper runs are manual per target. Use /targets/<id>/trigger/ for individual domains.",
-        },
-        status=status.HTTP_400_BAD_REQUEST,
+            "success": True,
+            "message": f"Queued scrapes for {len(targets)} enabled target(s).",
+            "count": len(targets),
+            "task_ids": task_ids,
+        }
     )
 
 
@@ -175,6 +212,82 @@ def trigger_target(request: Request, target_id: int) -> Response:
         metadata={"task_id": task.id},
     )
     return Response({"success": True, "message": f"Scrape triggered for {target.name}", "task_id": task.id})
+
+
+def _active_scrape_session_for_user(user):
+    now = timezone.now()
+    return (
+        ScrapeSession.objects.filter(
+            owner=user,
+            status=ScrapeSessionStatus.RUNNING,
+            ends_at__gt=now,
+        )
+        .order_by("-started_at")
+        .first()
+    )
+
+
+def _cancel_scrape_session(session: ScrapeSession, *, error_text: str) -> None:
+    if session.coordinator_task_id:
+        try:
+            current_app.control.revoke(session.coordinator_task_id, terminate=False)
+        except Exception:
+            pass
+    finalize_scrape_session.delay(session.id, reason="cancelled", error=error_text)
+
+
+@dashboard_api_view(["POST"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def scrape_session_start(request: Request) -> Response:
+    ser = ScrapeSessionStartSerializer(data=request.data)
+    ser.is_valid(raise_exception=True)
+    duration_minutes = int(ser.validated_data["duration_minutes"])
+
+    try:
+        session = start_scrape_session_for_user(request.user, duration_minutes)
+    except ScrapeSessionStartError as exc:
+        return Response(
+            {"success": False, "error": exc.message},
+            status=exc.status_code,
+        )
+
+    return Response(
+        {
+            "success": True,
+            "session_id": session.id,
+            "ends_at": session.ends_at.isoformat() if session.ends_at else None,
+            "message": f"Scrape session started for {duration_minutes} minutes.",
+            "data": ScrapeSessionSerializer(session).data,
+        },
+        status=status.HTTP_201_CREATED,
+    )
+
+
+@dashboard_api_view(["GET"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def scrape_session_active(request: Request) -> Response:
+    session = _active_scrape_session_for_user(request.user)
+    if not session:
+        return Response({"success": True, "data": None})
+    return Response({"success": True, "data": ScrapeSessionSerializer(session).data})
+
+
+@dashboard_api_view(["POST"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def scrape_session_stop(request: Request, session_id: int) -> Response:
+    try:
+        session = _owned_qs(request, ScrapeSession.objects.all()).get(id=session_id)
+    except ScrapeSession.DoesNotExist:
+        return Response({"success": False, "error": "Session not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    if session.status != ScrapeSessionStatus.RUNNING:
+        return Response({"success": False, "error": "Session is not running."}, status=status.HTTP_400_BAD_REQUEST)
+
+    _cancel_scrape_session(session, error_text="Cancelled by user.")
+    return Response({"success": True, "message": f"Session #{session.id} stopped."})
 
 
 @dashboard_api_view(["GET"])
@@ -259,7 +372,7 @@ def crawl_run_detail(request: Request, run_id: int) -> Response:
 def crawl_run_domain_results(request: Request, run_id: int) -> Response:
     if not _owned_qs(request, CrawlRun.objects.all()).filter(id=run_id).exists():
         return Response({"success": False, "error": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
-    qs = CrawlRunDomainResult.objects.select_related("domain").filter(crawl_run_id=run_id).order_by("-updated_at")
+    qs = CrawlRunDomainResult.objects.select_related("domain", "crawl_run").filter(crawl_run_id=run_id).order_by("-updated_at")
     state = request.query_params.get("state")
     if state:
         qs = qs.filter(state=state)
@@ -277,6 +390,142 @@ def crawl_trigger(request: Request) -> Response:
     return Response({"success": True, "message": "Crawler discovery queued", "task_id": task.id})
 
 
+def _active_crawl_session_for_user(user):
+    now = timezone.now()
+    return (
+        CrawlRun.objects.filter(
+            owner=user,
+            status=CrawlRunStatus.RUNNING,
+            trigger=CrawlRunTrigger.SESSION,
+            ends_at__gt=now,
+        )
+        .order_by("-started_at")
+        .first()
+    )
+
+
+def _cancel_crawl_run(run: CrawlRun, *, error_text: str, notify_session: bool = True) -> None:
+    if run.task_id:
+        try:
+            current_app.control.revoke(run.task_id, terminate=False)
+        except Exception:
+            pass
+    if run.coordinator_task_id:
+        try:
+            current_app.control.revoke(run.coordinator_task_id, terminate=False)
+        except Exception:
+            pass
+
+    was_session = run.trigger == CrawlRunTrigger.SESSION and run.status == CrawlRunStatus.RUNNING
+    run.status = CrawlRunStatus.FAILED
+    run.error_text = error_text
+    run.finished_at = timezone.now()
+    run.save(update_fields=["status", "error_text", "finished_at"])
+
+    if notify_session and was_session and run.owner_id:
+        owner = run.owner
+        if owner:
+            notify_crawl_session(owner, run, "cancelled")
+
+
+@dashboard_api_view(["POST"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def crawl_session_start(request: Request) -> Response:
+    ser = CrawlSessionStartSerializer(data=request.data)
+    ser.is_valid(raise_exception=True)
+    duration_minutes = int(ser.validated_data["duration_minutes"])
+
+    try:
+        run = start_crawl_session_for_user(request.user, duration_minutes)
+    except SessionStartError as exc:
+        return Response(
+            {"success": False, "error": exc.message},
+            status=exc.status_code,
+        )
+
+    return Response(
+        {
+            "success": True,
+            "run_id": run.id,
+            "ends_at": run.ends_at.isoformat() if run.ends_at else None,
+            "message": f"Crawl session started for {duration_minutes} minutes.",
+            "data": CrawlRunSerializer(run).data,
+        },
+        status=status.HTTP_201_CREATED,
+    )
+
+
+@dashboard_api_view(["GET"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def crawl_session_active(request: Request) -> Response:
+    run = _active_crawl_session_for_user(request.user)
+    if not run:
+        return Response({"success": True, "data": None})
+    return Response({"success": True, "data": CrawlRunSerializer(run).data})
+
+
+@dashboard_api_view(["POST"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def crawl_session_stop(request: Request, run_id: int) -> Response:
+    try:
+        run = _owned_qs(request, CrawlRun.objects.all()).get(id=run_id)
+    except CrawlRun.DoesNotExist:
+        return Response({"success": False, "error": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    if run.trigger != CrawlRunTrigger.SESSION:
+        return Response(
+            {"success": False, "error": "Not a crawl session run."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if run.status != CrawlRunStatus.RUNNING:
+        return Response({"success": False, "error": "Session is not running."}, status=status.HTTP_400_BAD_REQUEST)
+
+    _cancel_crawl_run(run, error_text="Cancelled by user.")
+    return Response({"success": True, "message": f"Session #{run.id} stopped."})
+
+
+@dashboard_api_view(["GET", "POST"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def crawl_schedules_list(request: Request) -> Response:
+    if request.method == "POST":
+        serializer = CrawlScheduleSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(owner=request.user)
+        return Response({"success": True, "data": serializer.data}, status=status.HTTP_201_CREATED)
+
+    qs = _owned_qs(request, CrawlSchedule.objects.all()).order_by("-created_at")
+    enabled = request.query_params.get("enabled")
+    if enabled in {"true", "false"}:
+        qs = qs.filter(enabled=(enabled == "true"))
+    return Response({"success": True, "data": _pagination(request, qs, CrawlScheduleSerializer)})
+
+
+@dashboard_api_view(["GET", "PATCH", "DELETE"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def crawl_schedule_detail(request: Request, schedule_id: int) -> Response:
+    try:
+        schedule = _owned_qs(request, CrawlSchedule.objects.all()).get(id=schedule_id)
+    except CrawlSchedule.DoesNotExist:
+        return Response({"success": False, "error": "Schedule not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == "GET":
+        return Response({"success": True, "data": CrawlScheduleSerializer(schedule).data})
+
+    if request.method == "DELETE":
+        schedule.delete()
+        return Response({"success": True, "message": "Schedule deleted."})
+
+    serializer = CrawlScheduleSerializer(schedule, data=request.data, partial=True)
+    serializer.is_valid(raise_exception=True)
+    serializer.save()
+    return Response({"success": True, "data": serializer.data})
+
+
 @dashboard_api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
@@ -288,6 +537,10 @@ def crawl_run_cancel(request: Request, run_id: int) -> Response:
 
     if run.status != CrawlRunStatus.RUNNING:
         return Response({"success": False, "error": "Run is not currently running."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if run.trigger == CrawlRunTrigger.SESSION:
+        _cancel_crawl_run(run, error_text="Cancelled by staff user.")
+        return Response({"success": True, "message": f"Run #{run.id} cancelled."})
 
     if run.task_id:
         try:
@@ -309,15 +562,18 @@ def crawl_runs_cancel_all(request: Request) -> Response:
     running = list(_owned_qs(request, CrawlRun.objects.all()).filter(status=CrawlRunStatus.RUNNING))
     cancelled = 0
     for run in running:
-        if run.task_id:
-            try:
-                current_app.control.revoke(run.task_id, terminate=False)
-            except Exception:
-                pass
-        run.status = CrawlRunStatus.FAILED
-        run.error_text = "Cancelled in batch by staff user."
-        run.finished_at = timezone.now()
-        run.save(update_fields=["status", "error_text", "finished_at"])
+        if run.trigger == CrawlRunTrigger.SESSION:
+            _cancel_crawl_run(run, error_text="Cancelled in batch by staff user.")
+        else:
+            if run.task_id:
+                try:
+                    current_app.control.revoke(run.task_id, terminate=False)
+                except Exception:
+                    pass
+            run.status = CrawlRunStatus.FAILED
+            run.error_text = "Cancelled in batch by staff user."
+            run.finished_at = timezone.now()
+            run.save(update_fields=["status", "error_text", "finished_at"])
         cancelled += 1
     return Response({"success": True, "cancelled": cancelled})
 
@@ -377,15 +633,55 @@ def _apply_search(qs, request: Request, fields: list[str]):
     return qs.filter(q)
 
 
-@dashboard_api_view(["GET"])
-@authentication_classes([SessionAuthentication])
-@permission_classes([IsAuthenticated, IsDashboardPortalUser])
-def prospects_list(request: Request) -> Response:
-    qs = _owned_qs(request, Prospect.objects.all()).order_by("-created_at")
+def _apply_prospect_list_filters(request: Request, qs):
     status_filter = request.query_params.get("status")
     if status_filter:
         qs = qs.filter(status=status_filter)
-    qs = _apply_search(qs, request, ["company", "event_name", "email", "website"])
+
+    source_filter = (request.query_params.get("source") or "").strip()
+    if source_filter:
+        qs = qs.filter(source_name__icontains=source_filter)
+
+    min_score_raw = (request.query_params.get("min_score") or "").strip()
+    if min_score_raw:
+        try:
+            min_score = int(min_score_raw)
+            qs = qs.filter(raw_payload__translation_need_score__gte=min_score)
+        except ValueError as exc:
+            raise ValidationError({"min_score": "min_score must be an integer."}) from exc
+
+    qs = _apply_search(qs, request, ["company", "event_name", "email", "website", "source_name"])
+
+    sort = (request.query_params.get("sort") or "created_at").strip().lower()
+    if sort == "score":
+        qs = qs.order_by("-raw_payload__translation_need_score", "-created_at")
+    else:
+        qs = qs.order_by("-created_at")
+    return qs
+
+
+@dashboard_api_view(["GET", "POST"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def prospects_list(request: Request) -> Response:
+    if request.method == "POST":
+        serializer = ProspectWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        prospect = serializer.save(owner=request.user)
+        log_activity(
+            action="prospect_created",
+            object_type="prospect",
+            object_id=prospect.id,
+            description=f"Manually created prospect #{prospect.id}",
+            user=request.user,
+        )
+        return Response(
+            {"success": True, "data": ProspectSerializer(prospect).data},
+            status=status.HTTP_201_CREATED,
+        )
+
+    qs = _owned_qs(request, Prospect.objects.all())
+    qs = _apply_prospect_list_filters(request, qs)
     return Response({"success": True, "data": _pagination(request, qs, ProspectSerializer)})
 
 
@@ -429,7 +725,7 @@ def prospects_bulk_reject(request: Request) -> Response:
     return Response({"success": True, "count": count})
 
 
-@dashboard_api_view(["GET"])
+@dashboard_api_view(["GET", "PATCH"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def prospect_detail(request: Request, prospect_id: int) -> Response:
@@ -437,7 +733,33 @@ def prospect_detail(request: Request, prospect_id: int) -> Response:
         prospect = _owned_qs(request, Prospect.objects.all()).get(id=prospect_id)
     except Prospect.DoesNotExist:
         return Response({"success": False, "error": "Prospect not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == "PATCH":
+        serializer = ProspectWriteSerializer(prospect, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        log_activity(
+            action="prospect_updated",
+            object_type="prospect",
+            object_id=prospect.id,
+            description=f"Updated prospect #{prospect.id}",
+            user=request.user,
+        )
+        return Response({"success": True, "data": ProspectSerializer(prospect).data})
+
     return Response({"success": True, "data": ProspectSerializer(prospect).data})
+
+
+@dashboard_api_view(["GET"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def prospect_duplicates(request: Request, prospect_id: int) -> Response:
+    try:
+        prospect = _owned_qs(request, Prospect.objects.all()).get(id=prospect_id)
+    except Prospect.DoesNotExist:
+        return Response({"success": False, "error": "Prospect not found"}, status=status.HTTP_404_NOT_FOUND)
+    rows = find_prospect_duplicates(prospect, _owned_qs(request, Prospect.objects.all()))
+    return Response({"success": True, "data": {"items": rows, "total": len(rows)}})
 
 
 @dashboard_api_view(["POST"])
@@ -482,10 +804,144 @@ def prospect_reject(request: Request, prospect_id: int) -> Response:
     return Response({"success": True})
 
 
+@dashboard_api_view(["POST"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def prospect_enrich(request: Request, prospect_id: int) -> Response:
+    try:
+        prospect = _owned_qs(request, Prospect.objects.all()).get(id=prospect_id)
+    except Prospect.DoesNotExist:
+        return Response({"success": False, "error": "Prospect not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    from scraper.services.enrichment import enrich_prospect
+
+    platform = (request.data.get("platform") or "generic").strip() or "generic"
+    use_playwright = bool(request.data.get("use_playwright"))
+    force = bool(request.data.get("force"))
+
+    result = enrich_prospect(prospect.id, platform, use_playwright, force=force)
+    if not result.get("success"):
+        return Response(
+            {"success": False, "error": result.get("error", "Enrichment failed")},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    prospect.refresh_from_db()
+    return Response(
+        {
+            "success": True,
+            "skipped": bool(result.get("skipped")),
+            "updated_fields": result.get("updated_fields") or [],
+            "data": ProspectSerializer(prospect).data,
+        }
+    )
+
+
+def _apply_event_prospect_list_filters(request: Request, qs):
+    status_filter = request.query_params.get("status")
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+
+    min_score_raw = (request.query_params.get("min_score") or "").strip()
+    if min_score_raw:
+        try:
+            qs = qs.filter(translation_need_score__gte=int(min_score_raw))
+        except ValueError as exc:
+            raise ValidationError({"min_score": "min_score must be an integer."}) from exc
+
+    qs = _apply_search(qs, request, ["event_name", "organizer_name", "organizer_domain", "event_location"])
+
+    sort = (request.query_params.get("sort") or "urgency").strip().lower()
+    if sort == "date":
+        qs = qs.order_by("event_date", "-urgency_score")
+    elif sort == "score":
+        qs = qs.order_by("-translation_need_score", "-urgency_score")
+    else:
+        qs = qs.order_by("-urgency_score", "event_date")
+    return qs
+
+
 @dashboard_api_view(["GET"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def event_prospects_list(request: Request) -> Response:
+    qs = _owned_qs(request, EventProspect.objects.all())
+    qs = _apply_event_prospect_list_filters(request, qs)
+    return Response({"success": True, "data": _pagination(request, qs, EventProspectSerializer)})
+
+
+@dashboard_api_view(["GET"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def event_prospect_detail(request: Request, event_prospect_id: int) -> Response:
+    try:
+        row = _owned_qs(request, EventProspect.objects.all()).get(id=event_prospect_id)
+    except EventProspect.DoesNotExist:
+        return Response({"success": False, "error": "Event prospect not found"}, status=status.HTTP_404_NOT_FOUND)
+    return Response({"success": True, "data": EventProspectSerializer(row).data})
+
+
+@dashboard_api_view(["POST"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def event_prospect_promote(request: Request, event_prospect_id: int) -> Response:
+    try:
+        row = _owned_qs(request, EventProspect.objects.all()).get(id=event_prospect_id)
+    except EventProspect.DoesNotExist:
+        return Response({"success": False, "error": "Event prospect not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    if row.status in ("expired", "irrelevant"):
+        return Response({"success": False, "error": f"Cannot promote event prospect with status {row.status}."}, status=400)
+
+    from crawler.services.promote_event_prospect import promote_event_prospect_to_prospect
+
+    prospect, created = promote_event_prospect_to_prospect(row)
+    if created:
+        log_activity(
+            action="prospect_created",
+            object_type="prospect",
+            object_id=prospect.id,
+            description=f"Promoted event prospect #{row.id} ({row.event_name}) to prospect",
+            user=request.user,
+        )
+    return Response({"success": True, "prospect_id": prospect.id, "created": created})
+
+
+@dashboard_api_view(["POST"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def event_prospect_reject(request: Request, event_prospect_id: int) -> Response:
+    try:
+        row = _owned_qs(request, EventProspect.objects.all()).get(id=event_prospect_id)
+    except EventProspect.DoesNotExist:
+        return Response({"success": False, "error": "Event prospect not found"}, status=status.HTTP_404_NOT_FOUND)
+    reason = (request.data.get("reason") or "").strip()
+    row.status = "irrelevant"
+    if reason:
+        row.notes = (row.notes + "\n" if row.notes else "") + f"Irrelevant: {reason}"
+    row.save(update_fields=["status", "notes", "updated_at"])
+    return Response({"success": True})
+
+
+@dashboard_api_view(["GET", "POST"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def leads_list(request: Request) -> Response:
+    if request.method == "POST":
+        serializer = LeadWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        lead = serializer.save(owner=request.user)
+        log_activity(
+            action="lead_created",
+            object_type="lead",
+            object_id=lead.id,
+            description=f"Manually created lead #{lead.id}",
+            user=request.user,
+        )
+        return Response(
+            {"success": True, "data": LeadSerializer(lead).data},
+            status=status.HTTP_201_CREATED,
+        )
+
     qs = _owned_qs(request, Lead.objects.all()).order_by("-created_at")
     status_filter = request.query_params.get("status")
     if status_filter:
@@ -514,7 +970,34 @@ def leads_bulk_reject(request: Request) -> Response:
     return Response({"success": True, "count": count})
 
 
-@dashboard_api_view(["GET"])
+@dashboard_api_view(["POST"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def leads_bulk_sync_crm(request: Request) -> Response:
+    ids = request.data.get("lead_ids") or []
+    if not ids:
+        return Response({"success": False, "error": "No lead IDs provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+    from crm_integration.models import PerfexLeadSync
+    from crm_integration.tasks import sync_lead_to_perfex
+
+    leads = _owned_qs(request, Lead.objects.all()).filter(id__in=ids, status=LeadStatus.INTERESTED)
+    count = 0
+    for lead in leads:
+        PerfexLeadSync.objects.get_or_create(lead=lead)
+        sync_lead_to_perfex.delay(lead.id)
+        count += 1
+        log_activity(
+            action="lead_synced",
+            object_type="lead",
+            object_id=lead.id,
+            description=f"Lead #{lead.id} queued for CRM sync",
+            user=request.user,
+        )
+    return Response({"success": True, "count": count, "message": f"Queued {count} lead(s) for CRM sync"})
+
+
+@dashboard_api_view(["GET", "PATCH"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
 def lead_detail(request: Request, lead_id: int) -> Response:
@@ -522,7 +1005,33 @@ def lead_detail(request: Request, lead_id: int) -> Response:
         lead = _owned_qs(request, Lead.objects.all()).get(id=lead_id)
     except Lead.DoesNotExist:
         return Response({"success": False, "error": "Lead not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == "PATCH":
+        serializer = LeadWriteSerializer(lead, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        log_activity(
+            action="lead_updated",
+            object_type="lead",
+            object_id=lead.id,
+            description=f"Updated lead #{lead.id}",
+            user=request.user,
+        )
+        return Response({"success": True, "data": LeadSerializer(lead).data})
+
     return Response({"success": True, "data": LeadSerializer(lead).data})
+
+
+@dashboard_api_view(["GET"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def lead_duplicates(request: Request, lead_id: int) -> Response:
+    try:
+        lead = _owned_qs(request, Lead.objects.all()).get(id=lead_id)
+    except Lead.DoesNotExist:
+        return Response({"success": False, "error": "Lead not found"}, status=status.HTTP_404_NOT_FOUND)
+    rows = find_lead_duplicates(lead, _owned_qs(request, Lead.objects.all()))
+    return Response({"success": True, "data": {"items": rows, "total": len(rows)}})
 
 
 @dashboard_api_view(["POST"])
@@ -609,6 +1118,91 @@ def metrics_summary(request: Request) -> Response:
     }
     cache.set(cache_key, data, 60)
     return Response({"success": True, "data": data})
+
+
+@dashboard_api_view(["GET"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def metrics_quality(request: Request) -> Response:
+    since = timezone.now() - timedelta(days=7)
+    prospects_qs = _owned_qs(request, Prospect.objects.all())
+    leads_qs = _owned_qs(request, Lead.objects.all())
+    event_qs = _owned_qs(request, EventProspect.objects.all())
+    crawl_run_ids = _owned_qs(request, CrawlRun.objects.all()).values_list("id", flat=True)
+    crawl_domains = CrawlRunDomainResult.objects.filter(crawl_run_id__in=crawl_run_ids)
+    ai_jobs = _owned_qs(request, AISearchJob.objects.filter(updated_at__gte=since))
+
+    quality = build_quality_metrics(
+        prospects_qs=prospects_qs,
+        leads_qs=leads_qs,
+        event_prospects_qs=event_qs,
+        crawl_domain_qs=crawl_domains,
+        since=since,
+    )
+    discovery = build_discovery_drop_metrics(
+        ai_jobs_qs=ai_jobs,
+        crawl_domain_qs=crawl_domains,
+        since=since,
+    )
+    return Response({"success": True, "data": {**quality, "discovery_drops": discovery}})
+
+
+@dashboard_api_view(["GET"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def notifications_list(request: Request) -> Response:
+    limit = _parse_positive_int(
+        request.query_params.get("limit"),
+        field="limit",
+        default=20,
+        minimum=1,
+        maximum=100,
+    )
+    rows = Notification.objects.filter(user=request.user).order_by("-created_at")[:limit]
+    unread = Notification.objects.filter(user=request.user, read=False).count()
+    return Response(
+        {
+            "success": True,
+            "data": {
+                "unread_count": unread,
+                "items": [
+                    {
+                        "id": n.id,
+                        "type": n.type,
+                        "title": n.title,
+                        "message": n.message,
+                        "read": n.read,
+                        "link_url": n.link_url,
+                        "created_at": n.created_at.isoformat() if n.created_at else None,
+                    }
+                    for n in rows
+                ],
+            },
+        }
+    )
+
+
+@dashboard_api_view(["POST"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def notifications_read_all(request: Request) -> Response:
+    updated = Notification.objects.filter(user=request.user, read=False).update(
+        read=True,
+        read_at=timezone.now(),
+    )
+    return Response({"success": True, "marked": updated})
+
+
+@dashboard_api_view(["POST"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def notification_mark_read(request: Request, notif_id: int) -> Response:
+    try:
+        row = Notification.objects.get(id=notif_id, user=request.user)
+    except Notification.DoesNotExist:
+        return Response({"success": False, "error": "Notification not found"}, status=status.HTTP_404_NOT_FOUND)
+    row.mark_read()
+    return Response({"success": True})
 
 
 def _ai_search_configured() -> bool:

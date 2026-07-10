@@ -21,6 +21,12 @@ urlpatterns = [
     path("crawler/runs/", admin_views.crawler_runs_list, name="admin_v1_crawler_runs_list"),
     path("crawler/runs/<int:run_id>/cancel/", admin_views.crawler_run_cancel, name="admin_v1_crawler_run_cancel"),
     path("crawler/runs/cancel-all/", admin_views.crawler_runs_cancel_all, name="admin_v1_crawler_runs_cancel_all"),
+    path("scrape-sessions/active/", admin_views.scraper_sessions_active, name="admin_v1_scrape_sessions_active"),
+    path("scrape-sessions/<int:session_id>/stop/", admin_views.scraper_session_stop, name="admin_v1_scrape_session_stop"),
+    path("crawl-sessions/active/", admin_views.crawler_sessions_active, name="admin_v1_crawl_sessions_active"),
+    path("crawl-sessions/<int:run_id>/stop/", admin_views.crawler_session_stop, name="admin_v1_crawl_session_stop"),
+    path("crawl-schedules/", admin_views.crawler_schedules_list, name="admin_v1_crawl_schedules_list"),
+    path("crawl-schedules/<int:schedule_id>/", admin_views.crawler_schedule_detail, name="admin_v1_crawl_schedule_detail"),
     path("ai-search/jobs/<int:job_id>/", admin_views.admin_ai_search_job_detail, name="admin_v1_ai_search_job_detail"),
     path("ai-search/jobs/", admin_views.admin_ai_search_jobs, name="admin_v1_ai_search_jobs"),
     path(

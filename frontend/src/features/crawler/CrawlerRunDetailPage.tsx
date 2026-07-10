@@ -5,12 +5,20 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { crawlerKeys } from '@/features/crawler/queryKeys'
+import {
+  formatDurationMinutes,
+  formatTimeRemaining,
+} from '@/features/crawler/crawlSessionPresets'
 import { getCrawlRun, listCrawlRunDomainResults } from '@/shared/api/crawler'
 import type { CrawlRunDomainResult } from '@/shared/api/types'
 import { DataTable } from '@/shared/components/DataTable'
 import { ListPagination } from '@/shared/components/ListPagination'
+import { KpiCard } from '@/shared/components/KpiCard'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { RunStatusBadge } from '@/shared/components/RunStatusBadge'
+import { ScoreBadge } from '@/shared/components/ScoreBadge'
+import { SectionEyebrow } from '@/shared/components/SectionEyebrow'
+import { TextLink } from '@/shared/components/TextLink'
 import { Select } from '@/shared/components/Select'
 import { pollIntervalWhenRunning } from '@/shared/hooks/usePollWhen'
 import { useServerList } from '@/shared/hooks/useServerList'
@@ -21,6 +29,7 @@ export function CrawlerRunDetailPage() {
   const runId = Number(params.runId)
   const [state, setState] = useState(searchParams.get('state') ?? '')
   const [errorsOnly, setErrorsOnly] = useState(searchParams.get('errors_only') === '1')
+  const [, setTick] = useState(0)
 
   const runQ = useQuery({
     queryKey: crawlerKeys.run(runId),
@@ -28,6 +37,12 @@ export function CrawlerRunDetailPage() {
     enabled: Number.isFinite(runId) && runId > 0,
     refetchInterval: (q) => pollIntervalWhenRunning(q.state.data?.status, undefined, 5000),
   })
+
+  useEffect(() => {
+    if (runQ.data?.trigger !== 'session' || runQ.data?.status !== 'running') return
+    const id = window.setInterval(() => setTick((t) => t + 1), 1000)
+    return () => window.clearInterval(id)
+  }, [runQ.data?.trigger, runQ.data?.status])
 
   const domainFilters = useMemo(
     () => ({
@@ -74,14 +89,24 @@ export function CrawlerRunDetailPage() {
       {
         id: 'score',
         header: 'Score',
-        cell: ({ row }) =>
-          `${row.original.score}${row.original.score_label ? ` (${row.original.score_label})` : ''}`,
+        cell: ({ row }) => (
+          <ScoreBadge score={row.original.score} label={row.original.score_label || undefined} />
+        ),
       },
       {
         id: 'prospect',
         header: 'Prospect',
-        cell: ({ row }) =>
-          row.original.prospect_created ? 'Created' : row.original.prospect_updated ? 'Updated' : '—',
+        cell: ({ row }) => {
+          const id = row.original.prospect_id
+          if (id) {
+            return (
+              <TextLink to={`/prospects/${id}`}>#{id}</TextLink>
+            )
+          }
+          if (row.original.prospect_created) return 'Created'
+          if (row.original.prospect_updated) return 'Updated'
+          return '—'
+        },
       },
       {
         accessorKey: 'crawl_error',
@@ -106,6 +131,18 @@ export function CrawlerRunDetailPage() {
   }
 
   const run = runQ.data
+  const isSession = run?.trigger === 'session'
+  const sessionProgress =
+    isSession && run?.duration_minutes
+      ? Math.min(
+          100,
+          Math.round(
+            ((run.duration_minutes * 60 - (run.time_remaining_seconds ?? 0)) /
+              (run.duration_minutes * 60)) *
+              100
+          )
+        )
+      : null
   const statusHint =
     run?.status === 'running'
       ? 'Running — this page auto-refreshes while the batch is in progress.'
@@ -124,29 +161,68 @@ export function CrawlerRunDetailPage() {
       />
 
       {run ? (
-        <div className="grid gap-3 md:grid-cols-4">
-          <div className="rounded-lg border border-border bg-card p-4">
-            <p className="text-sm text-muted-foreground">Status</p>
-            <div className="mt-1">
-              <RunStatusBadge status={run.status} display={run.status_display} />
+        <section className="space-y-3">
+          <SectionEyebrow>Run summary</SectionEyebrow>
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="rounded-lg border border-border bg-card p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-tertiary">Status</p>
+              <div className="mt-2">
+                <RunStatusBadge status={run.status} display={run.status_display} />
+              </div>
             </div>
+            <KpiCard label="Domains" value={run.summary?.total_domains ?? run.domains_queued} />
+            <KpiCard label="Errors" value={run.summary?.failed_domains ?? 0} />
+            <KpiCard label="Prospects created" value={run.summary?.prospects_created ?? run.prospects_created} />
           </div>
-          <div className="rounded-lg border border-border bg-card p-4">
-            <p className="text-sm text-muted-foreground">Domains</p>
-            <p className="text-lg font-semibold">{run.summary?.total_domains ?? run.domains_queued}</p>
-          </div>
-          <div className="rounded-lg border border-border bg-card p-4">
-            <p className="text-sm text-muted-foreground">Errors</p>
-            <p className="text-lg font-semibold">{run.summary?.failed_domains ?? 0}</p>
-          </div>
-          <div className="rounded-lg border border-border bg-card p-4">
-            <p className="text-sm text-muted-foreground">Prospects</p>
-            <p className="text-lg font-semibold">
-              +{run.summary?.prospects_created ?? run.prospects_created} / upd{' '}
-              {run.summary?.prospects_updated ?? run.prospects_updated}
-            </p>
-          </div>
-        </div>
+          {isSession ? (
+            <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-tertiary">Session</p>
+              <div className="grid gap-3 sm:grid-cols-3 text-sm">
+                <div>
+                  <p className="text-muted-foreground">Duration</p>
+                  <p className="font-medium">
+                    {run.duration_minutes ? formatDurationMinutes(run.duration_minutes) : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Ends</p>
+                  <p className="font-medium">
+                    {run.ends_at ? new Date(run.ends_at).toLocaleString() : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Time remaining</p>
+                  <p className="font-medium">
+                    {run.status === 'running'
+                      ? formatTimeRemaining(run.time_remaining_seconds)
+                      : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Cycles</p>
+                  <p className="font-medium">{run.cycles_completed ?? 0}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Last cycle</p>
+                  <p className="font-medium">
+                    {run.last_cycle_at ? new Date(run.last_cycle_at).toLocaleString() : '—'}
+                  </p>
+                </div>
+              </div>
+              {sessionProgress != null && run.status === 'running' ? (
+                <div className="space-y-1">
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-secondary transition-all"
+                      style={{ width: `${sessionProgress}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">{sessionProgress}% elapsed</p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </section>
       ) : null}
 
       <div className="flex flex-wrap gap-2">

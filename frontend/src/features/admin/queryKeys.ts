@@ -28,6 +28,8 @@ export const adminKeys = {
     runningCount: ['admin', 'crawler', 'runs', 'running-count'] as const,
     failedCount: ['admin', 'crawler', 'runs', 'failed-count'] as const,
   },
+  activeCrawlSessions: () => ['admin', 'crawl-sessions', 'active'] as const,
+  activeScrapeSessions: () => ['admin', 'scrape-sessions', 'active'] as const,
 }
 
 export function invalidateAdminQueries(qc: { invalidateQueries: (opts: { queryKey: readonly string[] }) => void }) {

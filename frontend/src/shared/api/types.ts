@@ -46,6 +46,26 @@ export type ScrapeRun = {
   updated_leads: number
 }
 
+export type ScrapeSession = {
+  id: number
+  status: string
+  status_display: string
+  started_at: string
+  finished_at: string | null
+  ends_at: string | null
+  duration_minutes: number | null
+  cycles_completed: number
+  last_cycle_at: string | null
+  time_remaining_seconds: number | null
+  is_session_active: boolean
+  targets_enqueued: number
+  coordinator_task_id?: string
+  error_text: string
+  stats: Record<string, unknown>
+  owner_id: number
+  owner_username?: string
+}
+
 export type AISearchJob = {
   id: number
   owner_id: number
@@ -86,6 +106,24 @@ export type AISearchJobDetail = {
   results: Paginated<AISearchResult>
 }
 
+export type CrawlSessionPreset = '30m' | '1h' | '3h' | '6h' | '12h' | '24h'
+
+export type CrawlSchedule = {
+  id: number
+  name: string
+  enabled: boolean
+  interval_minutes: number
+  session_duration_minutes: number | null
+  last_started_at: string | null
+  source_filter: Record<string, unknown>
+  created_at: string
+  updated_at: string
+  owner_id: number
+  owner_username?: string
+  is_due: boolean
+  next_run_at: string | null
+}
+
 export type CrawlRun = {
   id: number
   trigger: string
@@ -93,6 +131,12 @@ export type CrawlRun = {
   status_display: string
   started_at: string
   finished_at: string | null
+  ends_at?: string | null
+  duration_minutes?: number | null
+  cycles_completed?: number
+  last_cycle_at?: string | null
+  time_remaining_seconds?: number | null
+  is_session_active?: boolean
   task_id: string
   error_text: string
   domains_queued: number
@@ -160,6 +204,7 @@ export type CrawlRunDomainResult = {
   score_label: string
   prospect_created: boolean
   prospect_updated: boolean
+  prospect_id: number | null
   processed_at: string | null
   updated_at: string
   contact_emails: string[]
@@ -167,6 +212,32 @@ export type CrawlRunDomainResult = {
   event_names: string[]
   org_name: string
   org_type: string
+}
+
+export type EventProspect = {
+  id: number
+  event_name: string
+  event_type: string
+  organizer_name: string
+  organizer_domain: string
+  event_url: string
+  event_date: string | null
+  event_date_raw: string
+  event_location: string
+  is_virtual: boolean
+  is_hybrid: boolean
+  languages_involved: string[]
+  countries_involved: string[]
+  translation_services_needed: string[]
+  translation_need_score: number
+  urgency_score: number
+  contact_name: string
+  contact_email: string
+  contact_phone: string
+  status: string
+  notes: string
+  created_at: string
+  updated_at: string
 }
 
 export type Prospect = {
@@ -177,11 +248,22 @@ export type Prospect = {
   phone_raw: string
   website: string
   status: string
+  source_name: string
+  source_url: string
+  notes: string
+  translation_need_score: number | null
+  score_label: string | null
+  score_reasoning: string
   created_at: string
+  updated_at?: string
+  contacted_at?: string | null
+  converted_at?: string | null
+  rejected_at?: string | null
 }
 
 export type Lead = {
   id: number
+  prospect_id: number | null
   full_name: string
   company: string
   email: string | null
@@ -189,7 +271,45 @@ export type Lead = {
   website: string
   event_name: string
   status: string
+  source_name: string
+  notes: string
+  lead_value: string | null
   created_at: string
+  updated_at?: string
+  contacted_at?: string | null
+  rejected_at?: string | null
+}
+
+export type QualityMetrics = {
+  prospect_score_tiers: { high: number; medium: number; low: number; unscored: number }
+  prospects_high_score_new: number
+  event_prospects_new: number
+  enrichment_backlog: number
+  leads_ready_to_sync: number
+  crawl_competitors_7d: number
+  prospects_by_source: Array<{ source_name: string; count: number }>
+  discovery_drops: {
+    period_days: number
+    ai_search_jobs_analyzed: number
+    total_drops_estimated: number
+    by_category: Record<string, number>
+    sample_reasons: Record<string, string[]>
+  }
+}
+
+export type NotificationItem = {
+  id: number
+  type: string
+  title: string
+  message: string
+  read: boolean
+  link_url: string
+  created_at: string | null
+}
+
+export type NotificationsPayload = {
+  unread_count: number
+  items: NotificationItem[]
 }
 
 export type MetricsSummary = {
@@ -247,6 +367,13 @@ export type AdminScrapeRun = {
   owner_id: number | null
 }
 
+export type AdminCrawlSessionRun = CrawlRun & {
+  owner_username?: string
+  coordinator_task_id?: string
+}
+
+export type AdminScrapeSession = ScrapeSession
+
 export type RunsStreamPayload = {
   scrape_runs: Array<Record<string, unknown>>
   crawl_runs: Array<Record<string, unknown>>
@@ -278,8 +405,28 @@ export type IntegrationStatus = {
   hint: string
 }
 
+export type DuplicateMatch = {
+  id: number
+  company: string
+  email?: string | null
+  website?: string
+  full_name?: string
+  status: string
+  match_reason: string
+  created_at: string | null
+}
+
+export type AdminSettingsThreshold = {
+  id: string
+  label: string
+  value: number
+  env_var: string
+  description: string
+}
+
 export type AdminSettingsStatus = {
   environment: string
   debug: boolean
   integrations: IntegrationStatus[]
+  thresholds?: AdminSettingsThreshold[]
 }

@@ -11,6 +11,8 @@ import type {
   AISearchJobDetail,
   AISearchResult,
   CrawlRun,
+  AdminCrawlSessionRun,
+  AdminScrapeSession,
   CrawlSource,
   CrawlDomain,
   Paginated,
@@ -199,6 +201,34 @@ export async function cancelAdminCrawlerRun(runId: number) {
 export async function cancelAllAdminCrawlerRuns() {
   const { data } = await apiClient.post<{ success: boolean; cancelled: number; error?: string }>(
     '/dashboard/api/admin/v1/crawler/runs/cancel-all/'
+  )
+  return data
+}
+
+export async function listAdminActiveCrawlSessions() {
+  const { data } = await apiClient.get<{ success: boolean; data: AdminCrawlSessionRun[] }>(
+    '/dashboard/api/admin/v1/crawl-sessions/active/'
+  )
+  return data.data
+}
+
+export async function stopAdminCrawlSession(runId: number) {
+  const { data } = await apiClient.post<{ success: boolean; message?: string; error?: string }>(
+    `/dashboard/api/admin/v1/crawl-sessions/${runId}/stop/`
+  )
+  return data
+}
+
+export async function listAdminActiveScrapeSessions() {
+  const { data } = await apiClient.get<{ success: boolean; data: AdminScrapeSession[] }>(
+    '/dashboard/api/admin/v1/scrape-sessions/active/'
+  )
+  return data.data
+}
+
+export async function stopAdminScrapeSession(sessionId: number) {
+  const { data } = await apiClient.post<{ success: boolean; message?: string; error?: string }>(
+    `/dashboard/api/admin/v1/scrape-sessions/${sessionId}/stop/`
   )
   return data
 }

@@ -1,10 +1,12 @@
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
-from crawler.models import AISearchJob, AISearchResult
+from crawler.models import AISearchJob, AISearchResult, CrawlRun, CrawlRunStatus, CrawlRunTrigger
+from crawler.tasks import _run_is_stopped
 from crawler.services.active_buyer import (
     check_forward_timeline,
     has_active_buyer_signal,
@@ -567,3 +569,174 @@ class StaleOpportunityTests(TestCase):
         )
         self.assertFalse(ok)
         self.assertIn("past", reason.lower())
+
+
+class CrawlSessionTaskTests(TestCase):
+    def test_run_is_stopped_when_past_ends_at(self):
+        run = CrawlRun.objects.create(
+            trigger=CrawlRunTrigger.SESSION,
+            status=CrawlRunStatus.RUNNING,
+            ends_at=timezone.now() - timedelta(minutes=1),
+            session_mode=True,
+        )
+        self.assertTrue(_run_is_stopped(run.id))
+
+    def test_run_is_stopped_false_before_deadline(self):
+        run = CrawlRun.objects.create(
+            trigger=CrawlRunTrigger.SESSION,
+            status=CrawlRunStatus.RUNNING,
+            ends_at=timezone.now() + timedelta(hours=1),
+            session_mode=True,
+        )
+        self.assertFalse(_run_is_stopped(run.id))
+
+    def test_run_is_stopped_when_cancelled(self):
+        run = CrawlRun.objects.create(
+            trigger=CrawlRunTrigger.SESSION,
+            status=CrawlRunStatus.FAILED,
+            ends_at=timezone.now() + timedelta(hours=1),
+            session_mode=True,
+        )
+        self.assertTrue(_run_is_stopped(run.id))
+
+
+class CrawlSessionProgressTests(TestCase):
+    def test_maybe_notify_session_progress_sends_for_long_session(self):
+        from unittest.mock import patch
+
+        from django.contrib.auth import get_user_model
+        from crawler.tasks import _maybe_notify_session_progress
+
+        user = get_user_model().objects.create_user(username="proguser", password="x")
+        run = CrawlRun.objects.create(
+            owner=user,
+            trigger=CrawlRunTrigger.SESSION,
+            status=CrawlRunStatus.RUNNING,
+            duration_minutes=720,
+            started_at=timezone.now() - timedelta(hours=3),
+            ends_at=timezone.now() + timedelta(hours=9),
+            session_mode=True,
+            cycles_completed=2,
+            domains_queued=10,
+        )
+        with patch("dashboard.utils.notify_crawl_session") as mock_notify:
+            _maybe_notify_session_progress(run)
+        mock_notify.assert_called_once()
+        self.assertEqual(mock_notify.call_args[0][2], "progress")
+
+    def test_maybe_notify_session_progress_skips_short_session(self):
+        from unittest.mock import patch
+
+        from crawler.tasks import _maybe_notify_session_progress
+
+        run = CrawlRun.objects.create(
+            trigger=CrawlRunTrigger.SESSION,
+            status=CrawlRunStatus.RUNNING,
+            duration_minutes=60,
+            started_at=timezone.now() - timedelta(hours=1),
+            ends_at=timezone.now() + timedelta(minutes=30),
+            session_mode=True,
+        )
+        with patch("dashboard.utils.notify_crawl_session") as mock_notify:
+            _maybe_notify_session_progress(run)
+        mock_notify.assert_not_called()
+
+
+class CrawlScheduleEnqueueTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        self.user = User.objects.create_user(username="scheduser", password="x")
+
+    def test_enqueue_starts_due_schedule(self):
+        from unittest.mock import MagicMock, patch
+
+        from crawler.models import CrawlSchedule
+        from crawler.tasks import enqueue_due_crawl_schedules
+
+        schedule = CrawlSchedule.objects.create(
+            owner=self.user,
+            name="Every 12h",
+            enabled=True,
+            interval_minutes=720,
+            session_duration_minutes=60,
+        )
+
+        with patch("crawler.services.crawl_session.start_crawl_session_for_user") as mock_start:
+            mock_start.return_value = MagicMock(id=99)
+            result = enqueue_due_crawl_schedules()
+
+        self.assertEqual(result["started"], 1)
+        mock_start.assert_called_once_with(self.user, 60, notify=True)
+        schedule.refresh_from_db()
+        self.assertIsNotNone(schedule.last_started_at)
+
+    def test_enqueue_skips_when_active_session(self):
+        from unittest.mock import patch
+
+        from crawler.models import CrawlSchedule
+        from crawler.tasks import enqueue_due_crawl_schedules
+
+        CrawlSchedule.objects.create(
+            owner=self.user,
+            name="Every 12h",
+            enabled=True,
+            interval_minutes=720,
+        )
+        CrawlRun.objects.create(
+            owner=self.user,
+            trigger=CrawlRunTrigger.SESSION,
+            status=CrawlRunStatus.RUNNING,
+            ends_at=timezone.now() + timedelta(hours=2),
+            duration_minutes=120,
+            session_mode=True,
+        )
+
+        with patch("crawler.services.crawl_session.start_crawl_session_for_user") as mock_start:
+            result = enqueue_due_crawl_schedules()
+
+        self.assertEqual(result["started"], 0)
+        self.assertGreaterEqual(result["skipped"], 1)
+        mock_start.assert_not_called()
+
+    def test_enqueue_skips_before_interval_elapsed(self):
+        from unittest.mock import patch
+
+        from crawler.models import CrawlSchedule
+        from crawler.tasks import enqueue_due_crawl_schedules
+
+        CrawlSchedule.objects.create(
+            owner=self.user,
+            name="Every 12h",
+            enabled=True,
+            interval_minutes=720,
+            last_started_at=timezone.now() - timedelta(minutes=30),
+        )
+
+        with patch("crawler.services.crawl_session.start_crawl_session_for_user") as mock_start:
+            result = enqueue_due_crawl_schedules()
+
+        self.assertEqual(result["started"], 0)
+        mock_start.assert_not_called()
+
+    def test_enqueue_no_double_start_same_tick(self):
+        from unittest.mock import MagicMock, patch
+
+        from crawler.models import CrawlSchedule
+        from crawler.tasks import enqueue_due_crawl_schedules
+
+        CrawlSchedule.objects.create(
+            owner=self.user,
+            name="Due now",
+            enabled=True,
+            interval_minutes=60,
+            session_duration_minutes=45,
+        )
+
+        with patch("crawler.services.crawl_session.start_crawl_session_for_user") as mock_start:
+            mock_start.return_value = MagicMock(id=1)
+            enqueue_due_crawl_schedules()
+            enqueue_due_crawl_schedules()
+
+        mock_start.assert_called_once()

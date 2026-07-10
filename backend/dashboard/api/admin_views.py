@@ -17,12 +17,23 @@ from rest_framework.exceptions import ValidationError
 from dashboard.api.decorators import dashboard_api_view
 from dashboard.api.permissions import IsDashboardAdminUser
 from dashboard.models import ActivityLog
-from dashboard.api.serializers import AISearchJobSerializer, AISearchResultSerializer
+from dashboard.api.serializers import AISearchJobSerializer, AISearchResultSerializer, CrawlScheduleSerializer
+from dashboard.api.crawl_session_helpers import active_crawl_sessions_qs, serialize_crawl_session_run
+from dashboard.api.scrape_session_helpers import active_scrape_sessions_qs, serialize_scrape_session
 from dashboard.permissions import scraper_group_name
 from dashboard.utils import log_activity
 from scraper.models import ScrapeRun, ScrapeRunStatus, ScrapeTarget
 from scraper.tasks import scrape_target
-from crawler.models import AISearchJob, AISearchResult, CrawlRun, CrawlRunStatus, CrawlRunTrigger, CrawlSource, DiscoveredDomain
+from crawler.models import (
+    AISearchJob,
+    AISearchResult,
+    CrawlRun,
+    CrawlRunStatus,
+    CrawlRunTrigger,
+    CrawlSchedule,
+    CrawlSource,
+    DiscoveredDomain,
+)
 from crawler.discovery import _get_serper_api_key
 from crawler.services.promote_ai_result import promote_ai_search_result_to_prospect
 from crawler.tasks import crawl_domain_task, run_ai_search_job
@@ -194,6 +205,9 @@ def settings_status(request: Request) -> Response:
     perfex_base = bool(_setting_or_env_str("PERFEX_BASE_URL", "PERFEX_BASE_URL"))
     perfex_token = bool(_setting_or_env_str("PERFEX_API_TOKEN", "PERFEX_API_TOKEN"))
 
+    crawler_min_score = int(os.getenv("CRAWLER_MIN_SCORE_THRESHOLD", "40") or "40")
+    ai_search_min_score = int(getattr(settings, "AI_SEARCH_MIN_SCORE", 80) or 80)
+
     integrations = [
         {
             "id": "gemini",
@@ -235,6 +249,78 @@ def settings_status(request: Request) -> Response:
                 "environment": getattr(settings, "ENVIRONMENT", "unknown"),
                 "debug": settings.DEBUG,
                 "integrations": integrations,
+                "thresholds": [
+                    {
+                        "id": "crawler_min_score",
+                        "label": "Crawler min prospect score",
+                        "value": crawler_min_score,
+                        "env_var": "CRAWLER_MIN_SCORE_THRESHOLD",
+                        "description": "Minimum website score to auto-create a prospect during crawl.",
+                    },
+                    {
+                        "id": "ai_search_min_score",
+                        "label": "AI search min save score",
+                        "value": ai_search_min_score,
+                        "env_var": "AI_SEARCH_MIN_SCORE",
+                        "description": "Minimum score for AI search results to be saved or promoted.",
+                    },
+                    {
+                        "id": "crawler_session_enabled",
+                        "label": "Crawl sessions enabled",
+                        "value": 1 if os.getenv("CRAWLER_SESSION_ENABLED", "1") not in ("0", "false", "False", "") else 0,
+                        "env_var": "CRAWLER_SESSION_ENABLED",
+                        "description": "When 0, staff cannot start bounded crawl sessions.",
+                    },
+                    {
+                        "id": "crawler_session_max_domains_per_cycle",
+                        "label": "Session domains per cycle",
+                        "value": int(os.getenv("CRAWLER_SESSION_MAX_DOMAINS_PER_CYCLE", "50") or "50"),
+                        "env_var": "CRAWLER_SESSION_MAX_DOMAINS_PER_CYCLE",
+                        "description": "Max domains enqueued per coordinator cycle during a session.",
+                    },
+                    {
+                        "id": "crawler_session_cycle_interval",
+                        "label": "Session cycle interval (seconds)",
+                        "value": int(os.getenv("CRAWLER_SESSION_CYCLE_INTERVAL_SECONDS", "600") or "600"),
+                        "env_var": "CRAWLER_SESSION_CYCLE_INTERVAL_SECONDS",
+                        "description": "Seconds between discovery cycles inside an active session.",
+                    },
+                    {
+                        "id": "crawler_session_max_active",
+                        "label": "Max active sessions per user",
+                        "value": int(os.getenv("CRAWLER_SESSION_MAX_ACTIVE_PER_USER", "1") or "1"),
+                        "env_var": "CRAWLER_SESSION_MAX_ACTIVE_PER_USER",
+                        "description": "Parallel crawl sessions allowed per staff user.",
+                    },
+                    {
+                        "id": "crawler_session_progress_notify",
+                        "label": "Session progress notify interval (minutes)",
+                        "value": int(os.getenv("CRAWLER_SESSION_PROGRESS_NOTIFY_MINUTES", "120") or "120"),
+                        "env_var": "CRAWLER_SESSION_PROGRESS_NOTIFY_MINUTES",
+                        "description": "In-app progress summaries for sessions ≥6h (0 disables).",
+                    },
+                    {
+                        "id": "scraper_session_enabled",
+                        "label": "Scrape sessions enabled",
+                        "value": 1 if os.getenv("SCRAPER_SESSION_ENABLED", "1") not in ("0", "false", "False", "") else 0,
+                        "env_var": "SCRAPER_SESSION_ENABLED",
+                        "description": "When 0, staff cannot start bounded scrape sessions.",
+                    },
+                    {
+                        "id": "scraper_session_cycle_interval",
+                        "label": "Scrape session cycle interval (seconds)",
+                        "value": int(os.getenv("SCRAPER_SESSION_CYCLE_INTERVAL_SECONDS", "300") or "300"),
+                        "env_var": "SCRAPER_SESSION_CYCLE_INTERVAL_SECONDS",
+                        "description": "Seconds between enqueue cycles inside an active scrape session.",
+                    },
+                    {
+                        "id": "scraper_session_max_active",
+                        "label": "Max active scrape sessions per user",
+                        "value": int(os.getenv("SCRAPER_SESSION_MAX_ACTIVE_PER_USER", "1") or "1"),
+                        "env_var": "SCRAPER_SESSION_MAX_ACTIVE_PER_USER",
+                        "description": "Parallel scrape sessions allowed per staff user.",
+                    },
+                ],
             },
         }
     )
@@ -556,20 +642,138 @@ def _serialize_domain(domain: DiscoveredDomain) -> dict:
 
 
 def _serialize_crawl_run(run: CrawlRun) -> dict:
-    return {
-        "id": run.id,
-        "trigger": run.trigger,
-        "status": run.status,
-        "status_display": run.get_status_display(),
-        "started_at": run.started_at.isoformat() if run.started_at else None,
-        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
-        "task_id": run.task_id,
-        "error_text": run.error_text,
-        "domains_queued": run.domains_queued,
-        "prospects_created": run.prospects_created,
-        "prospects_updated": run.prospects_updated,
-        "owner_id": run.owner_id,
-    }
+    return serialize_crawl_session_run(run, include_owner=True)
+
+
+@dashboard_api_view(["GET"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardAdminUser])
+def crawler_sessions_active(request: Request) -> Response:
+    rows = [serialize_crawl_session_run(r, include_owner=True) for r in active_crawl_sessions_qs()]
+    return Response({"success": True, "data": rows})
+
+
+@dashboard_api_view(["POST"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardAdminUser])
+def crawler_session_stop(request: Request, run_id: int) -> Response:
+    from dashboard.api.views import _cancel_crawl_run
+
+    try:
+        run = CrawlRun.objects.get(id=run_id)
+    except CrawlRun.DoesNotExist:
+        return Response({"success": False, "error": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    if run.trigger != CrawlRunTrigger.SESSION:
+        return Response(
+            {"success": False, "error": "Not a crawl session run."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if run.status != CrawlRunStatus.RUNNING:
+        return Response({"success": False, "error": "Session is not running."}, status=status.HTTP_400_BAD_REQUEST)
+
+    _cancel_crawl_run(run, error_text="Cancelled by admin.", notify_session=True)
+    log_activity(
+        action="crawl_triggered",
+        object_type="crawl_run",
+        object_id=run.id,
+        description=f"Admin stopped crawl session #{run.id}",
+        user=request.user,
+    )
+    return Response({"success": True, "message": f"Session #{run.id} stopped."})
+
+
+@dashboard_api_view(["GET"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardAdminUser])
+def scraper_sessions_active(request: Request) -> Response:
+    rows = [serialize_scrape_session(s, include_owner=True) for s in active_scrape_sessions_qs()]
+    return Response({"success": True, "data": rows})
+
+
+@dashboard_api_view(["POST"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardAdminUser])
+def scraper_session_stop(request: Request, session_id: int) -> Response:
+    from scraper.models import ScrapeSession, ScrapeSessionStatus
+    from scraper.tasks import finalize_scrape_session
+
+    try:
+        session = ScrapeSession.objects.get(id=session_id)
+    except ScrapeSession.DoesNotExist:
+        return Response({"success": False, "error": "Session not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    if session.status != ScrapeSessionStatus.RUNNING:
+        return Response({"success": False, "error": "Session is not running."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if session.coordinator_task_id:
+        try:
+            current_app.control.revoke(session.coordinator_task_id, terminate=False)
+        except Exception:
+            pass
+    finalize_scrape_session.delay(session.id, reason="cancelled", error="Cancelled by admin.")
+    log_activity(
+        action="scrape_triggered",
+        object_type="scrape_session",
+        object_id=session.id,
+        description=f"Admin stopped scrape session #{session.id}",
+        user=request.user,
+    )
+    return Response({"success": True, "message": f"Session #{session.id} stopped."})
+
+
+@dashboard_api_view(["GET", "POST"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardAdminUser])
+def crawler_schedules_list(request: Request) -> Response:
+    if request.method == "POST":
+        owner_id = request.data.get("owner_id")
+        if not owner_id:
+            return Response(
+                {"success": False, "error": "owner_id is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            owner = User.objects.get(id=int(owner_id))
+        except (User.DoesNotExist, TypeError, ValueError):
+            return Response({"success": False, "error": "Invalid owner_id."}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = CrawlScheduleSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(owner=owner)
+        return Response({"success": True, "data": serializer.data}, status=status.HTTP_201_CREATED)
+
+    qs = CrawlSchedule.objects.select_related("owner").order_by("-created_at")
+    owner_id = request.query_params.get("owner_id")
+    if owner_id:
+        qs = qs.filter(owner_id=owner_id)
+    enabled = request.query_params.get("enabled")
+    if enabled in {"true", "false"}:
+        qs = qs.filter(enabled=(enabled == "true"))
+    rows = CrawlScheduleSerializer(qs, many=True).data
+    return Response({"success": True, "data": _pagination(request, rows)})
+
+
+@dashboard_api_view(["GET", "PATCH", "DELETE"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardAdminUser])
+def crawler_schedule_detail(request: Request, schedule_id: int) -> Response:
+    try:
+        schedule = CrawlSchedule.objects.select_related("owner").get(id=schedule_id)
+    except CrawlSchedule.DoesNotExist:
+        return Response({"success": False, "error": "Schedule not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == "GET":
+        return Response({"success": True, "data": CrawlScheduleSerializer(schedule).data})
+
+    if request.method == "DELETE":
+        schedule.delete()
+        return Response({"success": True, "message": "Schedule deleted."})
+
+    serializer = CrawlScheduleSerializer(schedule, data=request.data, partial=True)
+    serializer.is_valid(raise_exception=True)
+    serializer.save()
+    return Response({"success": True, "data": serializer.data})
 
 
 @dashboard_api_view(["GET"])
@@ -711,16 +915,20 @@ def crawler_run_cancel(request: Request, run_id: int) -> Response:
     if run.status != CrawlRunStatus.RUNNING:
         return Response({"success": False, "error": "Run is not currently running."}, status=status.HTTP_400_BAD_REQUEST)
 
-    if run.task_id:
-        try:
-            current_app.control.revoke(run.task_id, terminate=False)
-        except Exception:
-            pass
+    from dashboard.api.views import _cancel_crawl_run
 
-    run.status = CrawlRunStatus.FAILED
-    run.error_text = "Cancelled by admin."
-    run.finished_at = timezone.now()
-    run.save(update_fields=["status", "error_text", "finished_at"])
+    if run.trigger == CrawlRunTrigger.SESSION:
+        _cancel_crawl_run(run, error_text="Cancelled by admin.")
+    else:
+        if run.task_id:
+            try:
+                current_app.control.revoke(run.task_id, terminate=False)
+            except Exception:
+                pass
+        run.status = CrawlRunStatus.FAILED
+        run.error_text = "Cancelled by admin."
+        run.finished_at = timezone.now()
+        run.save(update_fields=["status", "error_text", "finished_at"])
     log_activity(
         action="crawl_triggered",
         object_type="crawl_run",
@@ -738,15 +946,20 @@ def crawler_runs_cancel_all(request: Request) -> Response:
     running = list(CrawlRun.objects.filter(status=CrawlRunStatus.RUNNING))
     cancelled = 0
     for run in running:
-        if run.task_id:
-            try:
-                current_app.control.revoke(run.task_id, terminate=False)
-            except Exception:
-                pass
-        run.status = CrawlRunStatus.FAILED
-        run.error_text = "Cancelled in batch by admin."
-        run.finished_at = timezone.now()
-        run.save(update_fields=["status", "error_text", "finished_at"])
+        if run.trigger == CrawlRunTrigger.SESSION:
+            from dashboard.api.views import _cancel_crawl_run
+
+            _cancel_crawl_run(run, error_text="Cancelled in batch by admin.")
+        else:
+            if run.task_id:
+                try:
+                    current_app.control.revoke(run.task_id, terminate=False)
+                except Exception:
+                    pass
+            run.status = CrawlRunStatus.FAILED
+            run.error_text = "Cancelled in batch by admin."
+            run.finished_at = timezone.now()
+            run.save(update_fields=["status", "error_text", "finished_at"])
         cancelled += 1
     log_activity(
         action="crawl_triggered",

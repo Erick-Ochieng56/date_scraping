@@ -4,6 +4,7 @@ import { Suspense, useState, type ReactNode } from 'react'
 
 import { PageContentSkeleton } from '@/components/PageContentSkeleton'
 import { Button } from '@/components/ui/button'
+import { NotificationBell } from '@/shared/components/NotificationBell'
 import { cn } from '@/lib/utils'
 
 type AppShellProps = {
@@ -53,7 +54,7 @@ export function AppShell({ headerTitle, renderSidebar, sidebarWidthClass = 'w-60
       </Dialog>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-border bg-card/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-card/80 md:px-6">
+        <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-border bg-card px-4 shadow-[0_1px_2px_rgba(0,0,0,0.1)] md:px-6">
           <Button
             type="button"
             variant="ghost"
@@ -64,7 +65,8 @@ export function AppShell({ headerTitle, renderSidebar, sidebarWidthClass = 'w-60
           >
             <Menu className="size-5" />
           </Button>
-          <h1 className="text-lg font-semibold text-foreground">{headerTitle}</h1>
+          <h1 className="flex-1 text-lg font-semibold text-foreground">{headerTitle}</h1>
+          <NotificationBell />
         </header>
 
         <main className="flex-1 p-4 md:p-6">

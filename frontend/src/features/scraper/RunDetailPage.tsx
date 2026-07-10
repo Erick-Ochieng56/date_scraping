@@ -6,8 +6,11 @@ import { Button } from '@/components/ui/button'
 import { getApiErrorMessage } from '@/shared/api/errors'
 import { getScrapeRun, retryScrapeRun } from '@/shared/api/scraper'
 import { AlertBanner } from '@/shared/components/AlertBanner'
+import { KpiCard } from '@/shared/components/KpiCard'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { RunStatusBadge } from '@/shared/components/RunStatusBadge'
+import { SectionEyebrow } from '@/shared/components/SectionEyebrow'
+import { TextLink } from '@/shared/components/TextLink'
 import { pollIntervalWhenRunning } from '@/shared/hooks/usePollWhen'
 
 export function RunDetailPage() {
@@ -73,38 +76,33 @@ export function RunDetailPage() {
       {runQ.isLoading ? <p className="text-sm text-muted-foreground">Loading run…</p> : null}
 
       {run ? (
-        <div className="grid gap-3 md:grid-cols-3">
-          <div className="rounded-lg border border-border bg-card p-4">
-            <p className="text-sm text-muted-foreground">Status</p>
-            <div className="mt-1">
-              <RunStatusBadge status={run.status} display={run.status_display} />
+        <>
+          <section className="space-y-3">
+            <SectionEyebrow>Run summary</SectionEyebrow>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-lg border border-border bg-card p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-tertiary">Status</p>
+                <div className="mt-2">
+                  <RunStatusBadge status={run.status} display={run.status_display} />
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">Target: {run.target_name}</p>
+              </div>
+              <KpiCard label="Items scraped" value={run.item_count} />
+              <KpiCard label="Leads created" value={run.created_leads} />
             </div>
-            <p className="mt-2 text-xs text-muted-foreground">Target: {run.target_name}</p>
-          </div>
-          <div className="rounded-lg border border-border bg-card p-4">
-            <p className="text-sm text-muted-foreground">Items scraped</p>
-            <p className="text-lg font-semibold">{run.item_count}</p>
-          </div>
-          <div className="rounded-lg border border-border bg-card p-4">
-            <p className="text-sm text-muted-foreground">Leads</p>
-            <p className="text-lg font-semibold">
-              +{run.created_leads} / updated {run.updated_leads}
-            </p>
-          </div>
-          <div className="rounded-lg border border-border bg-card p-4 md:col-span-3">
-            <p className="text-sm font-medium text-foreground">Timeline</p>
-            <p className="mt-2 text-sm">Started: {new Date(run.started_at).toLocaleString()}</p>
-            <p className="text-sm">
+          </section>
+          <section className="rounded-lg border border-border bg-card p-4">
+            <SectionEyebrow>Timeline</SectionEyebrow>
+            <p className="mt-2 text-sm text-muted-foreground">Started: {new Date(run.started_at).toLocaleString()}</p>
+            <p className="text-sm text-muted-foreground">
               Finished: {run.finished_at ? new Date(run.finished_at).toLocaleString() : '—'}
             </p>
             {run.error_text ? <p className="mt-3 text-sm text-destructive">{run.error_text}</p> : null}
             <div className="mt-3">
-              <Button variant="link" className="h-auto p-0" asChild>
-                <Link to={`/runs?target_id=${run.target}`}>View all runs for this target</Link>
-              </Button>
+              <TextLink to={`/runs?target_id=${run.target}`}>View all runs for this target</TextLink>
             </div>
-          </div>
-        </div>
+          </section>
+        </>
       ) : null}
     </div>
   )

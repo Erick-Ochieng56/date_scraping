@@ -35,6 +35,9 @@ export function AdminHomePage() {
         actions={
           <>
             <Button variant="outline" asChild>
+              <Link to="/admin/quality">Lead quality</Link>
+            </Button>
+            <Button variant="outline" asChild>
               <Link to="/admin/monitoring">Open monitoring</Link>
             </Button>
             <Button variant="outline" asChild>

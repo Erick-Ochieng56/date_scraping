@@ -1,5 +1,6 @@
 import {
   Activity,
+  BarChart3,
   Database,
   Globe2,
   Home,
@@ -10,6 +11,7 @@ import {
   Shield,
   Sparkles,
   Target,
+  UserCircle,
   Users,
   Wrench,
 } from 'lucide-react'
@@ -19,7 +21,10 @@ import type { NavSection } from '@/app/navigation'
 export const ADMIN_NAV_SECTIONS: NavSection[] = [
   {
     label: 'Overview',
-    items: [{ to: '/admin', label: 'Admin home', icon: LayoutDashboard, end: true }],
+    items: [
+      { to: '/admin', label: 'Admin home', icon: LayoutDashboard, end: true },
+      { to: '/admin/profile', label: 'Profile', icon: UserCircle },
+    ],
   },
   {
     label: 'Scraper',
@@ -44,6 +49,7 @@ export const ADMIN_NAV_SECTIONS: NavSection[] = [
       { to: '/admin/users', label: 'Users & roles', icon: Users },
       { to: '/admin/ai-search', label: 'AI search', icon: Sparkles },
       { to: '/admin/pipeline', label: 'Pipeline', icon: Wrench },
+      { to: '/admin/quality', label: 'Lead quality', icon: BarChart3 },
     ],
   },
   {

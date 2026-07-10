@@ -506,11 +506,29 @@ CRAWLER_DEFAULT_REGION = (
 ).strip()
 CRAWLER_AUTO_DERIVE_COMPETITOR_SIGNALS = _get_bool("CRAWLER_AUTO_DERIVE_COMPETITOR_SIGNALS", default=True)
 
+if _get_bool("SCRAPER_SESSION_ENABLED", default=True):
+    CELERY_BEAT_SCHEDULE["sweep-expired-scrape-sessions"] = {
+        "task": "scraper.tasks.sweep_expired_scrape_sessions",
+        "schedule": timedelta(seconds=60),
+    }
+
 if _get_bool("CRAWLER_ENABLED", default=True):
     crawler_interval = int(_get_env("CRAWLER_DISCOVERY_INTERVAL_SECONDS", "43200") or "43200")
     CELERY_BEAT_SCHEDULE["crawler-discover-websites"] = {
         "task": "crawler.tasks.discover_websites_task",
         "schedule": timedelta(seconds=crawler_interval),
+    }
+
+if _get_bool("CRAWLER_SESSION_ENABLED", default=True):
+    CELERY_BEAT_SCHEDULE["sweep-expired-crawl-sessions"] = {
+        "task": "crawler.tasks.sweep_expired_crawl_sessions",
+        "schedule": timedelta(seconds=60),
+    }
+    CELERY_BEAT_SCHEDULE["enqueue-due-crawl-schedules"] = {
+        "task": "crawler.tasks.enqueue_due_crawl_schedules",
+        "schedule": timedelta(
+            seconds=int(_get_env("CRAWLER_SCHEDULE_CHECK_INTERVAL_SECONDS", "300") or "300")
+        ),
     }
 
 # Add automatic enrichment task if enabled (Two-Stage Scraping - Stage 2)

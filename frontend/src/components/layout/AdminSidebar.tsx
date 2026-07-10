@@ -1,5 +1,5 @@
 import { LogOut } from 'lucide-react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useNavigate } from 'react-router-dom'
 
 import { ADMIN_NAV_SECTIONS } from '@/app/adminNavigation'
 import { Button } from '@/components/ui/button'
@@ -19,17 +19,17 @@ export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col gap-6 px-3 py-4">
       <div className="flex items-center gap-2 px-2">
-        <img src="/atericlogo.svg" alt="" className="size-9 shrink-0 rounded-md bg-white/10 p-1" />
+        <img src="/atericlogo.svg" alt="" className="size-9 shrink-0 rounded-md bg-muted p-1" />
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-sidebar-foreground">Ateric</p>
-          <p className="truncate text-xs text-sidebar-foreground/70">Admin portal</p>
+          <p className="truncate text-sm font-medium text-sidebar-foreground">Ateric</p>
+          <p className="truncate text-xs text-muted-foreground">Admin portal</p>
         </div>
       </div>
 
       <nav className="flex flex-1 flex-col gap-6 overflow-y-auto">
         {ADMIN_NAV_SECTIONS.map((section) => (
           <div key={section.label}>
-            <p className="mb-2 px-2 text-[0.65rem] font-semibold uppercase tracking-wider text-sidebar-foreground/50">
+            <p className="mb-2 px-2 text-xs font-medium tracking-wide text-muted-foreground">
               {section.label}
             </p>
             <ul className="space-y-0.5">
@@ -41,10 +41,10 @@ export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
                     onClick={onNavigate}
                     className={({ isActive }) =>
                       cn(
-                        'flex items-center gap-2 rounded-md px-2 py-2 text-sm font-medium transition-colors',
+                        'flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors',
                         isActive
-                          ? 'bg-sidebar-primary text-sidebar-primary-foreground'
-                          : 'text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+                          ? 'bg-sidebar-accent font-bold text-sidebar-foreground'
+                          : 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground'
                       )
                     }
                   >
@@ -60,8 +60,16 @@ export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
 
       <div className="border-t border-sidebar-border pt-3">
         {me && me.authenticated ? (
-          <p className="mb-2 truncate px-2 text-xs text-sidebar-foreground/80" title={me.username}>
-            Signed in as <span className="font-medium">{me.username}</span>
+          <p className="mb-2 truncate px-2 text-xs text-sidebar-foreground/80">
+            Signed in as{' '}
+            <Link
+              to="/admin/profile"
+              className="font-medium text-sidebar-foreground underline-offset-2 hover:underline"
+              title={me.username}
+              onClick={onNavigate}
+            >
+              {me.username}
+            </Link>
           </p>
         ) : null}
         <Button

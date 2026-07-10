@@ -213,7 +213,7 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
         cell: ({ row }) => {
           const url = row.original.source_url || `https://${row.original.domain}`
           return (
-            <a className="line-clamp-2 text-primary hover:underline" href={url} target="_blank" rel="noreferrer">
+            <a className="line-clamp-2 text-info hover:underline" href={url} target="_blank" rel="noreferrer">
               {url}
             </a>
           )

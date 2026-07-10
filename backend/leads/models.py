@@ -128,6 +128,21 @@ class Prospect(models.Model):
         if self.status == ProspectStatus.REJECTED:
             raise ValueError(f"Prospect {self.id} is rejected and cannot be converted.")
 
+        if "lead_value" not in extra_fields:
+            from leads.lead_value import lead_value_from_translation_score
+
+            score = None
+            if isinstance(self.raw_payload, dict):
+                raw_score = self.raw_payload.get("translation_need_score")
+                if raw_score is not None:
+                    try:
+                        score = int(raw_score)
+                    except (TypeError, ValueError):
+                        score = None
+            computed = lead_value_from_translation_score(score)
+            if computed is not None:
+                extra_fields = {**extra_fields, "lead_value": computed}
+
         # Use the Lead class that's defined in the same module
         lead = Lead.objects.create(
             owner=self.owner,

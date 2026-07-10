@@ -8,6 +8,8 @@ import type {
   CrawlDomain,
   CrawlRun,
   CrawlRunDomainResult,
+  CrawlSchedule,
+  CrawlSessionPreset,
   CrawlSource,
   Paginated,
   AISearchResult,
@@ -24,6 +26,71 @@ export async function listCrawlRuns(params?: { page?: number; page_size?: number
 export async function triggerCrawler() {
   const { data } = await apiClient.post<ApiSuccess<{ message?: string; task_id?: string }>>(
     '/dashboard/api/v1/crawl-runs/trigger/'
+  )
+  return data
+}
+
+export async function startCrawlSession(body: { duration_minutes?: number; preset?: CrawlSessionPreset }) {
+  const { data } = await apiClient.post<
+    ApiSuccess<{ run_id: number; ends_at: string; message?: string; data?: CrawlRun }>
+  >('/dashboard/api/v1/crawl-sessions/', body)
+  return data
+}
+
+export async function getActiveCrawlSession(): Promise<CrawlRun | null> {
+  const { data } = await apiClient.get<{ success: boolean; data: CrawlRun | null }>(
+    '/dashboard/api/v1/crawl-sessions/active/'
+  )
+  return data.data
+}
+
+export async function stopCrawlSession(runId: number) {
+  const { data } = await apiClient.post<ApiSuccess<{ message?: string }>>(
+    `/dashboard/api/v1/crawl-sessions/${runId}/stop/`
+  )
+  return data
+}
+
+export async function listCrawlSchedules(params?: { page?: number; page_size?: number; enabled?: boolean }) {
+  const { data } = await apiClient.get<{ success: boolean; data: Paginated<CrawlSchedule> }>(
+    '/dashboard/api/v1/crawl-schedules/',
+    { params }
+  )
+  return data.data
+}
+
+export async function createCrawlSchedule(body: {
+  name: string
+  enabled?: boolean
+  interval_minutes: number
+  session_duration_minutes?: number | null
+}) {
+  const { data } = await apiClient.post<{ success: boolean; data: CrawlSchedule }>(
+    '/dashboard/api/v1/crawl-schedules/',
+    body
+  )
+  return data.data
+}
+
+export async function updateCrawlSchedule(
+  scheduleId: number,
+  body: Partial<{
+    name: string
+    enabled: boolean
+    interval_minutes: number
+    session_duration_minutes: number | null
+  }>
+) {
+  const { data } = await apiClient.patch<{ success: boolean; data: CrawlSchedule }>(
+    `/dashboard/api/v1/crawl-schedules/${scheduleId}/`,
+    body
+  )
+  return data.data
+}
+
+export async function deleteCrawlSchedule(scheduleId: number) {
+  const { data } = await apiClient.delete<ApiSuccess<{ message?: string }>>(
+    `/dashboard/api/v1/crawl-schedules/${scheduleId}/`
   )
   return data
 }

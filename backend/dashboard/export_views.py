@@ -30,6 +30,7 @@ def export_prospects_csv(request: HttpRequest) -> HttpResponse:
     search = request.GET.get('search')
     date_from = request.GET.get('date_from')
     date_to = request.GET.get('date_to')
+    min_score_raw = request.GET.get('min_score')
     
     # Build queryset with same filters as list view
     queryset = Prospect.objects.all()
@@ -38,6 +39,11 @@ def export_prospects_csv(request: HttpRequest) -> HttpResponse:
         queryset = queryset.filter(status=status_filter)
     if source_filter:
         queryset = queryset.filter(source_name__icontains=source_filter)
+    if min_score_raw:
+        try:
+            queryset = queryset.filter(raw_payload__translation_need_score__gte=int(min_score_raw))
+        except (TypeError, ValueError):
+            pass
     if search and search.strip():
         from django.db.models import Q
         queryset = queryset.filter(

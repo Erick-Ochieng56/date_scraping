@@ -1,9 +1,10 @@
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.test import TestCase
 from django.utils import timezone
 
-from scraper.models import ScrapeRun, ScrapeRunStatus, ScrapeTarget
+from scraper.models import ScrapeRun, ScrapeRunStatus, ScrapeSession, ScrapeSessionStatus, ScrapeTarget
 from scraper.services.hashing import canonical_json, sha256_of_obj
 from scraper.services.normalize import parse_date, parse_datetime
 from scraper.tasks import (
@@ -135,6 +136,69 @@ class EnqueueDueLogicTests(TestCase):
         count = enqueue_enabled_targets()
         self.assertEqual(count, 0)
         mock_scrape_target.delay.assert_not_called()
+
+
+class ScrapeSessionCoordinatorTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        self.user = User.objects.create_user(username="scrape_sess", password="x")
+        self.target = ScrapeTarget.objects.create(
+            name="sess-target",
+            start_url="https://example.com/events",
+            enabled=True,
+            owner=self.user,
+            run_every_minutes=60,
+            config={"item_selector": ".item"},
+        )
+
+    def test_coordinator_enqueues_due_targets(self):
+        from unittest.mock import patch
+
+        from scraper.tasks import scrape_session_coordinator_task
+
+        session = ScrapeSession.objects.create(
+            owner=self.user,
+            status=ScrapeSessionStatus.RUNNING,
+            ends_at=timezone.now() + timedelta(hours=2),
+            duration_minutes=120,
+        )
+
+        with patch("scraper.tasks.scrape_target") as mock_scrape, patch(
+            "scraper.tasks.scrape_session_coordinator_task.apply_async"
+        ):
+            mock_scrape.delay.return_value = None
+            result = scrape_session_coordinator_task.run(session.id)
+
+        self.assertEqual(result["targets_enqueued"], 1)
+        mock_scrape.delay.assert_called_once()
+        session.refresh_from_db()
+        self.assertEqual(session.cycles_completed, 1)
+        self.assertEqual(session.stats.get("targets_enqueued"), 1)
+
+    def test_enqueue_due_targets_for_owner_scoped(self):
+        from unittest.mock import patch
+
+        from django.contrib.auth import get_user_model
+        from scraper.tasks import enqueue_due_targets_for_owner
+
+        other = get_user_model().objects.create_user(username="other_scrape", password="x")
+        ScrapeTarget.objects.create(
+            name="other-target",
+            start_url="https://example.com/other",
+            enabled=True,
+            owner=other,
+            run_every_minutes=60,
+            config={"item_selector": ".item"},
+        )
+
+        with patch("scraper.tasks.scrape_target") as mock_scrape:
+            enqueued = enqueue_due_targets_for_owner(self.user.id)
+
+        self.assertEqual(enqueued, 1)
+        mock_scrape.delay.assert_called_once()
+        self.assertEqual(mock_scrape.delay.call_args.kwargs["target_id"], self.target.id)
 
 
 class HashingTests(TestCase):

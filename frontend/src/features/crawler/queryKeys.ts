@@ -9,6 +9,9 @@ export const crawlerKeys = {
     ['crawler', 'runs', filters] as const,
   runStats: (status: string) => ['crawler', 'run-stats', status] as const,
   run: (runId: number) => ['crawler', 'run', runId] as const,
+  activeSession: () => ['crawler', 'active-session'] as const,
+  schedules: (filters: { enabled?: boolean; page?: number; pageSize?: number }) =>
+    ['crawler', 'schedules', filters] as const,
   runDomains: (runId: number, filters: { state?: string; errors_only?: boolean; page?: number }) =>
     ['crawler', 'run', runId, 'domains', filters] as const,
 }

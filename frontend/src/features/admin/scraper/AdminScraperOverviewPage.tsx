@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
+import { AdminActiveScrapeSessionsPanel } from '@/features/admin/scraper/AdminActiveScrapeSessionsPanel'
 import { ScraperAdminStatsCards } from '@/features/admin/scraper/ScraperAdminStatsCards'
 import { PageHeader } from '@/shared/components/PageHeader'
 
@@ -13,6 +14,8 @@ export function AdminScraperOverviewPage() {
       />
 
       <ScraperAdminStatsCards />
+
+      <AdminActiveScrapeSessionsPanel />
 
       <div className="rounded-lg border border-border bg-card p-4">
         <h3 className="font-semibold text-foreground">Quick links</h3>

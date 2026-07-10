@@ -13,9 +13,12 @@ import { DataTable } from '@/shared/components/DataTable'
 import { Input } from '@/shared/components/Input'
 import { ListPagination } from '@/shared/components/ListPagination'
 import { PageHeader } from '@/shared/components/PageHeader'
+import { ExternalTextLink } from '@/shared/components/TextLink'
 import { Select } from '@/shared/components/Select'
 import { StatusBadge } from '@/shared/components/StatusBadge'
 import { useServerList } from '@/shared/hooks/useServerList'
+
+const fieldClass = 'bg-background'
 
 export function CrawlerDomainsPage() {
   const qc = useQueryClient()
@@ -65,14 +68,9 @@ export function CrawlerDomainsPage() {
         header: 'Discovery URL',
         cell: ({ row }) =>
           row.original.source_url ? (
-            <a
-              className="block max-w-xs truncate text-primary underline-offset-2 hover:underline"
-              href={row.original.source_url}
-              target="_blank"
-              rel="noreferrer"
-            >
+            <ExternalTextLink className="block max-w-xs truncate" href={row.original.source_url}>
               {row.original.source_url}
-            </a>
+            </ExternalTextLink>
           ) : (
             '—'
           ),
@@ -109,7 +107,7 @@ export function CrawlerDomainsPage() {
   )
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Domain queue"
         description="Domains discovered via search or scheduled sources. Crawl individually or from the runs page."
@@ -117,42 +115,47 @@ export function CrawlerDomainsPage() {
 
       <AlertBanner message={banner.message} error={banner.error} />
 
-      <div className="flex flex-wrap gap-2">
-        <Input
-          className="min-w-[240px] flex-1"
-          placeholder="Search domain…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+      <section className="overflow-hidden rounded-xl border border-border bg-card">
+        <div className="flex flex-wrap gap-2 border-b border-border/80 bg-card px-4 py-3">
+          <Input
+            className={`min-w-[240px] flex-1 ${fieldClass}`}
+            placeholder="Search domain…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <Select className={fieldClass} value={crawlStatus} onChange={(e) => setCrawlStatus(e.target.value)}>
+            <option value="">All statuses</option>
+            <option value="pending">Pending</option>
+            <option value="crawling">Crawling</option>
+            <option value="completed">Completed</option>
+            <option value="failed">Failed</option>
+          </Select>
+          <Button variant="outline" className={fieldClass} onClick={() => void query.refetch()}>
+            Refresh
+          </Button>
+        </div>
+
+        <DataTable
+          surface="embedded"
+          columns={columns}
+          data={items}
+          isLoading={query.isLoading}
+          emptyMessage="No domains match your filters."
+          getRowId={(r) => String(r.id)}
         />
-        <Select value={crawlStatus} onChange={(e) => setCrawlStatus(e.target.value)}>
-          <option value="">All statuses</option>
-          <option value="pending">Pending</option>
-          <option value="crawling">Crawling</option>
-          <option value="completed">Completed</option>
-          <option value="failed">Failed</option>
-        </Select>
-        <Button variant="outline" onClick={() => void query.refetch()}>
-          Refresh
-        </Button>
-      </div>
 
-      <DataTable
-        columns={columns}
-        data={items}
-        isLoading={query.isLoading}
-        emptyMessage="No domains match your filters."
-        getRowId={(r) => String(r.id)}
-      />
-
-      <ListPagination
-        page={page}
-        pageSize={pageSize}
-        total={total}
-        hasNext={hasNext}
-        onPrev={goPrev}
-        onNext={goNext}
-        isLoading={query.isFetching}
-      />
+        <div className="border-t border-border/80 bg-card px-4 py-3">
+          <ListPagination
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            hasNext={hasNext}
+            onPrev={goPrev}
+            onNext={goNext}
+            isLoading={query.isFetching}
+          />
+        </div>
+      </section>
     </div>
   )
 }

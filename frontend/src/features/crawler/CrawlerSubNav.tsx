@@ -7,6 +7,7 @@ const ITEMS = [
   { to: '/crawler/discover', label: 'Discover' },
   { to: '/crawler/domains', label: 'Domains' },
   { to: '/crawler/runs', label: 'Runs' },
+  { to: '/crawler/schedules', label: 'Schedules' },
   { to: '/crawler/ai-search', label: 'AI search' },
 ] as const
 
@@ -20,8 +21,10 @@ export function CrawlerSubNav() {
           end={'end' in item ? item.end : false}
           className={({ isActive }) =>
             cn(
-              'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
-              isActive ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+              'rounded-md border-l-2 px-3 py-1.5 text-sm font-medium transition-colors',
+              isActive
+                ? 'border-primary bg-muted text-foreground'
+                : 'border-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground'
             )
           }
         >

@@ -5,12 +5,19 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
-from celery import shared_task
+from celery import current_app, shared_task
 from django.core.management import call_command
 from django.db import transaction
 from django.utils import timezone
 
-from scraper.models import ScrapeRun, ScrapeRunStatus, ScrapeRunTrigger, ScrapeTarget
+from scraper.models import (
+    ScrapeRun,
+    ScrapeRunStatus,
+    ScrapeRunTrigger,
+    ScrapeSession,
+    ScrapeSessionStatus,
+    ScrapeTarget,
+)
 from scraper.services.runner import run_target
 from scraper.services.upsert import upsert_prospect_from_item
 
@@ -119,6 +126,47 @@ def _target_has_run_in_progress(target_id: int) -> bool:
     ).exists()
 
 
+def enqueue_due_targets_for_owner(owner_id: int, *, initiated_by_id: int | None = None) -> int:
+    """
+    Enqueue scrape tasks for enabled targets owned by user that are due.
+    Returns number of tasks enqueued.
+    """
+    candidates = list(
+        ScrapeTarget.objects.filter(enabled=True, owner_id=owner_id).order_by("id")
+    )
+    enqueued = 0
+    actor_id = initiated_by_id or owner_id
+    for target in candidates:
+        if not _target_is_due(target):
+            continue
+        if _target_has_run_in_progress(target.id):
+            continue
+        scrape_target.delay(
+            target_id=target.id,
+            trigger=ScrapeRunTrigger.SCHEDULED,
+            initiated_by_id=actor_id,
+        )
+        enqueued += 1
+    return enqueued
+
+
+def _get_scrape_session_config() -> dict:
+    return {
+        "cycle_interval_seconds": int(
+            os.getenv("SCRAPER_SESSION_CYCLE_INTERVAL_SECONDS", "300") or "300"
+        ),
+    }
+
+
+def _session_is_stopped(session_id: int) -> bool:
+    session = ScrapeSession.objects.filter(id=session_id).first()
+    if not session or session.status != ScrapeSessionStatus.RUNNING:
+        return True
+    if session.ends_at and timezone.now() >= session.ends_at:
+        return True
+    return False
+
+
 @shared_task
 def enqueue_enabled_targets() -> int:
     """
@@ -155,6 +203,160 @@ def enqueue_enabled_targets() -> int:
         scrape_target.delay(target_id=target.id, trigger=ScrapeRunTrigger.SCHEDULED)
         enqueued += 1
     return enqueued
+
+
+def _maybe_notify_scrape_session_progress(session: ScrapeSession) -> None:
+    """Periodic summary for long scrape sessions (default: every 2h when duration >= 6h)."""
+    from dashboard.utils import notify_scrape_session
+
+    duration = int(session.duration_minutes or 0)
+    min_duration = int(os.getenv("SCRAPER_SESSION_PROGRESS_MIN_DURATION_MINUTES", "360") or "360")
+    if duration < min_duration:
+        return
+
+    interval_min = int(os.getenv("SCRAPER_SESSION_PROGRESS_NOTIFY_MINUTES", "120") or "120")
+    now = timezone.now()
+    stats = dict(session.stats or {})
+    last_raw = stats.get("last_progress_notification_at")
+    if last_raw:
+        try:
+            from django.utils.dateparse import parse_datetime
+
+            last_at = parse_datetime(str(last_raw))
+            if last_at and timezone.is_naive(last_at):
+                last_at = timezone.make_aware(last_at)
+        except Exception:
+            last_at = None
+    else:
+        last_at = session.started_at
+
+    if not last_at:
+        return
+    elapsed_min = (now - last_at).total_seconds() / 60
+    if elapsed_min < interval_min:
+        return
+
+    if session.owner_id:
+        from django.contrib.auth import get_user_model
+
+        owner = get_user_model().objects.filter(id=session.owner_id).first()
+        if owner:
+            notify_scrape_session(owner, session, "progress")
+            stats["last_progress_notification_at"] = now.isoformat()
+            session.stats = stats
+            session.save(update_fields=["stats"])
+
+
+@shared_task(bind=True, max_retries=2, default_retry_delay=30)
+def scrape_session_coordinator_task(self, session_id: int) -> dict:
+    """
+    Session loop: enqueue due targets for owner until ends_at or cancel.
+    """
+    session = ScrapeSession.objects.filter(id=session_id).first()
+    if not session or session.status != ScrapeSessionStatus.RUNNING:
+        return {"session_id": session_id, "skipped": "not_running"}
+    if _session_is_stopped(session_id):
+        return {"session_id": session_id, "skipped": "stopped"}
+
+    config = _get_scrape_session_config()
+    cycle_interval = int(config.get("cycle_interval_seconds", 300))
+
+    try:
+        enqueued = enqueue_due_targets_for_owner(
+            session.owner_id,
+            initiated_by_id=session.owner_id,
+        )
+        session.refresh_from_db()
+        stats = dict(session.stats or {})
+        stats["targets_enqueued"] = int(stats.get("targets_enqueued", 0)) + enqueued
+        session.stats = stats
+        session.cycles_completed = int(session.cycles_completed or 0) + 1
+        session.last_cycle_at = timezone.now()
+        session.coordinator_task_id = getattr(self.request, "id", "") or ""
+        session.save(
+            update_fields=["stats", "cycles_completed", "last_cycle_at", "coordinator_task_id"]
+        )
+
+        _maybe_notify_scrape_session_progress(session)
+
+        if session.ends_at and timezone.now() >= session.ends_at:
+            finalize_scrape_session.delay(session_id, reason="deadline")
+            return {
+                "session_id": session_id,
+                "cycle": session.cycles_completed,
+                "targets_enqueued": enqueued,
+                "finalizing": "deadline",
+            }
+
+        scrape_session_coordinator_task.apply_async(
+            args=[session_id],
+            countdown=cycle_interval,
+        )
+        return {
+            "session_id": session_id,
+            "cycle": session.cycles_completed,
+            "targets_enqueued": enqueued,
+        }
+    except Exception as exc:
+        logger.exception("scrape_session_coordinator_task failed session_id=%s: %s", session_id, exc)
+        finalize_scrape_session.delay(session_id, reason="failed", error=str(exc))
+        raise
+
+
+@shared_task
+def finalize_scrape_session(
+    session_id: int, reason: str = "completed", error: str = ""
+) -> dict:
+    """Mark a scrape session finished and notify the initiating user."""
+    from dashboard.utils import notify_scrape_session
+
+    with transaction.atomic():
+        session = ScrapeSession.objects.select_for_update().filter(id=session_id).first()
+        if not session or session.status != ScrapeSessionStatus.RUNNING:
+            return {"session_id": session_id, "skipped": True}
+
+        if session.coordinator_task_id:
+            try:
+                current_app.control.revoke(session.coordinator_task_id, terminate=False)
+            except Exception:
+                pass
+
+        session.finished_at = timezone.now()
+        if reason in ("cancelled",):
+            session.status = ScrapeSessionStatus.FAILED
+            session.error_text = (error or session.error_text or "Cancelled by user.")[:2000]
+        elif reason == "failed":
+            session.status = ScrapeSessionStatus.FAILED
+            session.error_text = (error or "Session failed.")[:2000]
+        else:
+            session.status = ScrapeSessionStatus.SUCCESS
+            if reason == "deadline":
+                session.error_text = ""
+        session.save(update_fields=["status", "error_text", "finished_at"])
+
+    if session.owner_id:
+        from django.contrib.auth import get_user_model
+
+        owner = get_user_model().objects.filter(id=session.owner_id).first()
+        if owner:
+            notify_scrape_session(owner, session, reason)
+
+    return {"session_id": session_id, "reason": reason, "status": session.status}
+
+
+@shared_task
+def sweep_expired_scrape_sessions() -> dict:
+    """Backup finalizer for sessions whose ETA finalize was missed."""
+    now = timezone.now()
+    expired = list(
+        ScrapeSession.objects.filter(
+            status=ScrapeSessionStatus.RUNNING,
+            ends_at__lte=now,
+        ).values_list("id", flat=True)
+    )
+    for session_id in expired:
+        finalize_scrape_session.delay(session_id, reason="deadline")
+    return {"expired": len(expired)}
 
 
 @shared_task(bind=True)
@@ -211,7 +413,8 @@ def scrape_target(self, target_id: int, trigger: str = ScrapeRunTrigger.MANUAL, 
         target.last_run_at = timezone.now()
         target.save(update_fields=["last_run_at"])
         try:
-            from dashboard.utils import create_notification_for_all_users, log_activity
+            from dashboard.utils import log_activity, notify_scrape_run
+
             log_activity(
                 action="scrape_completed",
                 object_type="run",
@@ -220,11 +423,12 @@ def scrape_target(self, target_id: int, trigger: str = ScrapeRunTrigger.MANUAL, 
                 user=None,
                 metadata={"target_id": target.id, "created": created_count, "updated": updated_count},
             )
-            create_notification_for_all_users(
+            notify_scrape_run(
+                initiated_by_id or target.owner_id,
                 title="Scrape completed",
                 message=f'Target "{target.name}" completed: {created_count} new, {updated_count} updated.',
                 notification_type="success",
-                link_url=f"/dashboard/runs/{run.id}/",
+                link_url=f"/runs/{run.id}",
                 metadata={"run_id": run.id, "target_id": target.id},
             )
         except Exception as notif_err:
@@ -237,7 +441,8 @@ def scrape_target(self, target_id: int, trigger: str = ScrapeRunTrigger.MANUAL, 
         run.status = ScrapeRunStatus.FAILED
         run.error_text = error_msg
         try:
-            from dashboard.utils import create_notification_for_all_users, log_activity
+            from dashboard.utils import log_activity, notify_scrape_run
+
             log_activity(
                 action="scrape_failed",
                 object_type="run",
@@ -246,11 +451,12 @@ def scrape_target(self, target_id: int, trigger: str = ScrapeRunTrigger.MANUAL, 
                 user=None,
                 metadata={"target_id": target.id},
             )
-            create_notification_for_all_users(
+            notify_scrape_run(
+                initiated_by_id or target.owner_id,
                 title="Scrape failed",
                 message=f'Target "{target.name}" failed: {error_msg[:200]}',
                 notification_type="error",
-                link_url=f"/dashboard/runs/{run.id}/",
+                link_url=f"/runs/{run.id}",
                 metadata={"run_id": run.id, "target_id": target.id},
             )
         except Exception as notif_err:

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
+import { formatLeadValue, isLeadCrmReady } from '@/features/pipeline/leadUtils'
 import { AlertBanner } from '@/shared/components/AlertBanner'
 import { DataTable } from '@/shared/components/DataTable'
 import { Input } from '@/shared/components/Input'
@@ -18,6 +19,7 @@ import {
   leadSyncCrm,
   leadsBulkInterested,
   leadsBulkReject,
+  leadsBulkSyncCrm,
   leadsExportUrl,
   listLeads,
 } from '@/shared/api/pipeline'
@@ -34,7 +36,7 @@ export function LeadsPage() {
 
   const selection = useRowSelection<Lead['id']>((r) => r.id)
 
-  const { items, total, page, pageSize, hasNext, goNext, goPrev, resetPage, query } = useServerList<Lead, { status?: string }>({
+  const { items, total, page, pageSize, hasNext, goNext, goPrev, resetPage, query, debouncedSearch } = useServerList<Lead, { status?: string }>({
     queryKey: ['leads'],
     queryFn: listLeads,
     pageSize: 25,
@@ -49,6 +51,11 @@ export function LeadsPage() {
     setSearchParams(params, { replace: true })
     resetPage()
   }, [status, search, setSearchParams, resetPage])
+
+  const exportHref = useMemo(
+    () => leadsExportUrl({ status: status || undefined, search: debouncedSearch || undefined }),
+    [status, debouncedSearch]
+  )
 
   const refresh = () => {
     selection.clear()
@@ -70,6 +77,14 @@ export function LeadsPage() {
     mutationFn: () => leadsBulkReject(selection.selected),
     onSuccess: () => {
       setBanner({ message: 'Rejected selected leads.' })
+      refresh()
+    },
+    onError: onMutationError,
+  })
+  const syncM = useMutation({
+    mutationFn: () => leadsBulkSyncCrm(selection.selected),
+    onSuccess: (res) => {
+      setBanner({ message: res.message ?? `Queued ${res.count} lead(s) for CRM sync.` })
       refresh()
     },
     onError: onMutationError,
@@ -127,6 +142,21 @@ export function LeadsPage() {
         cell: ({ row }) => row.original.email || '—',
       },
       {
+        accessorKey: 'lead_value',
+        header: 'Value',
+        cell: ({ row }) => formatLeadValue(row.original.lead_value),
+      },
+      {
+        id: 'crm_ready',
+        header: 'CRM',
+        cell: ({ row }) =>
+          isLeadCrmReady(row.original) ? (
+            <span className="text-xs text-emerald-600">Ready</span>
+          ) : (
+            <span className="text-xs text-amber-600">Incomplete</span>
+          ),
+      },
+      {
         accessorKey: 'status',
         header: 'Status',
         cell: ({ row }) => <StatusBadge status={row.original.status} kind="lead" />,
@@ -172,17 +202,23 @@ export function LeadsPage() {
   )
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Leads"
         description="Qualify converted prospects and sync interested leads to your CRM."
         actions={
           <>
             <Button variant="outline" asChild>
-              <a href={leadsExportUrl()}>Export CSV</a>
+              <Link to="/leads/new">Add lead</Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <a href={exportHref}>Export CSV</a>
             </Button>
             <Button disabled={!selection.canBulk || interestedM.isPending} onClick={() => interestedM.mutate()}>
               Mark interested
+            </Button>
+            <Button disabled={!selection.canBulk || syncM.isPending} onClick={() => syncM.mutate()}>
+              Sync CRM
             </Button>
             <Button variant="outline" disabled={!selection.canBulk || rejectM.isPending} onClick={() => rejectM.mutate()}>
               Reject

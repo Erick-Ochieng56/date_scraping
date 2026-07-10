@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { type ColumnDef } from '@tanstack/react-table'
 import { Copy, ExternalLink, Plus, Search, Trash2, ChevronDown, ChevronRight } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -18,9 +18,14 @@ import { invalidateCrawlerQueries } from '@/features/crawler/queryKeys'
 import { getApiErrorMessage } from '@/shared/api/errors'
 import { crawlerPreview, crawlerQueue } from '@/shared/api/crawler'
 import { AlertBanner } from '@/shared/components/AlertBanner'
+import { DataTable } from '@/shared/components/DataTable'
 import { Input } from '@/shared/components/Input'
 import { PageHeader } from '@/shared/components/PageHeader'
+import { SectionEyebrow } from '@/shared/components/SectionEyebrow'
 import { Select } from '@/shared/components/Select'
+import { ExternalTextLink, TextLink } from '@/shared/components/TextLink'
+
+const fieldClass = 'bg-background'
 
 export function CrawlerDiscoverPage() {
   const qc = useQueryClient()
@@ -165,6 +170,126 @@ export function CrawlerDiscoverPage() {
     }
   }
 
+  const previewColumns = useMemo<ColumnDef<PreviewRow, unknown>[]>(
+    () => [
+      {
+        id: 'select',
+        header: () => (
+          <span className="sr-only">Select</span>
+        ),
+        cell: ({ row }) => (
+          <input
+            type="checkbox"
+            className="size-4 rounded border-border"
+            checked={selected.has(row.original.id)}
+            onChange={() => toggleRow(row.original.id)}
+            aria-label={`Include ${row.original.landing}`}
+          />
+        ),
+      },
+      {
+        accessorKey: 'domain',
+        header: 'Site base',
+        cell: ({ row }) => (
+          <span className="block max-w-[10rem] truncate font-mono text-xs">{row.original.domain}</span>
+        ),
+      },
+      {
+        accessorKey: 'landing',
+        header: 'Landing URL (crawled first)',
+        cell: ({ row }) => (
+          <ExternalTextLink className="block break-all" href={row.original.landing}>
+            {row.original.landing}
+          </ExternalTextLink>
+        ),
+      },
+      {
+        id: 'actions',
+        header: 'Actions',
+        cell: ({ row }) => (
+          <div className="flex flex-wrap gap-1">
+            <Button size="sm" variant="ghost" className="h-8 px-2" asChild title="Open in new tab">
+              <a href={row.original.landing} target="_blank" rel="noreferrer">
+                <ExternalLink className="size-3.5" aria-hidden />
+              </a>
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-8 px-2"
+              title="Copy landing URL"
+              onClick={() => void copyUrl(row.original.landing)}
+            >
+              <Copy className="size-3.5" aria-hidden />
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-8 px-2 text-destructive"
+              title="Remove from preview"
+              onClick={() => removeRow(row.original.id)}
+            >
+              <Trash2 className="size-3.5" aria-hidden />
+            </Button>
+          </div>
+        ),
+      },
+    ],
+    [selected]
+  )
+
+  const droppedColumns = useMemo<ColumnDef<DroppedRow, unknown>[]>(
+    () => [
+      {
+        accessorKey: 'domain',
+        header: 'Site base',
+        cell: ({ row }) => (
+          <span className="block max-w-[10rem] truncate font-mono text-xs">{row.original.domain}</span>
+        ),
+      },
+      {
+        accessorKey: 'landing',
+        header: 'Landing URL',
+        cell: ({ row }) => (
+          <ExternalTextLink className="block break-all" href={row.original.landing}>
+            {row.original.landing}
+          </ExternalTextLink>
+        ),
+      },
+      {
+        accessorKey: 'dropReason',
+        header: 'Why filtered',
+        cell: ({ row }) => <span className="text-muted-foreground">{row.original.dropReason}</span>,
+      },
+      {
+        id: 'actions',
+        header: 'Actions',
+        cell: ({ row }) => (
+          <div className="flex flex-wrap gap-1">
+            <Button size="sm" variant="ghost" className="h-8 px-2" asChild title="Open in new tab">
+              <a href={row.original.landing} target="_blank" rel="noreferrer">
+                <ExternalLink className="size-3.5" aria-hidden />
+              </a>
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-8 px-2"
+              title="Copy landing URL"
+              onClick={() => void copyUrl(row.original.landing)}
+            >
+              <Copy className="size-3.5" aria-hidden />
+            </Button>
+          </div>
+        ),
+      },
+    ],
+    []
+  )
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -172,221 +297,148 @@ export function CrawlerDiscoverPage() {
         description="Search the open web for sites to add to your crawler queue. Serp results keep the landing page URL (e.g. /events/…) so the crawler starts on that page. Preview, trim the list, then enqueue or enqueue + crawl."
       />
 
-
-
       <AlertBanner message={banner.message} error={banner.error} />
 
-      <div className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4">
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="min-w-[min(100%,280px)] flex-1">
-            <label className="text-xs font-medium text-muted-foreground" htmlFor="discover-query">
-              Search phrase
-            </label>
-            <Input
-              id="discover-query"
-              className="mt-1"
-              placeholder='e.g. "translation events Kenya" or inurl:events site:.org …'
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && canPreview && !previewM.isPending) previewM.mutate()
-              }}
-            />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground" htmlFor="discover-max">
-              Max results
-            </label>
-            <Select
-              id="discover-max"
-              className="mt-1"
-              value={String(maxResults)}
-              onChange={(e) => setMaxResults(Number(e.target.value))}
-            >
-              {DISCOVER_MAX_OPTIONS.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </Select>
-          </div>
-        </div>
-
-        <div>
-          <p className="text-xs font-medium text-muted-foreground">Try an example</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {DISCOVER_EXAMPLE_QUERIES.map((ex) => (
-              <Button
-                key={ex}
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-8 text-xs"
-                onClick={() => {
-                  setQuery(ex)
-                  setLastQueue(null)
+      <section className="overflow-hidden rounded-xl border border-border bg-card">
+        <div className="space-y-4 border-b border-border/80 px-4 py-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-[min(100%,280px)] flex-1">
+              <SectionEyebrow>Search phrase</SectionEyebrow>
+              <Input
+                id="discover-query"
+                className={`mt-2 ${fieldClass}`}
+                placeholder='e.g. "translation events Kenya" or inurl:events site:.org …'
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && canPreview && !previewM.isPending) previewM.mutate()
                 }}
+              />
+            </div>
+            <div>
+              <label className="text-[11px] font-semibold uppercase tracking-wide text-tertiary" htmlFor="discover-max">
+                Max results
+              </label>
+              <Select
+                id="discover-max"
+                className={`mt-2 ${fieldClass}`}
+                value={String(maxResults)}
+                onChange={(e) => setMaxResults(Number(e.target.value))}
               >
-                {ex}
-              </Button>
-            ))}
+                {DISCOVER_MAX_OPTIONS.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </div>
+
+          <div>
+            <SectionEyebrow>Try an example</SectionEyebrow>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {DISCOVER_EXAMPLE_QUERIES.map((ex) => (
+                <Button
+                  key={ex}
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className={`h-8 text-xs ${fieldClass}`}
+                  onClick={() => {
+                    setQuery(ex)
+                    setLastQueue(null)
+                  }}
+                >
+                  {ex}
+                </Button>
+              ))}
+            </div>
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2 border-t border-border pt-4">
+        <div className="flex flex-wrap gap-2 border-b border-border/80 px-4 py-3">
           <Button disabled={!canPreview || previewM.isPending} onClick={() => previewM.mutate()}>
             <Search className="mr-1.5 size-4" aria-hidden />
             {previewM.isPending ? 'Searching…' : 'Preview URLs'}
           </Button>
-          <Button type="button" variant="outline" disabled={previewRows.length === 0} onClick={clearPreview}>
+          <Button type="button" variant="outline" className={fieldClass} disabled={previewRows.length === 0} onClick={clearPreview}>
             Clear preview
           </Button>
-          <Button type="button" variant="outline" disabled={previewRows.length === 0} onClick={selectAll}>
+          <Button type="button" variant="outline" className={fieldClass} disabled={previewRows.length === 0} onClick={selectAll}>
             Select all
           </Button>
-          <Button type="button" variant="outline" disabled={previewRows.length === 0} onClick={selectNone}>
+          <Button type="button" variant="outline" className={fieldClass} disabled={previewRows.length === 0} onClick={selectNone}>
             Select none
           </Button>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="secondary"
-            disabled={!canQueue || queueM.isPending}
-            onClick={() => queueM.mutate(false)}
-            title="Save domains to your queue without starting a crawl run"
-          >
-            {queueM.isPending ? 'Working…' : 'Add to queue only'}
-          </Button>
-          <Button
-            disabled={!canQueue || queueM.isPending}
-            onClick={() => queueM.mutate(true)}
-            title="Enqueue and start a crawl run for domains that are due"
-          >
-            {queueM.isPending ? 'Working…' : 'Queue & crawl now'}
-          </Button>
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              disabled={!canQueue || queueM.isPending}
+              onClick={() => queueM.mutate(false)}
+              title="Save domains to your queue without starting a crawl run"
+            >
+              {queueM.isPending ? 'Working…' : 'Add to queue only'}
+            </Button>
+            <Button
+              disabled={!canQueue || queueM.isPending}
+              onClick={() => queueM.mutate(true)}
+              title="Enqueue and start a crawl run for domains that are due"
+            >
+              {queueM.isPending ? 'Working…' : 'Queue & crawl now'}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {previewRows.length > 0
+              ? `${selected.size} of ${previewRows.length} selected`
+              : 'Run a preview to see URLs'}
+          </p>
         </div>
-        <p className="text-xs text-muted-foreground">
-          {previewRows.length > 0
-            ? `${selected.size} of ${previewRows.length} row(s) selected — queue sends the landing URL for each checked row. Re-preview after changing the phrase.`
-            : 'Run a preview to see URLs.'}
-        </p>
-      </div>
+      </section>
 
       {lastQueue && lastQueue.queued > 0 ? (
-        <div className="flex flex-wrap gap-2 rounded-lg border border-border bg-muted/30 p-3 text-sm">
-          <span className="text-muted-foreground">Last action:</span>
-          <Button size="sm" variant="outline" asChild>
-            <Link to="/crawler/domains">Open domain queue</Link>
-          </Button>
-          {lastQueue.run_id != null ? (
-            <Button size="sm" variant="outline" asChild>
-              <Link to={`/crawler/runs/${lastQueue.run_id}`}>Open crawl run #{lastQueue.run_id}</Link>
-            </Button>
-          ) : null}
-          <Button size="sm" variant="outline" asChild>
-            <Link to="/crawler/runs">All crawl runs</Link>
-          </Button>
-        </div>
+        <section className="rounded-xl border border-border bg-card px-4 py-3">
+          <SectionEyebrow>Last action</SectionEyebrow>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Queued {lastQueue.queued} domain(s), {lastQueue.new_domains} new.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+            <TextLink to="/crawler/domains">Open domain queue</TextLink>
+            {lastQueue.run_id != null ? (
+              <TextLink to={`/crawler/runs/${lastQueue.run_id}`}>Open crawl run #{lastQueue.run_id}</TextLink>
+            ) : null}
+            <TextLink to="/crawler/runs">All crawl runs</TextLink>
+          </div>
+        </section>
       ) : null}
 
-      <div>
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <h3 className="font-semibold text-foreground">Preview results</h3>
+      <section className="overflow-hidden rounded-xl border border-border bg-card">
+        <div className="flex items-center justify-between gap-2 border-b border-border/80 px-4 py-3">
+          <SectionEyebrow>Preview results</SectionEyebrow>
           {previewRows.length > 0 ? (
             <span className="text-xs text-muted-foreground">{previewRows.length} row(s)</span>
           ) : null}
         </div>
-        <div className="overflow-auto rounded-lg border border-border">
-          <table className="min-w-full text-sm">
-            <thead className="bg-muted">
-              <tr>
-                <th className="w-10 px-2 py-2 text-left" aria-label="Select" />
-                <th className="px-3 py-2 text-left">Site base</th>
-                <th className="px-3 py-2 text-left">Landing URL (crawled first)</th>
-                <th className="px-3 py-2 text-left">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {previewRows.length === 0 && !previewM.isPending ? (
-                <tr>
-                  <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
-                    No preview yet. Enter a phrase and click Preview URLs.
-                  </td>
-                </tr>
-              ) : null}
-              {previewM.isPending && previewRows.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
-                    Searching…
-                  </td>
-                </tr>
-              ) : null}
-              {previewRows.map((row) => (
-                <tr key={row.id} className="border-t border-border">
-                  <td className="px-2 py-2 align-middle">
-                    <input
-                      type="checkbox"
-                      className="size-4 rounded border-border"
-                      checked={selected.has(row.id)}
-                      onChange={() => toggleRow(row.id)}
-                      aria-label={`Include ${row.landing}`}
-                    />
-                  </td>
-                  <td className="max-w-[10rem] truncate px-3 py-2 font-mono text-xs">{row.domain}</td>
-                  <td className="max-w-0 px-3 py-2">
-                    <a
-                      className="break-all text-primary underline-offset-4 hover:underline"
-                      href={row.landing}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {row.landing}
-                    </a>
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2">
-                    <div className="flex flex-wrap gap-1">
-                      <Button size="sm" variant="ghost" className="h-8 px-2" asChild title="Open in new tab">
-                        <a href={row.landing} target="_blank" rel="noreferrer">
-                          <ExternalLink className="size-3.5" aria-hidden />
-                        </a>
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 px-2"
-                        title="Copy landing URL"
-                        onClick={() => void copyUrl(row.landing)}
-                      >
-                        <Copy className="size-3.5" aria-hidden />
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 px-2 text-destructive"
-                        title="Remove from preview"
-                        onClick={() => removeRow(row.id)}
-                      >
-                        <Trash2 className="size-3.5" aria-hidden />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
 
-        <div className="mt-3 flex flex-wrap items-end gap-2 rounded-md border border-dashed border-border bg-muted/20 p-3">
+        <DataTable
+          surface="embedded"
+          columns={previewColumns}
+          data={previewRows}
+          isLoading={previewM.isPending}
+          emptyMessage="No preview yet. Enter a phrase and click Preview URLs."
+          getRowId={(r) => r.id}
+        />
+
+        <div className="flex flex-wrap items-end gap-2 border-t border-border/80 px-4 py-3">
           <div className="min-w-[min(100%,320px)] flex-1">
-            <label className="text-xs font-medium text-muted-foreground" htmlFor="manual-landing">
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-tertiary" htmlFor="manual-landing">
               Add landing URL manually
             </label>
             <Input
               id="manual-landing"
-              className="mt-1"
+              className={`mt-2 ${fieldClass}`}
               placeholder="https://example.org/events/… or tender detail page"
               value={manualUrl}
               onChange={(e) => setManualUrl(e.target.value)}
@@ -395,18 +447,18 @@ export function CrawlerDiscoverPage() {
               }}
             />
           </div>
-          <Button type="button" variant="outline" size="sm" className="h-9" onClick={addManualRow}>
+          <Button type="button" variant="outline" className={fieldClass} size="sm" onClick={addManualRow}>
             <Plus className="mr-1 size-4" aria-hidden />
             Add
           </Button>
         </div>
-      </div>
+      </section>
 
       {droppedRows.length > 0 ? (
-        <div className="rounded-lg border border-border bg-card">
+        <section className="overflow-hidden rounded-xl border border-border bg-card">
           <button
             type="button"
-            className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left hover:bg-muted/40"
+            className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-muted/15"
             onClick={() => setShowDropped((open) => !open)}
             aria-expanded={showDropped}
           >
@@ -416,70 +468,28 @@ export function CrawlerDiscoverPage() {
               ) : (
                 <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
               )}
-              <h3 className="font-semibold text-foreground">Filtered out</h3>
+              <SectionEyebrow className="normal-case">Filtered out</SectionEyebrow>
               <span className="text-xs text-muted-foreground">
                 {droppedRows.length} Serp result(s) did not pass qualification
               </span>
             </div>
           </button>
           {showDropped ? (
-            <div className="border-t border-border">
-              <p className="px-4 py-2 text-xs text-muted-foreground">
-                These URLs were returned by search but rejected (past tenders, aggregators, LSP sellers,
-                careers hubs, geo mismatch, PDFs, etc.).
+            <>
+              <p className="border-t border-border/80 px-4 py-2 text-xs text-muted-foreground">
+                These URLs were returned by search but rejected (past tenders, aggregators, LSP sellers, careers
+                hubs, geo mismatch, PDFs, etc.).
               </p>
-              <div className="overflow-auto">
-                <table className="min-w-full text-sm">
-                  <thead className="bg-muted">
-                    <tr>
-                      <th className="px-3 py-2 text-left">Site base</th>
-                      <th className="px-3 py-2 text-left">Landing URL</th>
-                      <th className="px-3 py-2 text-left">Why filtered</th>
-                      <th className="px-3 py-2 text-left">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {droppedRows.map((row) => (
-                      <tr key={row.id} className="border-t border-border">
-                        <td className="max-w-[10rem] truncate px-3 py-2 font-mono text-xs">{row.domain}</td>
-                        <td className="max-w-0 px-3 py-2">
-                          <a
-                            className="break-all text-primary underline-offset-4 hover:underline"
-                            href={row.landing}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {row.landing}
-                          </a>
-                        </td>
-                        <td className="px-3 py-2 text-muted-foreground">{row.dropReason}</td>
-                        <td className="whitespace-nowrap px-3 py-2">
-                          <div className="flex flex-wrap gap-1">
-                            <Button size="sm" variant="ghost" className="h-8 px-2" asChild title="Open in new tab">
-                              <a href={row.landing} target="_blank" rel="noreferrer">
-                                <ExternalLink className="size-3.5" aria-hidden />
-                              </a>
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="ghost"
-                              className="h-8 px-2"
-                              title="Copy landing URL"
-                              onClick={() => void copyUrl(row.landing)}
-                            >
-                              <Copy className="size-3.5" aria-hidden />
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+              <DataTable
+                surface="embedded"
+                columns={droppedColumns}
+                data={droppedRows}
+                emptyMessage="No filtered results."
+                getRowId={(r) => r.id}
+              />
+            </>
           ) : null}
-        </div>
+        </section>
       ) : null}
     </div>
   )

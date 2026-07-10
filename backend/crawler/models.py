@@ -15,6 +15,7 @@ class CrawlRunStatus(models.TextChoices):
 class CrawlRunTrigger(models.TextChoices):
     SCHEDULED = "scheduled", "Scheduled"
     MANUAL = "manual", "Manual"
+    SESSION = "session", "Session"
 
 
 class CrawlRun(models.Model):
@@ -37,6 +38,12 @@ class CrawlRun(models.Model):
         default=CrawlRunStatus.RUNNING,
     )
     task_id = models.CharField(max_length=255, blank=True, default="")
+    ends_at = models.DateTimeField(null=True, blank=True)
+    duration_minutes = models.PositiveIntegerField(null=True, blank=True)
+    session_mode = models.BooleanField(default=False)
+    coordinator_task_id = models.CharField(max_length=255, blank=True, default="")
+    cycles_completed = models.PositiveIntegerField(default=0)
+    last_cycle_at = models.DateTimeField(null=True, blank=True)
     error_text = models.TextField(blank=True, default="")
     stats = models.JSONField(blank=True, default=dict)
     config = models.JSONField(blank=True, default=dict, help_text="Snapshot for this run (max_domains_per_run, etc.)")
@@ -50,6 +57,43 @@ class CrawlRun(models.Model):
 
     def __str__(self) -> str:
         return f"CrawlRun {self.id} @ {self.started_at:%Y-%m-%d %H:%M} ({self.status})"
+
+
+class CrawlSchedule(models.Model):
+    """
+    Recurring crawl session policy for a user.
+    Beat task enqueue_due_crawl_schedules starts sessions when due.
+    """
+
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="crawl_schedules")
+    name = models.CharField(max_length=200)
+    enabled = models.BooleanField(default=True)
+    interval_minutes = models.PositiveIntegerField(
+        help_text="Minutes between session starts (e.g. 720 = 12 hours).",
+    )
+    session_duration_minutes = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Optional per-run duration; uses CRAWLER_SCHEDULE_DEFAULT_SESSION_MINUTES when null.",
+    )
+    last_started_at = models.DateTimeField(null=True, blank=True)
+    source_filter = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Optional source constraints (reserved for future use).",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["enabled", "owner"]),
+            models.Index(fields=["last_started_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} (every {self.interval_minutes}m)"
 
 
 class CrawlSource(models.Model):

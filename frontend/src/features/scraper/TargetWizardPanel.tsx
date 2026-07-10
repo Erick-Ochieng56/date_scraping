@@ -153,7 +153,7 @@ export function TargetWizardPanel({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h3 className="flex items-center gap-2 font-semibold text-foreground">
-            <Wand2 className="size-4 text-primary" aria-hidden />
+            <Wand2 className="size-4 text-secondary" aria-hidden />
             {mode === 'create' ? 'Smart target setup' : 'URL assistant'}
           </h3>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -171,7 +171,7 @@ export function TargetWizardPanel({
 
       {conflictTargetId != null ? (
         <p className="text-sm">
-          <Link className="text-primary underline-offset-4 hover:underline" to={`/targets/${conflictTargetId}`}>
+          <Link className="font-medium text-info underline-offset-4 hover:underline" to={`/targets/${conflictTargetId}`}>
             Open existing target #{conflictTargetId}
           </Link>
         </p>

@@ -3,6 +3,7 @@ import { type ColumnDef } from '@tanstack/react-table'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
+import { prospectActionColumns, prospectBaseColumns } from '@/features/pipeline/prospectColumns'
 import { Button } from '@/components/ui/button'
 import { AlertBanner } from '@/shared/components/AlertBanner'
 import { DataTable } from '@/shared/components/DataTable'
@@ -10,7 +11,6 @@ import { Input } from '@/shared/components/Input'
 import { ListPagination } from '@/shared/components/ListPagination'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { Select } from '@/shared/components/Select'
-import { StatusBadge } from '@/shared/components/StatusBadge'
 import { getApiErrorMessage } from '@/shared/api/errors'
 import {
   listProspects,
@@ -21,28 +21,45 @@ import {
   prospectsBulkConvert,
   prospectsBulkReject,
   prospectsExportUrl,
+  type ProspectListParams,
 } from '@/shared/api/pipeline'
 import type { Prospect } from '@/shared/api/types'
 import { useRowSelection } from '@/shared/hooks/useRowSelection'
 import { useServerList } from '@/shared/hooks/useServerList'
+
+type ProspectFilters = Pick<ProspectListParams, 'status' | 'source' | 'min_score' | 'sort'>
 
 export function ProspectsPage() {
   const qc = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const [search, setSearch] = useState(searchParams.get('search') ?? '')
   const [status, setStatus] = useState(searchParams.get('status') ?? '')
+  const [source, setSource] = useState(searchParams.get('source') ?? '')
+  const [minScore, setMinScore] = useState(searchParams.get('min_score') ?? '')
+  const [sort, setSort] = useState<'created_at' | 'score'>(
+    searchParams.get('sort') === 'score' ? 'score' : 'created_at'
+  )
   const [banner, setBanner] = useState<{ message?: string; error?: string }>({})
 
   const selection = useRowSelection<Prospect['id']>((r) => r.id)
 
-  const { items, total, page, pageSize, hasNext, goNext, goPrev, resetPage, query } = useServerList<
+  const filters = useMemo<ProspectFilters>(() => {
+    const f: ProspectFilters = { sort }
+    if (status) f.status = status
+    if (source.trim()) f.source = source.trim()
+    const parsedMin = parseInt(minScore, 10)
+    if (!Number.isNaN(parsedMin)) f.min_score = parsedMin
+    return f
+  }, [status, source, minScore, sort])
+
+  const { items, total, page, pageSize, hasNext, goNext, goPrev, resetPage, query, debouncedSearch } = useServerList<
     Prospect,
-    { status?: string }
+    ProspectFilters
   >({
     queryKey: ['prospects'],
     queryFn: listProspects,
     pageSize: 25,
-    filters: status ? { status } : {},
+    filters,
     search,
   })
 
@@ -50,9 +67,23 @@ export function ProspectsPage() {
     const params = new URLSearchParams()
     if (status) params.set('status', status)
     if (search.trim()) params.set('search', search.trim())
+    if (source.trim()) params.set('source', source.trim())
+    if (minScore.trim()) params.set('min_score', minScore.trim())
+    if (sort === 'score') params.set('sort', 'score')
     setSearchParams(params, { replace: true })
     resetPage()
-  }, [status, search, setSearchParams, resetPage])
+  }, [status, search, source, minScore, sort, setSearchParams, resetPage])
+
+  const exportHref = useMemo(
+    () =>
+      prospectsExportUrl({
+        status: status || undefined,
+        search: debouncedSearch || undefined,
+        source: source.trim() || undefined,
+        min_score: filters.min_score,
+      }),
+    [status, debouncedSearch, source, filters.min_score]
+  )
 
   const refresh = () => {
     selection.clear()
@@ -124,75 +155,31 @@ export function ProspectsPage() {
           />
         ),
       },
-      {
-        accessorKey: 'company',
-        header: 'Company',
-        cell: ({ row }) => row.original.company || '—',
-      },
-      {
-        accessorKey: 'event_name',
-        header: 'Event',
-        cell: ({ row }) => row.original.event_name || '—',
-      },
-      {
-        accessorKey: 'email',
-        header: 'Email',
-        cell: ({ row }) => row.original.email || '—',
-      },
-      {
-        accessorKey: 'status',
-        header: 'Status',
-        cell: ({ row }) => <StatusBadge status={row.original.status} kind="prospect" />,
-      },
-      {
-        id: 'actions',
-        header: 'Actions',
-        cell: ({ row }) => {
-          const p = row.original
-          return (
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" asChild>
-                <Link to={`/prospects/${p.id}`}>View</Link>
-              </Button>
-              <Button
-                size="sm"
-                disabled={p.status !== 'new' || rowContactM.isPending}
-                onClick={() => rowContactM.mutate(p.id)}
-              >
-                Contacted
-              </Button>
-              <Button
-                size="sm"
-                disabled={!['new', 'contacted'].includes(p.status) || rowConvertM.isPending}
-                onClick={() => rowConvertM.mutate(p.id)}
-              >
-                Convert
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={p.status === 'rejected' || rowRejectM.isPending}
-                onClick={() => rowRejectM.mutate(p.id)}
-              >
-                Reject
-              </Button>
-            </div>
-          )
-        },
-      },
+      ...prospectBaseColumns(),
+      ...prospectActionColumns({
+        onContact: (id) => rowContactM.mutate(id),
+        onConvert: (id) => rowConvertM.mutate(id),
+        onReject: (id) => rowRejectM.mutate(id),
+        contactPending: rowContactM.isPending,
+        convertPending: rowConvertM.isPending,
+        rejectPending: rowRejectM.isPending,
+      }),
     ],
     [items, selection, rowContactM, rowConvertM, rowRejectM]
   )
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Prospects"
-        description="Review crawler discoveries and move qualified contacts into the lead pipeline."
+        description="Review discoveries by score and source. Sort by score to work the highest-quality contacts first."
         actions={
           <>
             <Button variant="outline" asChild>
-              <a href={prospectsExportUrl()}>Export CSV</a>
+              <Link to="/prospects/new">Add prospect</Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <a href={exportHref}>Export CSV</a>
             </Button>
             <Button disabled={!selection.canBulk || contactM.isPending} onClick={() => contactM.mutate()}>
               Mark contacted
@@ -211,8 +198,8 @@ export function ProspectsPage() {
 
       <div className="flex flex-wrap gap-2">
         <Input
-          className="min-w-[240px] flex-1"
-          placeholder="Search company, event, email…"
+          className="min-w-[200px] flex-1"
+          placeholder="Search company, event, email, source…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -223,9 +210,40 @@ export function ProspectsPage() {
           <option value="converted">Converted</option>
           <option value="rejected">Rejected</option>
         </Select>
+        <Input
+          className="w-36"
+          placeholder="Source"
+          value={source}
+          onChange={(e) => setSource(e.target.value)}
+        />
+        <Input
+          className="w-28"
+          type="number"
+          min={0}
+          max={100}
+          placeholder="Min score"
+          value={minScore}
+          onChange={(e) => setMinScore(e.target.value)}
+        />
+        <Select value={sort} onChange={(e) => setSort(e.target.value as 'created_at' | 'score')}>
+          <option value="created_at">Newest first</option>
+          <option value="score">Highest score</option>
+        </Select>
         <Button variant="outline" onClick={() => void query.refetch()}>
           Refresh
         </Button>
+        {sort !== 'score' || minScore !== '60' || status !== 'new' ? (
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setSort('score')
+              setMinScore('60')
+              setStatus('new')
+            }}
+          >
+            Priority queue
+          </Button>
+        ) : null}
       </div>
 
       <DataTable columns={columns} data={items} isLoading={query.isLoading} getRowId={(r) => String(r.id)} />

@@ -3,6 +3,7 @@ import { type ColumnDef } from '@tanstack/react-table'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
+import { prospectBaseColumns } from '@/features/pipeline/prospectColumns'
 import { Button } from '@/components/ui/button'
 import { adminKeys } from '@/features/admin/queryKeys'
 import { fmtDate } from '@/features/admin/utils'
@@ -55,8 +56,17 @@ export function AdminPipelinePage() {
     enabled: tab === 'leads',
   })
 
-  const { items: prospectItems, total: prospectTotal, page: prospectPage, pageSize, hasNext: prospectHasNext, goNext: prospectGoNext, goPrev: prospectGoPrev, resetPage: resetProspectsPage, query: prospectsQuery } = prospectsList
-  const { items: leadItems, total: leadTotal, page: leadPage, hasNext: leadHasNext, goNext: leadGoNext, goPrev: leadGoPrev, resetPage: resetLeadsPage, query: leadsQuery } = leadsList
+  const { items: prospectItems, total: prospectTotal, page: prospectPage, pageSize, hasNext: prospectHasNext, goNext: prospectGoNext, goPrev: prospectGoPrev, resetPage: resetProspectsPage, query: prospectsQuery, debouncedSearch: prospectSearch } = prospectsList
+  const { items: leadItems, total: leadTotal, page: leadPage, hasNext: leadHasNext, goNext: leadGoNext, goPrev: leadGoPrev, resetPage: resetLeadsPage, query: leadsQuery, debouncedSearch: leadSearch } = leadsList
+
+  const prospectsExportHref = useMemo(
+    () => prospectsExportUrl({ status: status || undefined, search: prospectSearch || undefined }),
+    [status, prospectSearch]
+  )
+  const leadsExportHref = useMemo(
+    () => leadsExportUrl({ status: status || undefined, search: leadSearch || undefined }),
+    [status, leadSearch]
+  )
 
   useEffect(() => {
     const params = new URLSearchParams()
@@ -70,14 +80,7 @@ export function AdminPipelinePage() {
 
   const prospectColumns = useMemo<ColumnDef<Prospect, unknown>[]>(
     () => [
-      { accessorKey: 'company', header: 'Company', cell: ({ row }) => row.original.company || '—' },
-      { accessorKey: 'event_name', header: 'Event', cell: ({ row }) => row.original.event_name || '—' },
-      { accessorKey: 'email', header: 'Email', cell: ({ row }) => row.original.email || '—' },
-      {
-        accessorKey: 'status',
-        header: 'Status',
-        cell: ({ row }) => <StatusBadge status={row.original.status} kind="prospect" />,
-      },
+      ...prospectBaseColumns(),
       {
         accessorKey: 'created_at',
         header: 'Created',
@@ -91,6 +94,7 @@ export function AdminPipelinePage() {
     () => [
       { accessorKey: 'full_name', header: 'Name', cell: ({ row }) => row.original.full_name || '—' },
       { accessorKey: 'company', header: 'Company', cell: ({ row }) => row.original.company || '—' },
+      { accessorKey: 'source_name', header: 'Source', cell: ({ row }) => row.original.source_name || '—' },
       { accessorKey: 'email', header: 'Email', cell: ({ row }) => row.original.email || '—' },
       {
         accessorKey: 'status',
@@ -116,10 +120,10 @@ export function AdminPipelinePage() {
         actions={
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" asChild>
-              <a href={prospectsExportUrl()}>Export prospects CSV</a>
+              <a href={prospectsExportHref}>Export prospects CSV</a>
             </Button>
             <Button variant="outline" asChild>
-              <a href={leadsExportUrl()}>Export leads CSV</a>
+              <a href={leadsExportHref}>Export leads CSV</a>
             </Button>
             <Button variant="outline" asChild>
               <Link to="/admin/users">Manage users</Link>
