@@ -172,6 +172,7 @@ export type CrawlRunDomainResult = {
 export type Prospect = {
   id: number
   event_name: string
+  event_date: string | null
   company: string
   email: string | null
   phone_raw: string

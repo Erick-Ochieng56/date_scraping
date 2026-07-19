@@ -54,6 +54,11 @@ class Prospect(models.Model):
         default="",
         help_text="Name of the event or meeting that was scraped.",
     )
+    event_date = models.DateField(
+        blank=True,
+        null=True,
+        help_text="Parsed event/meeting date, if the scraped listing had one.",
+    )
     company = models.CharField(max_length=255, blank=True, default="")
     email = models.EmailField(blank=True, null=True)
     phone_raw = models.CharField(max_length=64, blank=True, default="")
@@ -92,6 +97,7 @@ class Prospect(models.Model):
             models.Index(fields=["phone_e164"]),
             models.Index(fields=["source_name", "source_ref"]),
             models.Index(fields=["status"]),
+            models.Index(fields=["event_date"]),
         ]
 
     def mark_contacted(self, save=True):
@@ -142,6 +148,7 @@ class Prospect(models.Model):
             phone_e164=self.phone_e164,
             website=self.website,
             event_name=self.event_name,
+            event_date=self.event_date,
             raw_payload=self.raw_payload,
             raw_payload_hash=self.raw_payload_hash,
             status=LeadStatus.CONTACTED,

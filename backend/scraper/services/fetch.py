@@ -4,28 +4,69 @@ import json
 import logging
 import subprocess
 import sys
+from urllib.parse import urljoin
 
 import requests
 
+from scraper.services.url_safety import check_public_url
+
 logger = logging.getLogger(__name__)
+
+_MAX_REDIRECTS = 5
 
 
 def fetch_html(url: str, *, headers: dict[str, str] | None = None, timeout: int = 30) -> str:
-    try:
-        resp = requests.get(url, headers=headers, timeout=timeout)
+    """
+    Fetch a page's HTML over plain HTTP(S).
+
+    SSRF guard: every URL actually requested — including each redirect hop —
+    is checked against check_public_url() before the request is made. This is
+    the real enforcement point (not just target-creation-time validation):
+    it also covers pagination URLs discovered mid-scrape (extracted from a
+    target site's own HTML via next_page_selector) and closes DNS-rebinding,
+    where a hostname resolves to a public IP at validation time but an
+    internal one moments later at request time.
+    """
+    current_url = url
+    redirects_followed = 0
+
+    while True:
+        ok, reason = check_public_url(current_url)
+        if not ok:
+            logger.error("Refusing to fetch %s: %s", current_url, reason)
+            raise ValueError(f"Refusing to fetch {current_url}: {reason}")
+
+        try:
+            resp = requests.get(
+                current_url, headers=headers, timeout=timeout, allow_redirects=False
+            )
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Connection error fetching {current_url}: {e}")
+            raise ConnectionError(
+                f"Failed to connect to {current_url}. Check your internet connection and DNS settings."
+            ) from e
+        except requests.exceptions.Timeout as e:
+            logger.error(f"Timeout fetching {current_url} after {timeout}s")
+            raise TimeoutError(f"Request to {current_url} timed out after {timeout} seconds") from e
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Request error fetching {current_url}: {e}")
+            raise
+
+        if resp.is_redirect or resp.is_permanent_redirect:
+            location = resp.headers.get("Location")
+            if not location:
+                resp.raise_for_status()
+                return resp.text
+            redirects_followed += 1
+            if redirects_followed > _MAX_REDIRECTS:
+                raise requests.exceptions.TooManyRedirects(
+                    f"Exceeded {_MAX_REDIRECTS} redirects fetching {url}"
+                )
+            current_url = urljoin(current_url, location)
+            continue
+
         resp.raise_for_status()
         return resp.text
-    except requests.exceptions.ConnectionError as e:
-        logger.error(f"Connection error fetching {url}: {e}")
-        raise ConnectionError(
-            f"Failed to connect to {url}. Check your internet connection and DNS settings."
-        ) from e
-    except requests.exceptions.Timeout as e:
-        logger.error(f"Timeout fetching {url} after {timeout}s")
-        raise TimeoutError(f"Request to {url} timed out after {timeout} seconds") from e
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Request error fetching {url}: {e}")
-        raise
 
 
 # ---------------------------------------------------------------------------
@@ -36,8 +77,38 @@ def fetch_html(url: str, *, headers: dict[str, str] | None = None, timeout: int 
 # ---------------------------------------------------------------------------
 
 _PLAYWRIGHT_SCRIPT = """
-import sys, json
+import ipaddress, socket, sys, json
+from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright, Error as PlaywrightError
+
+# Inlined (not imported) so this subprocess has zero dependency on the parent
+# project's PYTHONPATH/Django setup — self-contained SSRF guard, mirrors
+# scraper.services.url_safety. Applied to every navigation the page makes
+# (not just the initial URL, which the parent process already validated) so a
+# malicious/compromised target site can't redirect the browser to an internal
+# address mid-navigation.
+def _is_unsafe_ip(ip_str):
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return True
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return (
+        ip.is_private or ip.is_loopback or ip.is_link_local
+        or ip.is_reserved or ip.is_multicast or ip.is_unspecified
+    )
+
+def _is_unsafe_navigation_url(url):
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname
+        if parsed.scheme not in ("http", "https") or not host:
+            return True
+        infos = socket.getaddrinfo(host, None)
+        return any(_is_unsafe_ip(info[4][0]) for info in infos)
+    except Exception:
+        return True
 
 def main():
     args              = json.loads(sys.argv[1])
@@ -71,6 +142,9 @@ def main():
                 try:
                     rtype = route.request.resource_type
                     if rtype in ("image", "media", "font"):
+                        route.abort()
+                        return
+                    if rtype == "document" and _is_unsafe_navigation_url(route.request.url):
                         route.abort()
                         return
                 except Exception:
@@ -161,10 +235,16 @@ def fetch_html_playwright(
 
     Raises
     ------
+    ValueError       — URL fails the SSRF guard (non-public host).
     ConnectionError  — DNS / network failure.
     TimeoutError     — Page-load or subprocess wall-clock timeout exceeded.
     RuntimeError     — Playwright not installed, subprocess crash, or other error.
     """
+    ok, reason = check_public_url(url)
+    if not ok:
+        logger.error("Refusing to fetch %s: %s", url, reason)
+        raise ValueError(f"Refusing to fetch {url}: {reason}")
+
     wall_clock_timeout = timeout_ms / 1_000 + 15
     payload = json.dumps({
         "url": url,

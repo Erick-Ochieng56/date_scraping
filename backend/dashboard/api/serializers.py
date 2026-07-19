@@ -31,6 +31,14 @@ class ScrapeTargetSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ("id", "last_run_at", "created_at", "updated_at")
 
+    def validate_start_url(self, value):
+        from scraper.services.url_safety import check_public_url
+
+        ok, reason = check_public_url(value)
+        if not ok:
+            raise serializers.ValidationError(reason)
+        return value
+
 
 class ScrapeRunSerializer(serializers.ModelSerializer):
     target_name = serializers.CharField(source="target.name", read_only=True)
@@ -145,6 +153,7 @@ class ProspectSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "event_name",
+            "event_date",
             "company",
             "email",
             "phone_raw",

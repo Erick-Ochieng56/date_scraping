@@ -9,6 +9,7 @@ from dashboard.permissions import staff_json_api_user
 from dashboard.utils import log_activity
 from scraper.models import ScrapeTarget, ScrapeTargetType
 from scraper.services.auto_discover import auto_create_target, detect_platform_type
+from scraper.services.url_safety import check_public_url
 
 
 def _target_type_value(raw) -> str:
@@ -68,6 +69,10 @@ def wizard_create_target(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"success": False, "error": "URL is required"}, status=400)
     if config_overrides is not None and not isinstance(config_overrides, dict):
         return JsonResponse({"success": False, "error": "config must be a JSON object"}, status=400)
+
+    url_ok, url_reason = check_public_url(url)
+    if not url_ok:
+        return JsonResponse({"success": False, "error": url_reason}, status=400)
 
     auto_config = auto_create_target(url, name)
     final_config = dict(auto_config.get("config") or {})

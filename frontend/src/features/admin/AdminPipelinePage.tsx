@@ -72,6 +72,7 @@ export function AdminPipelinePage() {
     () => [
       { accessorKey: 'company', header: 'Company', cell: ({ row }) => row.original.company || '—' },
       { accessorKey: 'event_name', header: 'Event', cell: ({ row }) => row.original.event_name || '—' },
+      { accessorKey: 'event_date', header: 'Event date', cell: ({ row }) => fmtDate(row.original.event_date) },
       { accessorKey: 'email', header: 'Email', cell: ({ row }) => row.original.email || '—' },
       {
         accessorKey: 'status',

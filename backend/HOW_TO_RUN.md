@@ -20,7 +20,7 @@
    GSHEETS_ENABLED=1
    GSHEETS_CREDENTIALS_JSON={"type":"service_account",...}
    GSHEETS_SPREADSHEET_ID=your-spreadsheet-id
-   GSHEETS_PROSPECTS_RANGE=Prospects!A:E
+   GSHEETS_PROSPECTS_RANGE=Prospects!A:F
    GSHEETS_LEADS_RANGE=Leads!A:Z
    
    # Database (SQLite for local dev, or PostgreSQL)
@@ -102,7 +102,7 @@ celery -A leads_app beat -l info
    - With crawler enabled: `Task crawler.tasks.discover_websites_task` / `crawl_domain_task`
 
 3. **Check Google Sheets:**
-   - New **Prospects** appear in the "Prospects" sheet (default range `Prospects!A:E`)
+   - New **Prospects** appear in the "Prospects" sheet (default range `Prospects!A:F`)
    - Converted **Leads** appear in the "Leads" sheet when you convert Prospects to Leads
 
 4. **Check Django Admin:**

@@ -55,6 +55,27 @@ class DashboardV1ApiTests(TestCase):
         self.assertFalse(patch.data["data"]["enabled"])
         self.assertEqual(patch.data["data"]["run_every_minutes"], 120)
 
+    def test_target_create_rejects_internal_url(self):
+        """SSRF guard: a portal user (not just admins) must not be able to point a
+        scrape target at an internal/private address via the API."""
+        for start_url in [
+            "http://127.0.0.1/admin",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://192.168.1.1/",
+        ]:
+            with self.subTest(start_url=start_url):
+                payload = {
+                    "name": f"Bad target {start_url}",
+                    "enabled": True,
+                    "target_type": "html",
+                    "start_url": start_url,
+                    "run_every_minutes": 30,
+                    "config": {"item_selector": "li.row", "fields": {"title": "a"}},
+                }
+                resp = self.client.post("/dashboard/api/v1/targets/", payload, format="json")
+                self.assertEqual(resp.status_code, 400)
+                self.assertFalse(ScrapeTarget.objects.filter(start_url=start_url).exists())
+
     def test_prospect_convert_flow_creates_lead(self):
         prospect = Prospect.objects.create(
             company="Acme",

@@ -146,6 +146,11 @@ def auto_create_target(request: HttpRequest) -> JsonResponse:
         parsed = urlparse(url)
         if not parsed.scheme or not parsed.netloc:
             return JsonResponse({"error": "Invalid URL format"}, status=400)
+
+        from scraper.services.url_safety import check_public_url
+        url_ok, url_reason = check_public_url(url)
+        if not url_ok:
+            return JsonResponse({"error": url_reason}, status=400)
         
         # Auto-discover platform and generate config
         from scraper.services.auto_discover import (

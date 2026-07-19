@@ -8,12 +8,13 @@ from leads.models import Lead, Prospect
 def prospect_to_row(prospect: Prospect) -> List[str]:
     """
     Map a Prospect to a flat row suitable for a Google Sheet.
-    
+
     Basic discovery fields only (pre-contact):
-    Event Name, Company/Organisation Name, Email, Phone Number, Website
+    Event Name, Event Date, Company/Organisation Name, Email, Phone Number, Website
     """
     return [
         prospect.event_name or "",
+        prospect.event_date.isoformat() if prospect.event_date else "",
         prospect.company or "",
         prospect.email or "",
         prospect.phone_e164 or prospect.phone_raw or "",

@@ -57,6 +57,10 @@ export function ProspectDetailPage() {
               <p className="font-medium">{p.event_name || '-'}</p>
             </div>
             <div className="rounded-lg border border-border p-4">
+              <p className="text-sm text-muted-foreground">Event date</p>
+              <p className="font-medium">{p.event_date ? new Date(p.event_date).toLocaleDateString() : '-'}</p>
+            </div>
+            <div className="rounded-lg border border-border p-4">
               <p className="text-sm text-muted-foreground">Email</p>
               <p className="font-medium">{p.email || '-'}</p>
             </div>

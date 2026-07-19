@@ -36,7 +36,25 @@ def _map_item_to_prospect_fields(target: ScrapeTarget, item: dict[str, Any]) -> 
     phone = _get_first(item, ["phone", "phone_number", "phonenumber"])
     company = _get_first(item, ["company", "organization"])
     website = _get_first(item, ["website", "url", "website_url", "site"])
-    event_name = _get_first(item, ["event_name", "event_text", "date_text", "event_description", "description"])
+    # "full_name"/"title" are the documented field-name convention for the event/listing
+    # title (see scraper/services/auto_discover.py's platform configs and
+    # backend/HOW_TO_RUN.md's example configs) — check those first. The remaining
+    # candidates are kept for backward compatibility with any existing target configs
+    # that used them directly.
+    event_name = _get_first(
+        item,
+        [
+            "full_name",
+            "title",
+            "event_name",
+            "event_text",
+            "date_text",
+            "event_description",
+            "description",
+        ],
+    )
+    event_date_raw = _get_first(item, ["event_date", "date", "date_text"])
+    event_date = parse_date(event_date_raw) if event_date_raw else None
 
     normalized = normalize_phone(phone, default_region=None) if phone else None
 
@@ -50,6 +68,7 @@ def _map_item_to_prospect_fields(target: ScrapeTarget, item: dict[str, Any]) -> 
         "company": company,
         "website": website,
         "event_name": event_name,
+        "event_date": event_date,
     }
 
 

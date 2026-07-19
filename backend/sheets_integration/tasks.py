@@ -106,7 +106,7 @@ def append_prospect_to_sheet(prospect_id: int) -> None:
     if not spreadsheet_id:
         return
     
-    value_range = _get_env("GSHEETS_PROSPECTS_RANGE", "Prospects!A:E")
+    value_range = _get_env("GSHEETS_PROSPECTS_RANGE", "Prospects!A:F")
     
     try:
         from leads.models import Prospect

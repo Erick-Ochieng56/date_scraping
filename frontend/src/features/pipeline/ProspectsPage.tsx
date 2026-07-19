@@ -26,6 +26,11 @@ import type { Prospect } from '@/shared/api/types'
 import { useRowSelection } from '@/shared/hooks/useRowSelection'
 import { useServerList } from '@/shared/hooks/useServerList'
 
+function fmtEventDate(v: string | null) {
+  if (!v) return '—'
+  return new Date(v).toLocaleDateString()
+}
+
 export function ProspectsPage() {
   const qc = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -133,6 +138,11 @@ export function ProspectsPage() {
         accessorKey: 'event_name',
         header: 'Event',
         cell: ({ row }) => row.original.event_name || '—',
+      },
+      {
+        accessorKey: 'event_date',
+        header: 'Event date',
+        cell: ({ row }) => fmtEventDate(row.original.event_date),
       },
       {
         accessorKey: 'email',

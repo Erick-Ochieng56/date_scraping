@@ -209,7 +209,7 @@ The system uses a two-stage workflow:
 
 ### Stage 1: Prospects (Pre-Contact Discovery)
 - **Scraped automatically** from event websites
-- **Minimal fields**: Event Name, Company, Email, Phone, Website
+- **Minimal fields**: Event Name, Event Date, Company, Email, Phone, Website
 - **Auto-synced to "Prospects" sheet** in Google Sheets
 - **Status**: NEW → CONTACTED → CONVERTED/REJECTED
 
@@ -229,9 +229,9 @@ The system uses a two-stage workflow:
 
 **Prospects Sheet (Primary Output):**
 - Automatically created and populated
-- **Columns**: Event Name, Company, Email, Phone, Website (5 columns)
+- **Columns**: Event Name, Event Date, Company, Email, Phone, Website (6 columns)
 - **Sheet name**: "Prospects" (default)
-- **Range**: `Prospects!A:E`
+- **Range**: `Prospects!A:F`
 
 **Leads Sheet (Optional):**
 - For qualified Leads ready for CRM
@@ -244,7 +244,7 @@ The system uses a two-stage workflow:
 GSHEETS_ENABLED=1
 GSHEETS_CREDENTIALS_JSON={"type":"service_account",...}
 GSHEETS_SPREADSHEET_ID=your-spreadsheet-id
-GSHEETS_PROSPECTS_RANGE=Prospects!A:E  # Optional, defaults to Prospects!A:E
+GSHEETS_PROSPECTS_RANGE=Prospects!A:F  # Optional, defaults to Prospects!A:F
 GSHEETS_LEADS_RANGE=Leads!A:Z  # Optional, defaults to Leads!A:Z
 ```
 

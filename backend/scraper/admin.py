@@ -18,7 +18,16 @@ class ScrapeTargetAdminForm(forms.ModelForm):
     class Meta:
         model = ScrapeTarget
         fields = "__all__"
-    
+
+    def clean_start_url(self):
+        from scraper.services.url_safety import check_public_url
+
+        start_url = self.cleaned_data.get("start_url") or ""
+        ok, reason = check_public_url(start_url)
+        if not ok:
+            raise ValidationError(reason)
+        return start_url
+
     def clean_config(self):
         """Validate that config has required fields."""
         config = self.cleaned_data.get("config") or {}
