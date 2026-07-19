@@ -212,7 +212,6 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "django_extensions",
-    "django_bootstrap5",
     "django_tables2",
     "django_filters",
     "corsheaders",
@@ -321,7 +320,7 @@ STATIC_ROOT = _get_env("DJANGO_STATIC_ROOT", str(BASE_DIR / "staticfiles")) or s
     BASE_DIR / "staticfiles"
 )
 
-# Project-level static sources (Bootstrap, dashboard.css). Not the same as STATIC_ROOT.
+# Project-level static sources. Not the same as STATIC_ROOT.
 STATICFILES_DIRS = [
     BASE_DIR / "static",
 ]

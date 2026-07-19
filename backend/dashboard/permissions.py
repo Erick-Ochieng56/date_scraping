@@ -12,7 +12,6 @@ from __future__ import annotations
 from functools import wraps
 
 from django.conf import settings
-from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.http import HttpRequest, JsonResponse
 
 
@@ -90,12 +89,3 @@ def any_authenticated_json(view_func):
         return view_func(request, *args, **kwargs)
 
     return _wrapped
-
-
-class StaffDashboardMixin(LoginRequiredMixin, UserPassesTestMixin):
-    """Management pages: staff only (403 for scraper operators)."""
-
-    raise_exception = True
-
-    def test_func(self) -> bool:
-        return bool(self.request.user.is_staff)
