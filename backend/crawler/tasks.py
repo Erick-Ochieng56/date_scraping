@@ -47,6 +47,37 @@ def _run_is_cancelled(run_id: int) -> bool:
     return bool(run and run.status != CrawlRunStatus.RUNNING)
 
 
+_TERMINAL_DOMAIN_RESULT_STATES = ("scored", "failed")
+
+
+def _finalize_crawl_run_if_complete(run_id: int) -> None:
+    """
+    Mark a CrawlRun SUCCESS once every domain queued for it has reached a
+    terminal per-domain state (scored/failed) on its CrawlRunDomainResult row.
+
+    Must be called from every place a domain's processing chain ends (crawl
+    failure, analyze failure, score/prospect-creation success or failure) —
+    it's the only thing that ever flips a RUNNING run to a terminal status
+    besides an outright exception in discover_websites_task itself or an
+    explicit user cancel. Idempotent and race-safe: uses select_for_update so
+    concurrent domain tasks finishing at the same moment can't both finalize,
+    and it no-ops if the run is already non-RUNNING (already cancelled/failed/
+    finalized by another task).
+    """
+    with transaction.atomic():
+        run = CrawlRun.objects.select_for_update().filter(id=run_id).first()
+        if run is None or run.status != CrawlRunStatus.RUNNING:
+            return
+        done = CrawlRunDomainResult.objects.filter(
+            crawl_run_id=run_id, state__in=_TERMINAL_DOMAIN_RESULT_STATES
+        ).count()
+        if done < run.domains_queued:
+            return
+        run.status = CrawlRunStatus.SUCCESS
+        run.finished_at = timezone.now()
+        run.save(update_fields=["status", "finished_at"])
+
+
 def _get_crawler_config() -> dict[str, Any]:
     """Read crawler run config from environment (no scraper dependency)."""
     return {
@@ -130,6 +161,15 @@ def discover_websites_task(self, initiated_by_id: int | None = None) -> dict[str
         )
         new_domain_ids.extend(pending)
 
+        # domains_queued must be persisted BEFORE any crawl_domain_task is enqueued:
+        # _finalize_crawl_run_if_complete compares completed-domain count against this
+        # field, and a fast/eager worker could otherwise finish a domain and read
+        # domains_queued=0 (not yet saved) before the rest of this loop enqueues the
+        # others, finalizing the run as SUCCESS while domains are still pending.
+        run.domains_queued = len(new_domain_ids)
+        run.stats = stats
+        run.save(update_fields=["domains_queued", "stats"])
+
         for domain_id in new_domain_ids:
             CrawlRunDomainResult.objects.get_or_create(
                 crawl_run_id=run.id,
@@ -138,19 +178,21 @@ def discover_websites_task(self, initiated_by_id: int | None = None) -> dict[str
             )
             crawl_domain_task.delay(domain_id=domain_id, run_id=run.id, owner_id=initiated_by_id)
 
-        run.domains_queued = len(new_domain_ids)
-        run.stats = stats
-        run.status = CrawlRunStatus.SUCCESS
+        # Run stays RUNNING here even when domains were queued — it only becomes
+        # terminal once every queued domain's task chain actually finishes (see
+        # _finalize_crawl_run_if_complete, called from crawl_domain_task /
+        # analyze_domain_task / score_and_create_prospect_task). If nothing was
+        # queued, this call finalizes immediately (0 done >= 0 queued).
+        _finalize_crawl_run_if_complete(run.id)
         return {"run_id": run.id, "domains_queued": len(new_domain_ids), "stats": stats}
     except Exception as exc:
         logger.exception("discover_websites_task failed: %s", exc)
         run.status = CrawlRunStatus.FAILED
         run.error_text = str(exc)
         run.stats = stats
-        raise
-    finally:
         run.finished_at = timezone.now()
-        run.save()
+        run.save(update_fields=["status", "error_text", "stats", "finished_at"])
+        raise
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=120)
@@ -207,6 +249,7 @@ def crawl_domain_task(self, domain_id: int, run_id: int, owner_id: int | None = 
         CrawlRunDomainResult.objects.filter(
             crawl_run_id=run_id, domain_id=domain_id
         ).update(state="failed", crawl_succeeded=False, crawl_error=str(exc))
+        _finalize_crawl_run_if_complete(run_id)
         raise
 
 
@@ -230,80 +273,91 @@ def analyze_domain_task(
     if _run_is_cancelled(run_id):
         return 0
 
-    domain_obj = DiscoveredDomain.objects.get(id=domain_id)
-    pages = list(crawl_data.get("pages") or [])
-    combined_text = "\n".join((p.get("text") or "") for p in pages)
-    html_pages = [p.get("html") or "" for p in pages]
+    try:
+        domain_obj = DiscoveredDomain.objects.get(id=domain_id)
+        pages = list(crawl_data.get("pages") or [])
+        combined_text = "\n".join((p.get("text") or "") for p in pages)
+        html_pages = [p.get("html") or "" for p in pages]
 
-    org_types = detect_org_types(combined_text)
-    services = detect_services(combined_text)
-    countries = detect_countries(combined_text)
-    langs = detect_languages_from_html(html_pages)
-    signals = build_international_signals(combined_text)
-    org_name = extract_org_name(combined_text, domain=domain_obj.domain)
-    event_names = extract_event_names(combined_text)
+        org_types = detect_org_types(combined_text)
+        services = detect_services(combined_text)
+        countries = detect_countries(combined_text)
+        langs = detect_languages_from_html(html_pages)
+        signals = build_international_signals(combined_text)
+        org_name = extract_org_name(combined_text, domain=domain_obj.domain)
+        event_names = extract_event_names(combined_text)
 
-    profile, _ = WebsiteProfile.objects.get_or_create(domain=domain_obj)
-    profile.org_name = org_name
-    profile.org_type = org_types[0] if org_types else ""
-    profile.detected_org_types = org_types
-    profile.detected_services = services
-    profile.languages_detected = langs
-    profile.countries_detected = countries
-    profile.international_signals = signals
-    profile.event_names = event_names
-    profile.contact_emails = list(crawl_data.get("emails") or [])
-    profile.contact_phones = list(crawl_data.get("phones") or [])
-    profile.pages_crawled = int(crawl_data.get("pages_crawled") or 0)
-    profile.save()
+        profile, _ = WebsiteProfile.objects.get_or_create(domain=domain_obj)
+        profile.org_name = org_name
+        profile.org_type = org_types[0] if org_types else ""
+        profile.detected_org_types = org_types
+        profile.detected_services = services
+        profile.languages_detected = langs
+        profile.countries_detected = countries
+        profile.international_signals = signals
+        profile.event_names = event_names
+        profile.contact_emails = list(crawl_data.get("emails") or [])
+        profile.contact_phones = list(crawl_data.get("phones") or [])
+        profile.pages_crawled = int(crawl_data.get("pages_crawled") or 0)
+        profile.save()
 
-    page_url_text_pairs = [
-        ((p.get("url") or "").strip(), (p.get("text") or "").strip()) for p in pages
-    ]
-    crawl_run = CrawlRun.objects.get(pk=run_id)
-    run_post_analyzer_ai_pipeline(
-        crawl_run,
-        domain_obj,
-        page_url_text_pairs,
-        profile,
-        run_id=run_id,
-        pages_crawled=int(crawl_data.get("pages_crawled") or 0),
-        crawl_emails=list(crawl_data.get("emails") or []),
-        crawl_phones=list(crawl_data.get("phones") or []),
-    )
-    profile.refresh_from_db()
-
-    result_update = {
-        "org_name": profile.org_name or "",
-        "org_type": profile.org_type or "",
-        "detected_org_types": profile.detected_org_types or [],
-        "detected_services": profile.detected_services or [],
-        "languages_detected": profile.languages_detected or [],
-        "countries_detected": profile.countries_detected or [],
-        "international_signals": profile.international_signals or [],
-        "event_names": profile.event_names or [],
-        "contact_emails": profile.contact_emails or [],
-        "contact_phones": profile.contact_phones or [],
-    }
-    if profile.is_competitor:
-        result_update.update(
-            {
-                "state": "scored",
-                "score": 0,
-                "score_label": "competitor",
-                "is_competitor": True,
-                "is_competitor_reason": (profile.is_competitor_reason or "")[:500],
-                "prospect_created": False,
-                "prospect_updated": False,
-                "processed_at": timezone.now(),
-            }
+        page_url_text_pairs = [
+            ((p.get("url") or "").strip(), (p.get("text") or "").strip()) for p in pages
+        ]
+        crawl_run = CrawlRun.objects.get(pk=run_id)
+        run_post_analyzer_ai_pipeline(
+            crawl_run,
+            domain_obj,
+            page_url_text_pairs,
+            profile,
+            run_id=run_id,
+            pages_crawled=int(crawl_data.get("pages_crawled") or 0),
+            crawl_emails=list(crawl_data.get("emails") or []),
+            crawl_phones=list(crawl_data.get("phones") or []),
         )
-    else:
-        result_update["state"] = "analyzed"
+        profile.refresh_from_db()
 
-    CrawlRunDomainResult.objects.filter(
-        crawl_run_id=run_id, domain_id=domain_id
-    ).update(**result_update)
+        result_update = {
+            "org_name": profile.org_name or "",
+            "org_type": profile.org_type or "",
+            "detected_org_types": profile.detected_org_types or [],
+            "detected_services": profile.detected_services or [],
+            "languages_detected": profile.languages_detected or [],
+            "countries_detected": profile.countries_detected or [],
+            "international_signals": profile.international_signals or [],
+            "event_names": profile.event_names or [],
+            "contact_emails": profile.contact_emails or [],
+            "contact_phones": profile.contact_phones or [],
+        }
+        if profile.is_competitor:
+            result_update.update(
+                {
+                    "state": "scored",
+                    "score": 0,
+                    "score_label": "competitor",
+                    "is_competitor": True,
+                    "is_competitor_reason": (profile.is_competitor_reason or "")[:500],
+                    "prospect_created": False,
+                    "prospect_updated": False,
+                    "processed_at": timezone.now(),
+                }
+            )
+        else:
+            result_update["state"] = "analyzed"
+
+        CrawlRunDomainResult.objects.filter(
+            crawl_run_id=run_id, domain_id=domain_id
+        ).update(**result_update)
+    except Exception as exc:
+        logger.exception("analyze_domain_task failed for domain_id=%s: %s", domain_id, exc)
+        # crawl_succeeded is left untouched here — crawl_domain_task already recorded
+        # that the crawl itself succeeded; this is an analysis-stage failure, reusing
+        # crawl_error as the only free-text error field on this ledger row.
+        CrawlRunDomainResult.objects.filter(
+            crawl_run_id=run_id, domain_id=domain_id
+        ).update(state="failed", crawl_error=str(exc)[:2000])
+        _finalize_crawl_run_if_complete(run_id)
+        raise
 
     score_and_create_prospect_task.delay(domain_id=domain_id, run_id=run_id, owner_id=owner_id)
     return profile.id
@@ -320,90 +374,104 @@ def score_and_create_prospect_task(
     if _run_is_cancelled(run_id):
         return {"domain_id": domain_id, "skipped": "run_not_running"}
 
-    profile = WebsiteProfile.objects.select_related("domain").get(
-        domain_id=domain_id
-    )
+    try:
+        profile = WebsiteProfile.objects.select_related("domain").get(
+            domain_id=domain_id
+        )
 
-    if profile.is_competitor:
+        if profile.is_competitor:
+            CrawlRunDomainResult.objects.filter(
+                crawl_run_id=run_id, domain_id=domain_id
+            ).update(
+                state="scored",
+                score=0,
+                score_label="competitor",
+                is_competitor=True,
+                is_competitor_reason=(profile.is_competitor_reason or "")[:500],
+                prospect_created=False,
+                prospect_updated=False,
+                processed_at=timezone.now(),
+            )
+            _increment_crawl_run_domain_stats(
+                run_id,
+                profile,
+                created=False,
+                updated=False,
+                label="low",
+                services_counter=Counter(),
+            )
+            return {
+                "domain_id": domain_id,
+                "score": 0,
+                "label": "competitor",
+                "created": False,
+                "skipped": "competitor",
+            }
+
+        if profile.gemini_translation_need_score is not None:
+            score = int(profile.gemini_translation_need_score)
+        else:
+            score = score_website(profile)
+        profile.translation_need_score = score
+        profile.save(update_fields=["translation_need_score", "analyzed_at"])
+
+        label = get_score_label(score)
+        config = _get_crawler_config()
+        min_score = config.get("min_score_threshold", 40)
+
+        created = False
+        updated = False
+        services_counter = Counter(profile.detected_services or [])
+
+        if score > min_score:
+            prospect, is_created = create_or_update_prospect(profile, score, owner_id=owner_id)
+            created = bool(is_created)
+            updated = not created
+            logger.info(
+                "Prospect %s for %s (%s): score=%s",
+                prospect.id,
+                profile.domain.domain,
+                label,
+                score,
+            )
+        else:
+            created = False
+            updated = False
+
         CrawlRunDomainResult.objects.filter(
             crawl_run_id=run_id, domain_id=domain_id
         ).update(
             state="scored",
-            score=0,
-            score_label="competitor",
-            is_competitor=True,
-            is_competitor_reason=(profile.is_competitor_reason or "")[:500],
-            prospect_created=False,
-            prospect_updated=False,
+            score=score,
+            score_label=label,
+            is_competitor=False,
+            is_competitor_reason="",
+            prospect_created=created,
+            prospect_updated=updated,
             processed_at=timezone.now(),
         )
+
         _increment_crawl_run_domain_stats(
             run_id,
             profile,
-            created=False,
-            updated=False,
-            label="low",
-            services_counter=Counter(),
+            created=created,
+            updated=updated,
+            label=label,
+            services_counter=services_counter,
         )
-        return {
-            "domain_id": domain_id,
-            "score": 0,
-            "label": "competitor",
-            "created": False,
-            "skipped": "competitor",
-        }
-
-    if profile.gemini_translation_need_score is not None:
-        score = int(profile.gemini_translation_need_score)
-    else:
-        score = score_website(profile)
-    profile.translation_need_score = score
-    profile.save(update_fields=["translation_need_score", "analyzed_at"])
-
-    label = get_score_label(score)
-    config = _get_crawler_config()
-    min_score = config.get("min_score_threshold", 40)
-
-    created = False
-    updated = False
-    services_counter = Counter(profile.detected_services or [])
-
-    if score > min_score:
-        prospect, is_created = create_or_update_prospect(profile, score, owner_id=owner_id)
-        created = bool(is_created)
-        updated = not created
-        logger.info(
-            "Prospect %s for %s (%s): score=%s",
-            prospect.id,
-            profile.domain.domain,
-            label,
-            score,
+    except Exception as exc:
+        logger.exception(
+            "score_and_create_prospect_task failed for domain_id=%s: %s", domain_id, exc
         )
-    else:
-        created = False
-        updated = False
-
-    CrawlRunDomainResult.objects.filter(
-        crawl_run_id=run_id, domain_id=domain_id
-    ).update(
-        state="scored",
-        score=score,
-        score_label=label,
-        is_competitor=False,
-        is_competitor_reason="",
-        prospect_created=created,
-        prospect_updated=updated,
-        processed_at=timezone.now(),
-    )
-
-    _increment_crawl_run_domain_stats(
-        run_id,
-        profile,
-        created=created,
-        updated=updated,
-        label=label,
-        services_counter=services_counter,
-    )
+        CrawlRunDomainResult.objects.filter(
+            crawl_run_id=run_id, domain_id=domain_id
+        ).update(state="failed", crawl_error=str(exc)[:2000])
+        raise
+    finally:
+        # Covers both the competitor early-return and the normal success path above,
+        # plus the except block on failure — finally always runs before the function
+        # actually returns/re-raises.
+        _finalize_crawl_run_if_complete(run_id)
 
     return {"domain_id": domain_id, "score": score, "label": label, "created": created}
 

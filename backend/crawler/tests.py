@@ -4,7 +4,14 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 
-from crawler.models import AISearchJob, AISearchResult
+from crawler.models import (
+    AISearchJob,
+    AISearchResult,
+    CrawlRun,
+    CrawlRunDomainResult,
+    CrawlRunStatus,
+    DiscoveredDomain,
+)
 from crawler.services.active_buyer import (
     check_forward_timeline,
     has_active_buyer_signal,
@@ -567,3 +574,98 @@ class StaleOpportunityTests(TestCase):
         )
         self.assertFalse(ok)
         self.assertIn("past", reason.lower())
+
+
+class FinalizeCrawlRunTests(TestCase):
+    """
+    _finalize_crawl_run_if_complete is the fix for the bug where discover_websites_task
+    used to mark a CrawlRun SUCCESS immediately after enqueueing crawl_domain_task for
+    each domain, before any of them had actually run. Every queued child task then
+    treated the non-RUNNING status as "cancelled" (_run_is_cancelled) and self-aborted
+    with no crawling ever happening. These tests exercise the replacement completion
+    tracking directly, independent of Celery task wiring.
+    """
+
+    def _domain(self, n: int) -> DiscoveredDomain:
+        return DiscoveredDomain.objects.create(domain=f"finalize-{n}.example.com")
+
+    def test_run_stays_running_until_every_queued_domain_is_terminal(self):
+        from crawler.tasks import _finalize_crawl_run_if_complete
+
+        run = CrawlRun.objects.create(status=CrawlRunStatus.RUNNING, domains_queued=2)
+        d1, d2 = self._domain(1), self._domain(2)
+        CrawlRunDomainResult.objects.create(crawl_run=run, domain=d1, state="queued")
+        CrawlRunDomainResult.objects.create(crawl_run=run, domain=d2, state="queued")
+
+        _finalize_crawl_run_if_complete(run.id)
+        run.refresh_from_db()
+        self.assertEqual(run.status, CrawlRunStatus.RUNNING)
+        self.assertIsNone(run.finished_at)
+
+        CrawlRunDomainResult.objects.filter(domain=d1).update(state="scored")
+        _finalize_crawl_run_if_complete(run.id)
+        run.refresh_from_db()
+        self.assertEqual(run.status, CrawlRunStatus.RUNNING, "only 1 of 2 domains done")
+
+        CrawlRunDomainResult.objects.filter(domain=d2).update(state="failed")
+        _finalize_crawl_run_if_complete(run.id)
+        run.refresh_from_db()
+        self.assertEqual(run.status, CrawlRunStatus.SUCCESS)
+        self.assertIsNotNone(run.finished_at)
+
+    def test_noop_once_run_is_already_terminal(self):
+        from crawler.tasks import _finalize_crawl_run_if_complete
+
+        run = CrawlRun.objects.create(
+            status=CrawlRunStatus.FAILED, domains_queued=0, error_text="boom"
+        )
+        _finalize_crawl_run_if_complete(run.id)
+        run.refresh_from_db()
+        self.assertEqual(run.status, CrawlRunStatus.FAILED)
+
+
+class DiscoverWebsitesTaskStatusTests(TestCase):
+    """
+    Regression tests for the discover_websites_task run-status race itself.
+
+    migrations/0002_seed_sources_and_target.py seeds real, enabled CrawlSource rows
+    (with live discovery queries) into every fresh database, including the test DB —
+    so discover_websites_task would otherwise make real Serper/HTTP calls out to the
+    internet here. Disable them in setUp so these tests only ever see the
+    DiscoveredDomain rows each test creates explicitly, and run hermetically.
+    """
+
+    def setUp(self):
+        from crawler.models import CrawlSource
+
+        CrawlSource.objects.filter(enabled=True).update(enabled=False)
+
+    @patch("crawler.tasks.crawl_domain_task.delay")
+    def test_run_stays_running_with_children_not_cancelled(self, mock_delay):
+        from crawler.tasks import _run_is_cancelled, discover_websites_task
+
+        DiscoveredDomain.objects.create(domain="alpha.example.com")
+        DiscoveredDomain.objects.create(domain="beta.example.com")
+
+        result = discover_websites_task.apply(kwargs={"initiated_by_id": None}).get()
+        run = CrawlRun.objects.get(id=result["run_id"])
+
+        # Before the fix, this was CrawlRunStatus.SUCCESS at this exact point — before
+        # either crawl_domain_task had run — which made _run_is_cancelled(run.id) return
+        # True for every domain about to be processed.
+        self.assertEqual(run.status, CrawlRunStatus.RUNNING)
+        self.assertIsNone(run.finished_at)
+        self.assertEqual(run.domains_queued, 2)
+        self.assertEqual(mock_delay.call_count, 2)
+        self.assertFalse(_run_is_cancelled(run.id))
+        self.assertEqual(
+            CrawlRunDomainResult.objects.filter(crawl_run=run, state="queued").count(), 2
+        )
+
+    def test_run_finalizes_immediately_when_nothing_is_pending(self):
+        from crawler.tasks import discover_websites_task
+
+        result = discover_websites_task.apply(kwargs={"initiated_by_id": None}).get()
+        run = CrawlRun.objects.get(id=result["run_id"])
+        self.assertEqual(run.status, CrawlRunStatus.SUCCESS)
+        self.assertIsNotNone(run.finished_at)
