@@ -10,12 +10,14 @@ from __future__ import annotations
 import logging
 import os
 from collections import Counter
+from datetime import timedelta
 from typing import Any
 from urllib.parse import urlparse
 
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from crawler.crawler import crawl_domain
@@ -76,6 +78,19 @@ def _finalize_crawl_run_if_complete(run_id: int) -> None:
         run.status = CrawlRunStatus.SUCCESS
         run.finished_at = timezone.now()
         run.save(update_fields=["status", "finished_at"])
+
+
+def _next_attempt_backoff(crawl_attempts: int) -> timedelta:
+    """
+    Exponential backoff for retrying a failed domain crawl: 1h, 2h, 4h, 8h, ...
+    capped at 72h. DiscoveredDomain.next_attempt_at was previously defined and
+    indexed but never written anywhere — failed domains stayed excluded from
+    every future scheduled run forever (discover_websites_task only re-queues
+    crawl_status="pending"), with no automatic path back into the pipeline
+    short of a human using the admin "reset to pending" action.
+    """
+    hours = min(2 ** max(0, crawl_attempts - 1), 72)
+    return timedelta(hours=hours)
 
 
 def _get_crawler_config() -> dict[str, Any]:
@@ -151,7 +166,13 @@ def discover_websites_task(self, initiated_by_id: int | None = None) -> dict[str
             created = save_discovered_domains(filtered_hits, source=source, owner_id=initiated_by_id)
             stats["domains_discovered"] += int(created)
 
-        pending_qs = DiscoveredDomain.objects.filter(crawl_status="pending")
+        # Include failed domains whose backoff window has passed, not just
+        # "pending" ones — otherwise a domain that failed once stays excluded
+        # from every future scheduled run forever (see _next_attempt_backoff).
+        pending_qs = DiscoveredDomain.objects.filter(
+            Q(crawl_status="pending")
+            | Q(crawl_status="failed", next_attempt_at__isnull=False, next_attempt_at__lte=timezone.now())
+        )
         if initiated_by_id:
             pending_qs = pending_qs.filter(owner_id=initiated_by_id)
         pending = list(
@@ -192,14 +213,27 @@ def discover_websites_task(self, initiated_by_id: int | None = None) -> dict[str
         run.stats = stats
         run.finished_at = timezone.now()
         run.save(update_fields=["status", "error_text", "stats", "finished_at"])
-        raise
+        # max_retries/default_retry_delay were previously configured but never
+        # actually used — nothing called self.retry(), so any transient failure
+        # here (a DB blip, a momentary Serper/DNS hiccup) permanently failed the
+        # whole discovery cycle with no retry, silently, until the next scheduled
+        # run (up to CRAWLER_DISCOVERY_INTERVAL_SECONDS later). This run is
+        # already recorded FAILED above for the audit trail; the retried attempt
+        # creates its own fresh CrawlRun if it succeeds. Safe to wire here
+        # specifically (unlike crawl_domain_task/analyze_domain_task below) since
+        # this task has a single try/except with no partial-completion side
+        # effects that a re-run from scratch would double up on.
+        raise self.retry(exc=exc)
 
 
-@shared_task(bind=True, max_retries=3, default_retry_delay=120)
+@shared_task(bind=True)
 def crawl_domain_task(self, domain_id: int, run_id: int, owner_id: int | None = None) -> dict[str, Any]:
     """
     Crawl a single DiscoveredDomain and dispatch analyze_domain_task.
     run_id refers to CrawlRun (crawler app), not ScrapeRun.
+
+    No max_retries/self.retry() here — see analyze_domain_task's docstring for
+    why; retrying belongs at the domain level via next_attempt_at instead.
     """
     if _run_is_cancelled(run_id):
         return {"domain_id": domain_id, "skipped": "run_not_running"}
@@ -218,16 +252,28 @@ def crawl_domain_task(self, domain_id: int, run_id: int, owner_id: int | None = 
 
     try:
         data = crawl_domain(domain_obj)
-        domain_obj.crawl_status = "completed" if not data.get("error") else "failed"
+        pages = int(data.get("pages_crawled") or 0)
+        # A domain is "failed" only when nothing was actually collected. crawl_domain's
+        # `error` field only ever reflects the *last* fetch failure encountered while
+        # walking the queue, never overall outcome — gating crawl_status on "error is
+        # truthy" produced false negatives whenever even one page out of many (e.g. a
+        # single transient 404/timeout among 25 pages) failed to fetch, hiding domains
+        # that actually produced usable content (and a Prospect) behind "failed".
+        crawl_succeeded = pages > 0
+        domain_obj.crawl_status = "completed" if crawl_succeeded else "failed"
         domain_obj.last_crawled_at = timezone.now()
         domain_obj.error_text = data.get("error") or ""
-        domain_obj.save(update_fields=["crawl_status", "last_crawled_at", "error_text"])
-        pages = int(data.get("pages_crawled") or 0)
+        domain_obj.next_attempt_at = (
+            None if crawl_succeeded else timezone.now() + _next_attempt_backoff(domain_obj.crawl_attempts)
+        )
+        domain_obj.save(
+            update_fields=["crawl_status", "last_crawled_at", "error_text", "next_attempt_at"]
+        )
         CrawlRunDomainResult.objects.filter(
             crawl_run_id=run_id, domain_id=domain_id
         ).update(
             state="crawled",
-            crawl_succeeded=not data.get("error"),
+            crawl_succeeded=crawl_succeeded,
             crawl_error=data.get("error") or "",
             pages_crawled=pages,
         )
@@ -245,7 +291,10 @@ def crawl_domain_task(self, domain_id: int, run_id: int, owner_id: int | None = 
         domain_obj.crawl_status = "failed"
         domain_obj.last_crawled_at = timezone.now()
         domain_obj.error_text = str(exc)
-        domain_obj.save(update_fields=["crawl_status", "last_crawled_at", "error_text"])
+        domain_obj.next_attempt_at = timezone.now() + _next_attempt_backoff(domain_obj.crawl_attempts)
+        domain_obj.save(
+            update_fields=["crawl_status", "last_crawled_at", "error_text", "next_attempt_at"]
+        )
         CrawlRunDomainResult.objects.filter(
             crawl_run_id=run_id, domain_id=domain_id
         ).update(state="failed", crawl_succeeded=False, crawl_error=str(exc))
@@ -253,13 +302,22 @@ def crawl_domain_task(self, domain_id: int, run_id: int, owner_id: int | None = 
         raise
 
 
-@shared_task(bind=True, max_retries=2)
+@shared_task(bind=True)
 def analyze_domain_task(
     self, domain_id: int, crawl_data: dict[str, Any], run_id: int, owner_id: int | None = None
 ) -> int:
     """
     Analyze crawl results, build/update WebsiteProfile, dispatch score_and_create_prospect_task.
     run_id is CrawlRun.id.
+
+    Deliberately no max_retries/self.retry() here (or in crawl_domain_task):
+    failure is a terminal, handled outcome — the CrawlRunDomainResult ledger row
+    and (for crawl_domain_task) the DiscoveredDomain's crawl_status/next_attempt_at
+    are already updated and the run's completion tracking already notified before
+    the exception propagates. A Celery-level retry would re-run this from
+    scratch on top of that already-recorded "failed" state rather than cleanly
+    resuming, so retrying belongs at the domain level (next_attempt_at picking
+    it up again next discovery cycle), not here.
     """
     from crawler.analyzer import (
         build_international_signals,

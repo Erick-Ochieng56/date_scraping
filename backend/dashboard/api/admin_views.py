@@ -23,7 +23,7 @@ from dashboard.utils import log_activity
 from scraper.models import ScrapeRun, ScrapeRunStatus, ScrapeTarget
 from scraper.tasks import try_start_scrape
 from crawler.models import AISearchJob, AISearchResult, CrawlRun, CrawlRunStatus, CrawlRunTrigger, CrawlSource, DiscoveredDomain
-from crawler.discovery import _get_serper_api_key
+from dashboard.api.views import _ai_search_configured
 from crawler.services.promote_ai_result import promote_ai_search_result_to_prospect
 from crawler.tasks import crawl_domain_task, run_ai_search_job
 from leads.models import Lead, Prospect
@@ -424,6 +424,7 @@ def _serialize_target(target: ScrapeTarget) -> dict:
         "start_url": target.start_url,
         "run_every_minutes": target.run_every_minutes,
         "last_run_at": target.last_run_at.isoformat() if target.last_run_at else None,
+        "consecutive_failures": target.consecutive_failures,
         "owner_id": target.owner_id,
     }
 
@@ -796,12 +797,18 @@ def _paginate_queryset(request: Request, qs, serializer_cls):
 @permission_classes([IsAuthenticated, IsDashboardAdminUser])
 def admin_ai_search_jobs(request: Request) -> Response:
     if request.method == "POST":
-        if not _get_serper_api_key() and not (getattr(settings, "GEMINI_API_KEY", None) or "").strip():
+        # Must match the non-admin path's _ai_search_configured() exactly — this
+        # used to accept either key present, ignoring AI_SEARCH_REQUIRE_GEMINI, so
+        # an admin could get a 201 here and then watch the job die instantly in
+        # run_ai_search_job (which does honor that setting) with no way to have
+        # known upfront.
+        if not _ai_search_configured():
             return Response(
                 {
                     "success": False,
                     "error": (
-                        "AI search is not configured. Set GEMINI_API_KEY and/or SERPER_API_KEY on the server."
+                        "AI search is not configured. Set GEMINI_API_KEY on the server "
+                        "(and SERPER_API_KEY for company-first discovery)."
                     ),
                 },
                 status=status.HTTP_400_BAD_REQUEST,

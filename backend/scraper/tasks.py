@@ -21,6 +21,16 @@ SCRAPE_CONCURRENCY_GUARD_SECONDS = int(
     os.getenv("SCRAPE_CONCURRENCY_GUARD_SECONDS", "600") or "600"
 )
 
+# A target failing this many runs in a row gets auto-disabled rather than
+# retried forever. Previously target.last_run_at was only updated on success,
+# so a permanently broken target (bad selector, dead URL) got re-enqueued on
+# every beat tick (every SCRAPE_ALL_INTERVAL_SECONDS, default 300s) forever —
+# not even respecting its own run_every_minutes — spamming a notification and
+# an activity-log entry on every single attempt with no backoff or cutoff.
+SCRAPE_MAX_CONSECUTIVE_FAILURES = int(
+    os.getenv("SCRAPE_MAX_CONSECUTIVE_FAILURES", "5") or "5"
+)
+
 
 def _get_env(name: str, default: str | None = None) -> str | None:
     """Helper to get environment variable."""
@@ -268,8 +278,6 @@ def scrape_target(
         run.created_leads = created_count  # Note: stores prospect count
         run.updated_leads = updated_count  # Note: stores prospect count
         run.status = ScrapeRunStatus.SUCCESS
-        target.last_run_at = timezone.now()
-        target.save(update_fields=["last_run_at"])
         try:
             from dashboard.utils import create_notification_for_all_users, log_activity
             log_activity(
@@ -374,6 +382,61 @@ def scrape_target(
             "updated": updated_count,
         }
         run.save()
+
+        # Always advance last_run_at — on failure too, not just success — so
+        # _target_is_due() respects run_every_minutes instead of re-enqueueing
+        # this target on every beat tick forever. Track consecutive failures and
+        # auto-disable past the threshold rather than retrying indefinitely.
+        target.last_run_at = timezone.now()
+        target_update_fields = ["last_run_at"]
+        if run.status == ScrapeRunStatus.SUCCESS:
+            if target.consecutive_failures:
+                target.consecutive_failures = 0
+                target_update_fields.append("consecutive_failures")
+        else:
+            target.consecutive_failures += 1
+            target_update_fields.append("consecutive_failures")
+            if target.enabled and target.consecutive_failures >= SCRAPE_MAX_CONSECUTIVE_FAILURES:
+                target.enabled = False
+                target_update_fields.append("enabled")
+                logger.warning(
+                    "Target %s (%s) auto-disabled after %d consecutive failed runs.",
+                    target.id,
+                    target.name,
+                    target.consecutive_failures,
+                )
+                try:
+                    from dashboard.utils import create_notification_for_all_users, log_activity
+                    log_activity(
+                        action="target_auto_disabled",
+                        object_type="target",
+                        object_id=target.id,
+                        description=(
+                            f'Target "{target.name}" auto-disabled after '
+                            f"{target.consecutive_failures} consecutive failed runs."
+                        ),
+                        user=None,
+                        metadata={
+                            "target_id": target.id,
+                            "consecutive_failures": target.consecutive_failures,
+                        },
+                    )
+                    create_notification_for_all_users(
+                        title="Target auto-disabled",
+                        message=(
+                            f'Target "{target.name}" was automatically disabled after '
+                            f"{target.consecutive_failures} consecutive failed runs. "
+                            "Fix its configuration or URL, then re-enable it."
+                        ),
+                        notification_type="error",
+                        link_url=f"/targets/{target.id}/",
+                        metadata={"target_id": target.id},
+                    )
+                except Exception as notif_err:
+                    logger.warning(
+                        "Failed to create auto-disable notification/log: %s", notif_err
+                    )
+        target.save(update_fields=target_update_fields)
 
 
 @shared_task

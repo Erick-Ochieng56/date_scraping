@@ -42,6 +42,12 @@ class ScrapeTarget(models.Model):
     )
     config = models.JSONField(blank=True, default=dict)
     last_run_at = models.DateTimeField(blank=True, null=True)
+    consecutive_failures = models.PositiveIntegerField(
+        default=0,
+        help_text="Consecutive failed runs since the last success. Reset to 0 on "
+        "success; the target is auto-disabled once this reaches "
+        "SCRAPE_MAX_CONSECUTIVE_FAILURES.",
+    )
 
     def __str__(self) -> str:
         return self.name

@@ -26,10 +26,11 @@ class ScrapeTargetSerializer(serializers.ModelSerializer):
             "run_every_minutes",
             "config",
             "last_run_at",
+            "consecutive_failures",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ("id", "last_run_at", "created_at", "updated_at")
+        read_only_fields = ("id", "last_run_at", "consecutive_failures", "created_at", "updated_at")
 
     def validate_start_url(self, value):
         from scraper.services.url_safety import check_public_url

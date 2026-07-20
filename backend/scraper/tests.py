@@ -523,3 +523,75 @@ class UpsertProspectOwnerScopingTests(TestCase):
         second, created_second = upsert_prospect_from_item(target, item2, owner_id=None)
         self.assertFalse(created_second)
         self.assertEqual(first.id, second.id)
+
+
+class ScrapeTargetFailureBackoffTests(TestCase):
+    """
+    Regression tests for the infinite-retry-on-failure bug: target.last_run_at
+    used to be updated only on success, so _target_is_due() kept returning True
+    on every beat tick (every SCRAPE_ALL_INTERVAL_SECONDS, default 300s) for a
+    permanently broken target — never respecting run_every_minutes, and never
+    stopping. Failures now always advance last_run_at, track consecutive
+    failures, and auto-disable the target past SCRAPE_MAX_CONSECUTIVE_FAILURES.
+    """
+
+    def _target(self, **kwargs) -> ScrapeTarget:
+        defaults = {
+            "name": "backoff-test-target",
+            "start_url": "https://example.com",
+            "config": {"item_selector": ".x", "fields": {"full_name": ".t"}},
+        }
+        defaults.update(kwargs)
+        target = ScrapeTarget(**defaults)
+        target.save()
+        return target
+
+    @patch("scraper.tasks.run_target")
+    def test_success_resets_consecutive_failures(self, mock_run_target):
+        mock_run_target.return_value = []
+        target = self._target(consecutive_failures=3)
+
+        scrape_target.apply(kwargs={"target_id": target.id}).get()
+
+        target.refresh_from_db()
+        self.assertEqual(target.consecutive_failures, 0)
+        self.assertIsNotNone(target.last_run_at)
+
+    @patch("scraper.tasks.run_target")
+    def test_failure_advances_last_run_at_and_increments_failures(self, mock_run_target):
+        mock_run_target.side_effect = ConnectionError("Failed to connect to https://example.com. Check your internet connection and DNS settings.")
+        target = self._target()
+        self.assertIsNone(target.last_run_at)
+
+        scrape_target.apply(kwargs={"target_id": target.id}).get()
+
+        target.refresh_from_db()
+        # Previously last_run_at stayed None forever on failure, so
+        # _target_is_due() (last_run_at is None -> always due) kept re-enqueueing
+        # this target on every single beat tick regardless of run_every_minutes.
+        self.assertIsNotNone(target.last_run_at)
+        self.assertEqual(target.consecutive_failures, 1)
+        self.assertTrue(target.enabled)
+        self.assertFalse(_target_is_due(target))
+
+    @patch("scraper.tasks.run_target")
+    def test_auto_disables_after_max_consecutive_failures(self, mock_run_target):
+        mock_run_target.side_effect = ConnectionError("Failed to connect to https://example.com. Check your internet connection and DNS settings.")
+        target = self._target(consecutive_failures=4)  # one short of the default threshold (5)
+
+        scrape_target.apply(kwargs={"target_id": target.id}).get()
+
+        target.refresh_from_db()
+        self.assertEqual(target.consecutive_failures, 5)
+        self.assertFalse(target.enabled)
+
+    @patch("scraper.tasks.run_target")
+    def test_does_not_disable_before_threshold(self, mock_run_target):
+        mock_run_target.side_effect = ConnectionError("Failed to connect to https://example.com. Check your internet connection and DNS settings.")
+        target = self._target(consecutive_failures=1)
+
+        scrape_target.apply(kwargs={"target_id": target.id}).get()
+
+        target.refresh_from_db()
+        self.assertEqual(target.consecutive_failures, 2)
+        self.assertTrue(target.enabled)

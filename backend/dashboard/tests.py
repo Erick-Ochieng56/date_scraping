@@ -1,7 +1,9 @@
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.management import call_command
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 from io import StringIO
 
@@ -166,6 +168,24 @@ class DashboardAdminApiTests(TestCase):
         self.assertEqual(resp.status_code, 201)
         self.assertTrue(resp.data["success"])
         self.assertEqual(resp.data["data"]["role"], "staff")
+
+    @override_settings(GEMINI_API_KEY="", AI_SEARCH_REQUIRE_GEMINI=True)
+    @patch("dashboard.api.views._get_serper_api_key", return_value="fake-serper-key")
+    def test_admin_ai_search_job_create_rejects_when_gemini_missing_but_serper_present(self, _mock_serper):
+        """
+        Regression: the admin job-creation check used to accept either
+        SERPER_API_KEY or GEMINI_API_KEY being present, ignoring
+        AI_SEARCH_REQUIRE_GEMINI — so an admin could get a 201 here and then
+        watch run_ai_search_job (which does honor that setting) fail instantly
+        with no way to have known upfront. Must now match the non-admin check.
+        """
+        resp = self.client.post(
+            "/dashboard/api/admin/v1/ai-search/jobs/",
+            {"seed_topic": "East Africa medical conference interpretation"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(resp.data["success"])
 
     def test_admin_ownership_transfer_scrape_targets(self):
         t1 = ScrapeTarget.objects.create(name="T-from", start_url="https://example.com", owner=self.staff_from)

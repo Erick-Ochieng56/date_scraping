@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from crawler.models import (
     AISearchJob,
@@ -842,3 +843,113 @@ class CreateOrUpdateProspectOwnerScopingTests(TestCase):
         second, created_second = create_or_update_prospect(profile, score=91, owner_id=None)
         self.assertFalse(created_second)
         self.assertEqual(first.id, second.id)
+
+
+class CrawlDomainFailureAndRetryTests(TestCase):
+    """
+    Regression tests for two related bugs in crawl_domain_task:
+    (1) a single failed page among many used to mark the whole domain "failed"
+        (crawl_domain()'s `error` field only ever reflects the *last* fetch
+        failure, not overall outcome) — now gated on whether any pages were
+        actually collected instead;
+    (2) failed domains were never retried — DiscoveredDomain.next_attempt_at was
+        defined/indexed but never written — now backed off exponentially and
+        picked back up by discover_websites_task once the window passes.
+
+    migrations/0002_seed_sources_and_target.py seeds real, enabled CrawlSource
+    rows into every fresh DB including the test DB — disable them so
+    discover_websites_task doesn't make live Serper/HTTP calls here (see
+    DiscoverWebsitesTaskStatusTests, which hit this the same way).
+    """
+
+    def setUp(self):
+        from crawler.models import CrawlSource
+
+        CrawlSource.objects.filter(enabled=True).update(enabled=False)
+
+    def _domain(self, **kwargs) -> DiscoveredDomain:
+        defaults = {"domain": "retry-test.example.com"}
+        defaults.update(kwargs)
+        return DiscoveredDomain.objects.create(**defaults)
+
+    def _run(self, domains_queued: int = 1) -> CrawlRun:
+        return CrawlRun.objects.create(status=CrawlRunStatus.RUNNING, domains_queued=domains_queued)
+
+    @patch("crawler.tasks.analyze_domain_task.delay")
+    @patch("crawler.tasks.crawl_domain")
+    def test_partial_page_failure_does_not_mark_domain_failed(self, mock_crawl_domain, mock_analyze_delay):
+        mock_crawl_domain.return_value = {
+            "pages": [{"url": "https://retry-test.example.com/", "text": "hi", "html": "<html></html>"}],
+            "emails": [],
+            "phones": [],
+            "pages_crawled": 1,
+            "error": "timeout fetching https://retry-test.example.com/about",
+        }
+        domain = self._domain()
+        run = self._run()
+
+        from crawler.tasks import crawl_domain_task
+
+        crawl_domain_task.apply(kwargs={"domain_id": domain.id, "run_id": run.id}).get()
+
+        domain.refresh_from_db()
+        self.assertEqual(domain.crawl_status, "completed")
+        self.assertIsNone(domain.next_attempt_at)
+        # Diagnostic text is kept even though the crawl overall succeeded.
+        self.assertIn("timeout", domain.error_text)
+        result = CrawlRunDomainResult.objects.get(crawl_run=run, domain=domain)
+        self.assertTrue(result.crawl_succeeded)
+
+    @patch("crawler.tasks.analyze_domain_task.delay")
+    @patch("crawler.tasks.crawl_domain")
+    def test_zero_pages_marks_failed_and_schedules_retry(self, mock_crawl_domain, mock_analyze_delay):
+        mock_crawl_domain.return_value = {
+            "pages": [],
+            "emails": [],
+            "phones": [],
+            "pages_crawled": 0,
+            "error": "connection refused",
+        }
+        domain = self._domain()
+        run = self._run()
+
+        from crawler.tasks import crawl_domain_task
+
+        crawl_domain_task.apply(kwargs={"domain_id": domain.id, "run_id": run.id}).get()
+
+        domain.refresh_from_db()
+        self.assertEqual(domain.crawl_status, "failed")
+        self.assertIsNotNone(domain.next_attempt_at)
+        self.assertGreater(domain.next_attempt_at, timezone.now())
+        result = CrawlRunDomainResult.objects.get(crawl_run=run, domain=domain)
+        self.assertFalse(result.crawl_succeeded)
+
+    def test_next_attempt_backoff_is_exponential_and_capped(self):
+        from crawler.tasks import _next_attempt_backoff
+
+        self.assertEqual(_next_attempt_backoff(1), timezone.timedelta(hours=1))
+        self.assertEqual(_next_attempt_backoff(2), timezone.timedelta(hours=2))
+        self.assertEqual(_next_attempt_backoff(3), timezone.timedelta(hours=4))
+        self.assertEqual(_next_attempt_backoff(20), timezone.timedelta(hours=72))
+
+    @patch("crawler.tasks.crawl_domain_task.delay")
+    def test_discover_requeues_failed_domain_past_backoff_window(self, mock_delay):
+        from crawler.tasks import discover_websites_task
+
+        due = self._domain(
+            domain="due-for-retry.example.com",
+            crawl_status="failed",
+            next_attempt_at=timezone.now() - timezone.timedelta(minutes=5),
+        )
+        not_due = self._domain(
+            domain="not-due-for-retry.example.com",
+            crawl_status="failed",
+            next_attempt_at=timezone.now() + timezone.timedelta(hours=1),
+        )
+
+        result = discover_websites_task.apply(kwargs={"initiated_by_id": None}).get()
+
+        self.assertEqual(result["domains_queued"], 1)
+        queued_ids = {c.kwargs["domain_id"] for c in mock_delay.call_args_list}
+        self.assertIn(due.id, queued_ids)
+        self.assertNotIn(not_due.id, queued_ids)
