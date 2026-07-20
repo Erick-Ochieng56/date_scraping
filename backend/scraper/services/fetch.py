@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import signal
 import subprocess
 import sys
 from urllib.parse import urljoin
@@ -75,6 +77,65 @@ def fetch_html(url: str, *, headers: dict[str, str] | None = None, timeout: int 
 # Windows (Python 3.12+). The child process is completely isolated: it has
 # its own event loop, its own Playwright instance, and exits when done.
 # ---------------------------------------------------------------------------
+
+
+def _spawn_playwright_subprocess(args: list[str]) -> subprocess.Popen:
+    """
+    Spawn the subprocess in its own process group/session so the whole tree
+    (this process, Playwright's Node driver, and the Chromium process it
+    launches) can be killed together on timeout — see _kill_process_tree().
+    """
+    kwargs: dict = {}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        kwargs["start_new_session"] = True  # POSIX: setsid(), own process group
+    return subprocess.Popen(
+        args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        **kwargs,
+    )
+
+
+def _kill_process_tree(proc: subprocess.Popen) -> None:
+    """
+    Kill the subprocess AND any children it spawned.
+
+    Plain Popen.kill() (what subprocess.run() calls internally on
+    TimeoutExpired) only terminates the immediate `python -c ...` process —
+    Playwright's Node driver and the Chromium process it launches are left
+    running. Windows has no automatic child-process-tree cleanup, so a timed-
+    out scrape used to leave orphaned Node/Chromium processes on the worker
+    host indefinitely; repeated timeouts accumulate zombies.
+    """
+    if sys.platform == "win32":
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                capture_output=True,
+                timeout=10,
+            )
+        except Exception:
+            logger.warning(
+                "taskkill failed for playwright subprocess pid=%s", proc.pid, exc_info=True
+            )
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except Exception:
+            logger.warning(
+                "killpg failed for playwright subprocess pid=%s", proc.pid, exc_info=True
+            )
+    try:
+        proc.kill()
+    except Exception:
+        pass
+    try:
+        proc.communicate(timeout=5)  # reap the process, drain any remaining output
+    except Exception:
+        pass
 
 _PLAYWRIGHT_SCRIPT = """
 import ipaddress, socket, sys, json
@@ -258,23 +319,20 @@ def fetch_html_playwright(
 
     logger.debug("fetch_html_playwright: spawning subprocess for %s", url)
 
+    proc = _spawn_playwright_subprocess([sys.executable, "-c", _PLAYWRIGHT_SCRIPT, payload])
     try:
-        result = subprocess.run(
-            [sys.executable, "-c", _PLAYWRIGHT_SCRIPT, payload],
-            capture_output=True,
-            text=True,
-            timeout=wall_clock_timeout,
-        )
+        raw_stdout, raw_stderr = proc.communicate(timeout=wall_clock_timeout)
     except subprocess.TimeoutExpired:
+        _kill_process_tree(proc)
         raise TimeoutError(
             f"Page load timeout for {url} after {timeout_ms}ms. "
             "The page may be too slow or unresponsive."
         )
 
-    stdout = result.stdout.strip()
+    stdout = (raw_stdout or "").strip()
 
     if not stdout:
-        stderr_snippet = result.stderr.strip()[:500] if result.stderr else "(no stderr)"
+        stderr_snippet = (raw_stderr or "").strip()[:500] if raw_stderr else "(no stderr)"
         if "playwright" in stderr_snippet.lower() and "not" in stderr_snippet.lower():
             raise RuntimeError(
                 "Playwright is not available. "
@@ -282,7 +340,7 @@ def fetch_html_playwright(
             )
         raise RuntimeError(
             f"Playwright subprocess produced no output for {url}. "
-            f"Exit code: {result.returncode}. Stderr: {stderr_snippet}"
+            f"Exit code: {proc.returncode}. Stderr: {stderr_snippet}"
         )
 
     try:

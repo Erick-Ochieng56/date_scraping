@@ -9,7 +9,6 @@ from django.urls import path, reverse
 from django.utils.html import format_html
 
 from .models import ScrapeRun, ScrapeRunTrigger, ScrapeTarget
-from scraper.tasks import scrape_target
 
 
 class ScrapeTargetAdminForm(forms.ModelForm):
@@ -125,16 +124,22 @@ class ScrapeTargetAdmin(admin.ModelAdmin):
 
     def trigger_scrape_selected(self, request, queryset):
         """Admin action to trigger scrape for selected targets."""
+        from scraper.tasks import try_start_scrape
+
         count = 0
+        skipped = 0
         for target in queryset:
-            if target.enabled:
-                scrape_target.delay(target_id=target.id, trigger=ScrapeRunTrigger.MANUAL)
+            if not target.enabled:
+                continue
+            run, _async_result = try_start_scrape(target, trigger=ScrapeRunTrigger.MANUAL)
+            if run is not None:
                 count += 1
-        self.message_user(
-            request,
-            f"Scrape triggered for {count} target(s).",
-            messages.SUCCESS
-        )
+            else:
+                skipped += 1
+        message = f"Scrape triggered for {count} target(s)."
+        if skipped:
+            message += f" {skipped} skipped (already running)."
+        self.message_user(request, message, messages.SUCCESS)
     trigger_scrape_selected.short_description = "Trigger scrape for selected targets"
 
     def sync_from_config(self, request, queryset):
@@ -178,17 +183,36 @@ class ScrapeTargetAdmin(admin.ModelAdmin):
 
     def trigger_scrape_view(self, request, target_id):
         """Custom view to trigger a scrape for a single target."""
+        from scraper.tasks import try_start_scrape
+
         try:
             target = ScrapeTarget.objects.get(pk=target_id)
-            scrape_target.delay(target_id=target.id, trigger=ScrapeRunTrigger.MANUAL)
-            self.message_user(
-                request,
-                f"Scrape triggered for '{target.name}'. Check ScrapeRun for results.",
-                messages.SUCCESS
-            )
+            if not target.enabled:
+                # Matches trigger_scrape_selected's enabled check above, which this
+                # per-row button previously didn't — a disabled target could be
+                # manually triggered from its own admin page.
+                self.message_user(
+                    request,
+                    f"'{target.name}' is disabled; enable it before triggering a scrape.",
+                    messages.WARNING,
+                )
+            else:
+                run, _async_result = try_start_scrape(target, trigger=ScrapeRunTrigger.MANUAL)
+                if run is not None:
+                    self.message_user(
+                        request,
+                        f"Scrape triggered for '{target.name}'. Check ScrapeRun for results.",
+                        messages.SUCCESS
+                    )
+                else:
+                    self.message_user(
+                        request,
+                        f"'{target.name}' already has a scrape in progress.",
+                        messages.WARNING,
+                    )
         except ScrapeTarget.DoesNotExist:
             self.message_user(request, "Target not found.", messages.ERROR)
-        
+
         return HttpResponseRedirect(reverse("admin:scraper_scrapetarget_changelist"))
 
     def auto_create_view(self, request):
@@ -283,19 +307,23 @@ class ScrapeRunAdmin(admin.ModelAdmin):
     
     def retry_failed_runs(self, request, queryset):
         """Retry failed scrape runs."""
-        from scraper.tasks import scrape_target
-        
+        from scraper.tasks import try_start_scrape
+
         count = 0
+        skipped = 0
         for run in queryset.filter(status="failed"):
-            if run.target.enabled:
-                scrape_target.delay(target_id=run.target.id, trigger="manual")
+            if not run.target.enabled:
+                continue
+            new_run, _async_result = try_start_scrape(run.target, trigger="manual")
+            if new_run is not None:
                 count += 1
-        
-        self.message_user(
-            request,
-            f"Retried {count} failed scrape(s).",
-            messages.SUCCESS
-        )
+            else:
+                skipped += 1
+
+        message = f"Retried {count} failed scrape(s)."
+        if skipped:
+            message += f" {skipped} skipped (already running)."
+        self.message_user(request, message, messages.SUCCESS)
     retry_failed_runs.short_description = "Retry selected failed runs"
     
     def error_preview(self, obj):

@@ -45,7 +45,7 @@ from dashboard.api.serializers import (
 from dashboard.utils import log_activity
 from leads.models import Lead, LeadStatus, Prospect, ProspectStatus
 from scraper.models import ScrapeRun, ScrapeRunStatus, ScrapeTarget
-from scraper.tasks import scrape_target
+from scraper.tasks import try_start_scrape
 
 
 def _parse_positive_int(value, *, field: str, default: int, minimum: int = 1, maximum: int | None = None) -> int:
@@ -165,7 +165,12 @@ def trigger_target(request: Request, target_id: int) -> Response:
         target = _owned_qs(request, ScrapeTarget.objects.all()).get(id=target_id)
     except ScrapeTarget.DoesNotExist:
         return Response({"success": False, "error": "Target not found"}, status=status.HTTP_404_NOT_FOUND)
-    task = scrape_target.delay(target_id=target.id, trigger="manual", initiated_by_id=request.user.id)
+    run, task = try_start_scrape(target, trigger="manual", initiated_by_id=request.user.id)
+    if run is None:
+        return Response(
+            {"success": False, "error": "A scrape is already in progress for this target."},
+            status=status.HTTP_409_CONFLICT,
+        )
     log_activity(
         action="scrape_triggered",
         object_type="target",
@@ -215,7 +220,12 @@ def scrape_run_retry(request: Request, run_id: int) -> Response:
             {"success": False, "error": "Only failed runs can be retried."},
             status=status.HTTP_400_BAD_REQUEST,
         )
-    task = scrape_target.delay(target_id=run.target_id, trigger="manual", initiated_by_id=request.user.id)
+    new_run, task = try_start_scrape(run.target, trigger="manual", initiated_by_id=request.user.id)
+    if new_run is None:
+        return Response(
+            {"success": False, "error": "A scrape is already in progress for this target."},
+            status=status.HTTP_409_CONFLICT,
+        )
     return Response({"success": True, "message": "Retry queued", "task_id": task.id})
 
 

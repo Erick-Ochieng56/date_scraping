@@ -21,7 +21,7 @@ from dashboard.api.serializers import AISearchJobSerializer, AISearchResultSeria
 from dashboard.permissions import scraper_group_name
 from dashboard.utils import log_activity
 from scraper.models import ScrapeRun, ScrapeRunStatus, ScrapeTarget
-from scraper.tasks import scrape_target
+from scraper.tasks import try_start_scrape
 from crawler.models import AISearchJob, AISearchResult, CrawlRun, CrawlRunStatus, CrawlRunTrigger, CrawlSource, DiscoveredDomain
 from crawler.discovery import _get_serper_api_key
 from crawler.services.promote_ai_result import promote_ai_search_result_to_prospect
@@ -471,7 +471,12 @@ def scraper_target_trigger(request: Request, target_id: int) -> Response:
     except ScrapeTarget.DoesNotExist:
         return Response({"success": False, "error": "Target not found"}, status=status.HTTP_404_NOT_FOUND)
 
-    task = scrape_target.delay(target_id=target.id, trigger="manual", initiated_by_id=request.user.id)
+    run, task = try_start_scrape(target, trigger="manual", initiated_by_id=request.user.id)
+    if run is None:
+        return Response(
+            {"success": False, "error": "A scrape is already in progress for this target."},
+            status=status.HTTP_409_CONFLICT,
+        )
     log_activity(
         action="admin_scrape_triggered",
         object_type="target",
@@ -512,7 +517,12 @@ def scraper_run_retry(request: Request, run_id: int) -> Response:
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    task = scrape_target.delay(target_id=run.target_id, trigger="manual", initiated_by_id=request.user.id)
+    new_run, task = try_start_scrape(run.target, trigger="manual", initiated_by_id=request.user.id)
+    if new_run is None:
+        return Response(
+            {"success": False, "error": "A scrape is already in progress for this target."},
+            status=status.HTTP_409_CONFLICT,
+        )
     log_activity(
         action="admin_scrape_retry",
         object_type="run",

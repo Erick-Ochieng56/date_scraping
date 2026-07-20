@@ -77,7 +77,7 @@ def trigger_scrape(request: HttpRequest) -> JsonResponse:
     if not _ops_authorized(request):
         return JsonResponse({"detail": "unauthorized"}, status=401)
 
-    from scraper.tasks import enqueue_enabled_targets, scrape_target
+    from scraper.tasks import enqueue_enabled_targets, try_start_scrape
 
     body = {}
     if request.body:
@@ -88,8 +88,19 @@ def trigger_scrape(request: HttpRequest) -> JsonResponse:
 
     target_id = body.get("target_id")
     if target_id:
-        scrape_target.delay(target_id=int(target_id), trigger="manual")
-        return JsonResponse({"enqueued": 1, "target_id": int(target_id)})
+        from scraper.models import ScrapeTarget
+
+        try:
+            target = ScrapeTarget.objects.get(id=int(target_id))
+        except ScrapeTarget.DoesNotExist:
+            return JsonResponse({"error": "Target not found"}, status=404)
+        run, async_result = try_start_scrape(target, trigger="manual")
+        if run is None:
+            return JsonResponse(
+                {"enqueued": 0, "target_id": int(target_id), "error": "A scrape is already in progress for this target."},
+                status=409,
+            )
+        return JsonResponse({"enqueued": 1, "target_id": int(target_id), "run_id": run.id, "task": async_result.id})
 
     count = enqueue_enabled_targets.delay()
     return JsonResponse({"enqueued": "all", "task": count.id})

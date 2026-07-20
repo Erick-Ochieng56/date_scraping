@@ -13,6 +13,8 @@ from scraper.tasks import (
     _target_has_run_in_progress,
     _target_is_due,
     enqueue_enabled_targets,
+    scrape_target,
+    try_start_scrape,
 )
 
 
@@ -370,3 +372,105 @@ class FetchHtmlSsrfTests(TestCase):
         # Only the first hop's GET should have been attempted — the second hop
         # must be rejected before requests.get is ever called for it.
         self.assertEqual(mock_get.call_count, 1)
+
+
+class TryStartScrapeConcurrencyTests(TestCase):
+    """
+    Regression tests for the concurrency-guard fix: try_start_scrape() reserves
+    (creates) the RUNNING ScrapeRun atomically, before scrape_target.delay() is
+    called, instead of the old pattern where the guard was checked at enqueue
+    time but the RUNNING row was only created later inside the task itself —
+    a gap wide enough for a double-click or two near-simultaneous triggers to
+    both pass the check.
+    """
+
+    def _target(self, **kwargs) -> ScrapeTarget:
+        defaults = {"name": "concurrency-test-target", "start_url": "https://example.com"}
+        defaults.update(kwargs)
+        target = ScrapeTarget(**defaults)
+        target.save()
+        return target
+
+    @patch("scraper.tasks.scrape_target")
+    def test_reserves_run_before_enqueueing(self, mock_scrape_target):
+        target = self._target()
+        run, async_result = try_start_scrape(target, trigger="manual")
+        self.assertIsNotNone(run)
+        self.assertEqual(run.status, ScrapeRunStatus.RUNNING)
+        self.assertEqual(run.target_id, target.id)
+        mock_scrape_target.delay.assert_called_once()
+        call_kw = mock_scrape_target.delay.call_args[1]
+        self.assertEqual(call_kw["target_id"], target.id)
+        self.assertEqual(call_kw["run_id"], run.id)
+
+    @patch("scraper.tasks.scrape_target")
+    def test_second_trigger_is_refused_while_first_is_running(self, mock_scrape_target):
+        target = self._target()
+        first_run, _ = try_start_scrape(target, trigger="manual")
+        self.assertIsNotNone(first_run)
+
+        second_run, second_task = try_start_scrape(target, trigger="manual")
+        self.assertIsNone(second_run)
+        self.assertIsNone(second_task)
+
+        # Exactly one ScrapeRun/enqueue happened, not two.
+        self.assertEqual(ScrapeRun.objects.filter(target=target).count(), 1)
+        mock_scrape_target.delay.assert_called_once()
+
+    @patch("scraper.tasks.scrape_target")
+    def test_new_trigger_allowed_after_run_leaves_the_guard_window(self, mock_scrape_target):
+        target = self._target()
+        ScrapeRun.objects.create(
+            target=target,
+            status=ScrapeRunStatus.RUNNING,
+            started_at=timezone.now() - timezone.timedelta(days=1),
+        )
+        run, _ = try_start_scrape(target, trigger="manual")
+        self.assertIsNotNone(run)
+        self.assertEqual(ScrapeRun.objects.filter(target=target).count(), 2)
+
+
+class ScrapeTargetReservedRunTests(TestCase):
+    """scrape_target() must use a pre-reserved run (run_id) rather than creating
+    its own, so the reservation made by try_start_scrape() is actually honored."""
+
+    @patch("scraper.tasks.run_target")
+    def test_uses_existing_reserved_run_instead_of_creating_a_new_one(self, mock_run_target):
+        mock_run_target.return_value = []
+        target = ScrapeTarget.objects.create(
+            name="reserved-run-target",
+            start_url="https://example.com",
+            config={"item_selector": ".x", "fields": {"full_name": ".t"}},
+        )
+        reserved_run = ScrapeRun.objects.create(
+            target=target, status=ScrapeRunStatus.RUNNING, started_at=timezone.now()
+        )
+
+        scrape_target.apply(kwargs={"target_id": target.id, "run_id": reserved_run.id}).get()
+
+        self.assertEqual(ScrapeRun.objects.filter(target=target).count(), 1)
+        reserved_run.refresh_from_db()
+        self.assertEqual(reserved_run.status, ScrapeRunStatus.SUCCESS)
+        self.assertTrue(reserved_run.task_id)
+
+
+class PlaywrightSubprocessTimeoutTests(TestCase):
+    """On a wall-clock timeout, the whole subprocess tree (not just the immediate
+    `python -c ...` process) must be killed, closing the zombie-Chromium-process
+    gap left by plain subprocess.run()'s default TimeoutExpired handling."""
+
+    @patch("scraper.services.fetch._kill_process_tree")
+    @patch("scraper.services.fetch._spawn_playwright_subprocess")
+    @patch("scraper.services.fetch.check_public_url", return_value=(True, ""))
+    def test_timeout_triggers_process_tree_kill(self, mock_check_url, mock_spawn, mock_kill_tree):
+        import subprocess as subprocess_module
+
+        from scraper.services.fetch import fetch_html_playwright
+
+        fake_proc = mock_spawn.return_value
+        fake_proc.communicate.side_effect = subprocess_module.TimeoutExpired(cmd="x", timeout=1)
+
+        with self.assertRaises(TimeoutError):
+            fetch_html_playwright("https://example.com", timeout_ms=1000)
+
+        mock_kill_tree.assert_called_once_with(fake_proc)

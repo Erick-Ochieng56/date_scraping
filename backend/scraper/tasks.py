@@ -119,6 +119,48 @@ def _target_has_run_in_progress(target_id: int) -> bool:
     ).exists()
 
 
+def try_start_scrape(
+    target: ScrapeTarget,
+    *,
+    trigger: str = ScrapeRunTrigger.MANUAL,
+    initiated_by_id: int | None = None,
+):
+    """
+    Atomically reserve a ScrapeRun for `target` and enqueue scrape_target for it.
+
+    Returns (ScrapeRun, AsyncResult) on success, or (None, None) if a run is
+    already in progress for this target (concurrency guard).
+
+    This is the single entry point every caller — the scheduled beat task,
+    every "trigger scrape" / "retry" API endpoint, and every Django admin
+    action — must go through instead of calling scrape_target.delay() directly.
+    The old guard only checked _target_has_run_in_progress() *before* enqueueing,
+    but the RUNNING ScrapeRun row was created later, inside the task itself, once
+    a worker actually picked it up — a check-then-act gap wide enough for a
+    double-click or two near-simultaneous triggers to both pass the check. Here
+    the reservation (creating the RUNNING row) happens inside a row lock on the
+    target, before scrape_target.delay() is ever called, closing that gap.
+    """
+    with transaction.atomic():
+        locked_target = ScrapeTarget.objects.select_for_update().get(id=target.id)
+        if _target_has_run_in_progress(locked_target.id):
+            return None, None
+        run = ScrapeRun.objects.create(
+            owner_id=initiated_by_id or locked_target.owner_id,
+            target=locked_target,
+            trigger=trigger,
+            status=ScrapeRunStatus.RUNNING,
+            started_at=timezone.now(),
+        )
+    async_result = scrape_target.delay(
+        target_id=locked_target.id,
+        run_id=run.id,
+        trigger=trigger,
+        initiated_by_id=initiated_by_id,
+    )
+    return run, async_result
+
+
 @shared_task
 def enqueue_enabled_targets() -> int:
     """
@@ -145,33 +187,51 @@ def enqueue_enabled_targets() -> int:
                 target.run_every_minutes,
             )
             continue
-        if _target_has_run_in_progress(target.id):
+        run, _async_result = try_start_scrape(target, trigger=ScrapeRunTrigger.SCHEDULED)
+        if run is None:
             logger.debug(
                 "Target %s (%s) has run in progress; skipping enqueue",
                 target.id,
                 target.name,
             )
             continue
-        scrape_target.delay(target_id=target.id, trigger=ScrapeRunTrigger.SCHEDULED)
         enqueued += 1
     return enqueued
 
 
 @shared_task(bind=True)
-def scrape_target(self, target_id: int, trigger: str = ScrapeRunTrigger.MANUAL, initiated_by_id: int | None = None) -> int:
+def scrape_target(
+    self,
+    target_id: int,
+    run_id: int | None = None,
+    trigger: str = ScrapeRunTrigger.MANUAL,
+    initiated_by_id: int | None = None,
+) -> int:
     """
     Scrape a single target and upsert leads.
     Returns number of items extracted.
+
+    run_id, when given, is a ScrapeRun already reserved by try_start_scrape() —
+    used instead of creating a new one here, since the reservation (and the
+    concurrency-guard check) must happen atomically before this task is even
+    enqueued. Falls back to creating its own run if called without one (e.g.
+    directly, outside the normal trigger paths).
     """
     target = ScrapeTarget.objects.get(id=target_id)
-    run = ScrapeRun.objects.create(
-        owner_id=initiated_by_id or target.owner_id,
-        target=target,
-        trigger=trigger,
-        status=ScrapeRunStatus.RUNNING,
-        started_at=timezone.now(),
-        task_id=getattr(self.request, "id", "") or "",
-    )
+    if run_id is not None:
+        run = ScrapeRun.objects.get(id=run_id)
+        if not run.task_id:
+            run.task_id = getattr(self.request, "id", "") or ""
+            run.save(update_fields=["task_id"])
+    else:
+        run = ScrapeRun.objects.create(
+            owner_id=initiated_by_id or target.owner_id,
+            target=target,
+            trigger=trigger,
+            status=ScrapeRunStatus.RUNNING,
+            started_at=timezone.now(),
+            task_id=getattr(self.request, "id", "") or "",
+        )
 
     created_count = 0
     updated_count = 0
