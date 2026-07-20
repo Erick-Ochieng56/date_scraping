@@ -1,0 +1,5 @@
+# Shell scripts must stay LF even on Windows checkouts (core.autocrlf=true):
+# a CRLF shebang line breaks the container entrypoint on Linux.
+*.sh text eol=lf
+Dockerfile text eol=lf
+.dockerignore text eol=lf

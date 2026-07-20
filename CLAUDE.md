@@ -60,6 +60,10 @@ npm run lint           # eslint .
 
 Brings up Postgres, Redis, `web` (gunicorn), `worker`, and `beat` services. Run from `backend/`: `docker compose up --build`.
 
+### Production / Northflank
+
+Deployed on Northflank's **free tier** (2 services, 1 addon): Postgres addon + `redis:7-alpine` service + one combined container (gunicorn + Celery worker with embedded beat, `START_MODE=all`) built from the **repo-root `Dockerfile`** (multi-stage: builds the SPA, Django serves it via `DJANGO_SERVE_SPA=1`). Entrypoint `deploy/start.sh` supports `START_MODE=all|web|worker|worker-beat|beat` so the same image splits into separate services on a paid plan. Playwright/Chromium is excluded by default (`INSTALL_PLAYWRIGHT=0` build arg) — too heavy for free-tier containers. Full guide: `NORTHFLANK_DEPLOY.md`; IaC template: `deploy/northflank-template.json`.
+
 ## Frontend structure (`frontend/src`)
 
 ```

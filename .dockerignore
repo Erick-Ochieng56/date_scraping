@@ -1,0 +1,30 @@
+# Secrets — never ship env files in the image; all config comes from runtime env
+backend/.env
+**/.env
+*.env
+
+# Python
+backend/venv/
+**/__pycache__/
+*.pyc
+backend/staticfiles/
+backend/db.sqlite3
+backend/celerybeat-schedule*
+backend/.pytest_cache/
+
+# Node — the SPA is built inside the image from source
+frontend/node_modules/
+frontend/dist/
+
+# VCS / tooling / local scratch
+.git/
+.github/
+.claude/
+.graphify_detect.json
+.graphify_python
+scripts/
+
+# Docs and audit reports (not needed at runtime)
+*.md
+backend/*.md
+!backend/README.md

@@ -1,0 +1,118 @@
+{
+  "apiVersion": "v1.2",
+  "name": "date-scraping-free-tier",
+  "description": "date_scraping on the Northflank free tier: 1 Postgres addon, Redis as a service, and one combined app container (Django web + SPA + Celery worker with embedded beat). Edit projectUrl and the secrets before running. See NORTHFLANK_DEPLOY.md.",
+  "spec": {
+    "kind": "Workflow",
+    "spec": {
+      "type": "sequential",
+      "steps": [
+        {
+          "kind": "Project",
+          "ref": "project",
+          "spec": {
+            "name": "date-scraping",
+            "region": "europe-west"
+          }
+        },
+        {
+          "kind": "Workflow",
+          "spec": {
+            "type": "sequential",
+            "context": {
+              "projectId": "${refs.project.id}"
+            },
+            "steps": [
+              {
+                "kind": "Addon",
+                "ref": "database",
+                "spec": {
+                  "type": "postgresql",
+                  "name": "db",
+                  "version": "latest",
+                  "billing": {
+                    "deploymentPlan": "nf-compute-10",
+                    "storage": 4096,
+                    "replicas": 1
+                  }
+                }
+              },
+              {
+                "kind": "DeploymentService",
+                "ref": "redis",
+                "spec": {
+                  "name": "redis",
+                  "billing": {
+                    "deploymentPlan": "nf-compute-10"
+                  },
+                  "deployment": {
+                    "instances": 1,
+                    "external": {
+                      "imagePath": "library/redis:7-alpine"
+                    }
+                  },
+                  "ports": [
+                    {
+                      "name": "redis",
+                      "internalPort": 6379,
+                      "public": false,
+                      "protocol": "TCP"
+                    }
+                  ]
+                }
+              },
+              {
+                "kind": "CombinedService",
+                "ref": "app",
+                "spec": {
+                  "name": "app",
+                  "billing": {
+                    "deploymentPlan": "nf-compute-20"
+                  },
+                  "vcsData": {
+                    "projectType": "github",
+                    "projectUrl": "https://github.com/Erick-Ochieng56/date_scraping",
+                    "projectBranch": "main"
+                  },
+                  "buildSettings": {
+                    "dockerfile": {
+                      "buildEngine": "kaniko",
+                      "dockerFilePath": "/Dockerfile",
+                      "dockerWorkDir": "/"
+                    }
+                  },
+                  "deployment": {
+                    "instances": 1
+                  },
+                  "ports": [
+                    {
+                      "name": "http",
+                      "internalPort": 8000,
+                      "public": true,
+                      "protocol": "HTTP"
+                    }
+                  ],
+                  "runtimeEnvironment": {
+                    "START_MODE": "all",
+                    "DJANGO_DEBUG": "0",
+                    "DJANGO_SERVE_SPA": "1",
+                    "DJANGO_BEHIND_HTTPS_PROXY": "1",
+                    "DJANGO_USE_X_FORWARDED_HOST": "1",
+                    "DJANGO_ALLOWED_HOSTS": ".code.run",
+                    "CELERY_WORKER_POOL": "threads",
+                    "CELERY_CONCURRENCY": "2",
+                    "GUNICORN_WORKERS": "1",
+                    "GUNICORN_THREADS": "4",
+                    "CRAWLER_MAX_DOMAINS_PER_RUN": "50",
+                    "GSHEETS_ENABLED": "0",
+                    "PERFEX_SYNC_ENABLED": "0"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
