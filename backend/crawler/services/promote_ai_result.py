@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from django.db import transaction
+from django.db.models import F
 
-from crawler.models import AISearchResult
+from crawler.models import AISearchJob, AISearchResult
 from crawler.utils import compute_payload_hash, normalize_domain_url
 from leads.models import Prospect, ProspectStatus
 
@@ -126,4 +127,10 @@ def promote_ai_search_result_to_prospect(
         raw["promoted_prospect_id"] = prospect.id
         locked_result.raw_data = raw
         locked_result.save(update_fields=["raw_data"])
+        # AISearchJob.prospects_created was previously defined and serialized to
+        # the frontend but never written anywhere — always displayed 0 regardless
+        # of how many results from this job were actually promoted.
+        AISearchJob.objects.filter(pk=locked_result.job_id).update(
+            prospects_created=F("prospects_created") + 1
+        )
         return prospect, True

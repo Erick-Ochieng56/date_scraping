@@ -5,8 +5,10 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { crawlerKeys } from '@/features/crawler/queryKeys'
+import { getApiErrorMessage } from '@/shared/api/errors'
 import { getCrawlRun, listCrawlRunDomainResults } from '@/shared/api/crawler'
 import type { CrawlRunDomainResult } from '@/shared/api/types'
+import { AlertBanner } from '@/shared/components/AlertBanner'
 import { DataTable } from '@/shared/components/DataTable'
 import { ListPagination } from '@/shared/components/ListPagination'
 import { PageHeader } from '@/shared/components/PageHeader'
@@ -123,6 +125,8 @@ export function CrawlerRunDetailPage() {
         }
       />
 
+      {runQ.isError ? <AlertBanner error={getApiErrorMessage(runQ.error, 'Failed to load this crawl run.')} /> : null}
+
       {run ? (
         <div className="grid gap-3 md:grid-cols-4">
           <div className="rounded-lg border border-border bg-card p-4">
@@ -168,6 +172,7 @@ export function CrawlerRunDetailPage() {
         columns={columns}
         data={items}
         isLoading={domainsQ.isLoading || runQ.isLoading}
+        errorMessage={domainsQ.isError ? getApiErrorMessage(domainsQ.error, 'Failed to load domain results.') : null}
         emptyMessage="No domain results for this run."
         getRowId={(r) => String(r.id)}
       />

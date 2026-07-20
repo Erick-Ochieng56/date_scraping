@@ -13,6 +13,13 @@ type DataTableProps<T> = {
   columns: ColumnDef<T, unknown>[]
   data: T[]
   isLoading?: boolean
+  /**
+   * Set when the query that feeds `data` failed. Without this, a failed fetch
+   * used to render the emptyMessage ("No records found.") — visually
+   * indistinguishable from a legitimately empty result, hiding real backend/
+   * network errors from the user on every list in the app.
+   */
+  errorMessage?: string | null
   emptyMessage?: string
   getRowId?: (row: T) => string
   rowSelection?: RowSelectionState
@@ -25,6 +32,7 @@ export function DataTable<T>({
   columns,
   data,
   isLoading = false,
+  errorMessage = null,
   emptyMessage = 'No records found.',
   getRowId,
   rowSelection,
@@ -64,14 +72,21 @@ export function DataTable<T>({
           ))}
         </thead>
         <tbody>
-          {isLoading && data.length === 0 ? (
+          {errorMessage && data.length === 0 ? (
+            <tr>
+              <td colSpan={colCount} className="px-3 py-8 text-center text-destructive" role="alert">
+                {errorMessage}
+              </td>
+            </tr>
+          ) : null}
+          {!errorMessage && isLoading && data.length === 0 ? (
             <tr>
               <td colSpan={colCount} className="px-3 py-8 text-center text-muted-foreground">
                 Loading…
               </td>
             </tr>
           ) : null}
-          {!isLoading && data.length === 0 ? (
+          {!errorMessage && !isLoading && data.length === 0 ? (
             <tr>
               <td colSpan={colCount} className="px-3 py-8 text-center text-muted-foreground">
                 {emptyMessage}

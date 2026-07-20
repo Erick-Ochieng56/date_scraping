@@ -30,6 +30,8 @@ import { StatusBadge } from '@/shared/components/StatusBadge'
 
 type Variant = 'staff' | 'admin'
 
+const AI_SEARCH_NON_TERMINAL_STATUSES = new Set(['pending', 'generating', 'searching'])
+
 export function AiSearchPage({ variant }: { variant: Variant }) {
   const qc = useQueryClient()
   const isAdmin = variant === 'admin'
@@ -60,6 +62,28 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
     queryKey: ['ai-search-jobs', variant],
     queryFn: () => (isAdmin ? listAdminAiSearchJobs({ page_size: 25 }) : listAiSearchJobs({ page_size: 25 })),
   })
+
+  const delegateOwnerId = form.watch('delegateOwnerId')
+
+  // Client-side mirror of the backend's per-owner concurrency limit (server is
+  // the real enforcement — see _ai_search_rate_limit_error — this just avoids
+  // making the user wait for a round-trip rejection in the common case).
+  // Staff: listAiSearchJobs already scopes to the current user's own jobs, so
+  // any non-terminal job in the list is theirs. Admin: the jobs list includes
+  // everyone's jobs, so this only proactively guards the case where a delegate
+  // owner is selected and already has a job running — submitting as the admin
+  // themselves (no delegate selected) isn't guarded client-side since we don't
+  // have the admin's own user id here, but the backend still enforces it and
+  // surfaces a clear error via the banner below.
+  const jobInProgress = useMemo(() => {
+    const items = jobsQ.data?.items ?? []
+    if (isAdmin) {
+      const ownerId = delegateOwnerId && delegateOwnerId.trim() !== '' ? Number(delegateOwnerId) : null
+      if (ownerId == null) return undefined
+      return items.find((j) => j.owner_id === ownerId && AI_SEARCH_NON_TERMINAL_STATUSES.has(j.status))
+    }
+    return items.find((j) => AI_SEARCH_NON_TERMINAL_STATUSES.has(j.status))
+  }, [jobsQ.data?.items, isAdmin, delegateOwnerId])
 
   const detailQ = useQuery({
     queryKey: ['ai-search-job', variant, selectedId],
@@ -378,9 +402,18 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
                 />
               </FormField>
             </div>
-            <Button type="submit" disabled={createM.isPending}>
-              {createM.isPending ? 'Starting…' : 'Run AI search'}
+            <Button type="submit" disabled={createM.isPending || !!jobInProgress}>
+              {createM.isPending
+                ? 'Starting…'
+                : jobInProgress
+                  ? `Job #${jobInProgress.id} in progress…`
+                  : 'Run AI search'}
             </Button>
+            {jobInProgress && (
+              <p className="mt-2 text-sm text-muted-foreground">
+                Wait for job #{jobInProgress.id} to finish before starting another.
+              </p>
+            )}
           </form>
         </div>
 
@@ -391,6 +424,7 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
               columns={jobColumns}
               data={jobsQ.data?.items ?? []}
               isLoading={jobsQ.isLoading}
+              errorMessage={jobsQ.isError ? getApiErrorMessage(jobsQ.error, 'Failed to load AI search jobs.') : null}
               emptyMessage="No jobs yet."
               getRowId={(r) => String(r.id)}
             />
@@ -445,6 +479,7 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
             columns={resultColumns}
             data={detailQ.data?.results.items ?? []}
             isLoading={detailQ.isLoading}
+            errorMessage={detailQ.isError ? getApiErrorMessage(detailQ.error, 'Failed to load job results.') : null}
             emptyMessage="No results for this job yet."
             getRowId={(r) => String(r.id)}
           />

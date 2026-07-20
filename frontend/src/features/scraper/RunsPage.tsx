@@ -177,6 +177,7 @@ export function RunsPage() {
         columns={columns}
         data={items}
         isLoading={query.isLoading}
+        errorMessage={query.isError ? getApiErrorMessage(query.error, 'Failed to load scrape runs.') : null}
         emptyMessage="No scrape runs match your filters."
         getRowId={(r) => String(r.id)}
       />

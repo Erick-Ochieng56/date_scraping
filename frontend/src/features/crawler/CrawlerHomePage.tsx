@@ -165,12 +165,15 @@ export function CrawlerHomePage() {
           <li className="rounded-md border border-border bg-muted/30 p-3">
             <span className="font-medium text-foreground">2. Sources</span>
             <p className="mt-1 text-muted-foreground">Enabled sources drive scheduled discovery runs.</p>
-            <p className="mt-2 text-xs text-muted-foreground">{sourcesQ.data?.total ?? 0} source(s) total</p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              {sourcesQ.isError ? <span title="Failed to load">—</span> : (sourcesQ.data?.total ?? 0)} source(s) total
+            </p>
           </li>
           <li className="rounded-md border border-border bg-muted/30 p-3">
             <span className="font-medium text-foreground">3. Domain queue</span>
             <p className="mt-1 text-muted-foreground">
-              Pending: {pendingTotal} · Crawling: {crawlingTotal}
+              Pending: {pendingCountQ.isError ? <span title="Failed to load">—</span> : pendingTotal} · Crawling:{' '}
+              {crawlingCountQ.isError ? <span title="Failed to load">—</span> : crawlingTotal}
             </p>
             <Button className="mt-2" size="sm" variant="outline" asChild>
               <Link to="/crawler/domains">
@@ -182,7 +185,8 @@ export function CrawlerHomePage() {
           <li className="rounded-md border border-border bg-muted/30 p-3">
             <span className="font-medium text-foreground">4. Runs & results</span>
             <p className="mt-1 text-muted-foreground">
-              Running now: {runningRuns} · Failed (all time): {failedRunsTotal}
+              Running now: {runsQ.isError ? <span title="Failed to load">—</span> : runningRuns} · Failed (all time):{' '}
+              {failedRunCountQ.isError ? <span title="Failed to load">—</span> : failedRunsTotal}
             </p>
             <Button className="mt-2" size="sm" variant="outline" asChild>
               <Link to="/crawler/runs">
@@ -197,26 +201,34 @@ export function CrawlerHomePage() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-lg border border-border p-4">
           <p className="text-sm text-muted-foreground">Sources</p>
-          <p className="text-xl font-semibold">{sourcesQ.data?.total ?? 0}</p>
+          <p className="text-xl font-semibold" title={sourcesQ.isError ? 'Failed to load' : undefined}>
+            {sourcesQ.isError ? '—' : (sourcesQ.data?.total ?? 0)}
+          </p>
           <p className="mt-1 text-xs text-muted-foreground">Enabled sources run on scheduled discovery.</p>
         </div>
         <div className="rounded-lg border border-border p-4">
           <p className="text-sm text-muted-foreground">Pending domains</p>
-          <p className="text-xl font-semibold">{pendingTotal}</p>
+          <p className="text-xl font-semibold" title={pendingCountQ.isError ? 'Failed to load' : undefined}>
+            {pendingCountQ.isError ? '—' : pendingTotal}
+          </p>
           <Link className="text-sm text-primary hover:underline" to="/crawler/domains?crawl_status=pending">
             Review queue
           </Link>
         </div>
         <div className="rounded-lg border border-border p-4">
           <p className="text-sm text-muted-foreground">Crawling now</p>
-          <p className="text-xl font-semibold">{crawlingTotal}</p>
+          <p className="text-xl font-semibold" title={crawlingCountQ.isError ? 'Failed to load' : undefined}>
+            {crawlingCountQ.isError ? '—' : crawlingTotal}
+          </p>
           <Link className="text-sm text-primary hover:underline" to="/crawler/domains?crawl_status=crawling">
             Watch active
           </Link>
         </div>
         <div className="rounded-lg border border-border p-4">
           <p className="text-sm text-muted-foreground">Running runs</p>
-          <p className="text-xl font-semibold">{runningRuns}</p>
+          <p className="text-xl font-semibold" title={runsQ.isError ? 'Failed to load' : undefined}>
+            {runsQ.isError ? '—' : runningRuns}
+          </p>
           <Link className="text-sm text-primary hover:underline" to="/crawler/runs?status=running">
             Full list
           </Link>

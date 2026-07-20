@@ -73,6 +73,7 @@ export function AdminScraperTargetsTable({ onMessage }: { onMessage?: AdminBanne
         columns={columns}
         data={items}
         isLoading={query.isLoading}
+        errorMessage={query.isError ? getApiErrorMessage(query.error, 'Failed to load scrape targets.') : null}
         emptyMessage="No scrape targets found."
         getRowId={(r) => String(r.id)}
       />

@@ -595,3 +595,38 @@ class ScrapeTargetFailureBackoffTests(TestCase):
         target.refresh_from_db()
         self.assertEqual(target.consecutive_failures, 2)
         self.assertTrue(target.enabled)
+
+
+class PlaywrightWallClockTimeoutTests(TestCase):
+    """
+    Regression tests for the double-timeout-budget bug: the subprocess script
+    can hit up to two independent timeout_ms windows in sequence (page.goto,
+    then page.wait_for_selector when set), each with its own graceful
+    "return partial HTML" fallback — but the outer wall-clock budget used to
+    only ever account for one window, so the Python-level kill could fire
+    first and force-terminate the subprocess before its own graceful
+    degradation got a chance to run.
+    """
+
+    def _call_and_capture_timeout(self, **kwargs):
+        with patch("scraper.services.fetch.check_public_url", return_value=(True, "")), patch(
+            "scraper.services.fetch._spawn_playwright_subprocess"
+        ) as mock_spawn:
+            from scraper.services.fetch import fetch_html_playwright
+
+            fake_proc = mock_spawn.return_value
+            fake_proc.communicate.return_value = (
+                '{"ok": true, "html": "<html></html>"}',
+                "",
+            )
+            fetch_html_playwright("https://example.com", timeout_ms=30_000, **kwargs)
+            return fake_proc.communicate.call_args.kwargs["timeout"]
+
+    def test_budget_covers_two_windows_when_wait_for_selector_set(self):
+        timeout = self._call_and_capture_timeout(wait_for_selector=".event-card")
+        self.assertGreaterEqual(timeout, 2 * 30)
+
+    def test_budget_covers_one_window_without_wait_for_selector(self):
+        timeout = self._call_and_capture_timeout(wait_for_selector=None)
+        self.assertGreaterEqual(timeout, 30)
+        self.assertLess(timeout, 2 * 30)

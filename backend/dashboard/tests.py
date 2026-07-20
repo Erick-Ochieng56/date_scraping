@@ -7,7 +7,7 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 from io import StringIO
 
-from crawler.models import CrawlRun, CrawlRunStatus, CrawlRunTrigger, CrawlSource, DiscoveredDomain
+from crawler.models import AISearchJob, CrawlRun, CrawlRunStatus, CrawlRunTrigger, CrawlSource, DiscoveredDomain
 from dashboard.models import ActivityLog
 from dashboard.utils import log_activity
 from leads.models import Lead, LeadStatus, Prospect, ProspectStatus
@@ -56,6 +56,43 @@ class DashboardV1ApiTests(TestCase):
         self.assertEqual(patch.status_code, 200)
         self.assertFalse(patch.data["data"]["enabled"])
         self.assertEqual(patch.data["data"]["run_every_minutes"], 120)
+
+    @override_settings(GEMINI_API_KEY="fake-key-for-test", AI_SEARCH_REQUIRE_GEMINI=True)
+    def test_ai_search_job_create_rejects_when_one_already_in_progress(self):
+        """
+        Regression: no cap on concurrent AI search jobs per user beyond a
+        generic 120/min request throttle, despite a single job triggering 40+
+        real Gemini/Serper API calls. A second job while one is still
+        pending/generating/searching must be rejected (429), not queued.
+        """
+        AISearchJob.objects.create(owner=self.user, seed_topic="Existing job", status="generating")
+
+        resp = self.client.post(
+            "/dashboard/api/v1/ai-search/jobs/",
+            {"seed_topic": "Another topic"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 429)
+        self.assertFalse(resp.data["success"])
+        self.assertEqual(AISearchJob.objects.filter(owner=self.user).count(), 1)
+
+    @override_settings(
+        GEMINI_API_KEY="fake-key-for-test",
+        AI_SEARCH_REQUIRE_GEMINI=True,
+        AI_SEARCH_MAX_JOBS_PER_DAY_PER_USER=2,
+    )
+    def test_ai_search_job_create_rejects_past_daily_limit(self):
+        for i in range(2):
+            AISearchJob.objects.create(owner=self.user, seed_topic=f"Job {i}", status="done")
+
+        resp = self.client.post(
+            "/dashboard/api/v1/ai-search/jobs/",
+            {"seed_topic": "One too many"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 429)
+        self.assertFalse(resp.data["success"])
+        self.assertEqual(AISearchJob.objects.filter(owner=self.user).count(), 2)
 
     def test_target_create_rejects_internal_url(self):
         """SSRF guard: a portal user (not just admins) must not be able to point a
@@ -186,6 +223,23 @@ class DashboardAdminApiTests(TestCase):
         )
         self.assertEqual(resp.status_code, 400)
         self.assertFalse(resp.data["success"])
+
+    @override_settings(GEMINI_API_KEY="fake-key-for-test", AI_SEARCH_REQUIRE_GEMINI=True)
+    def test_admin_ai_search_job_create_rejects_when_delegated_owner_has_job_in_progress(self):
+        """The rate limit applies to the delegated owner_id, not the admin
+        submitting the request on that user's behalf."""
+        AISearchJob.objects.create(
+            owner=self.staff_from, seed_topic="Existing job", status="searching"
+        )
+
+        resp = self.client.post(
+            "/dashboard/api/admin/v1/ai-search/jobs/",
+            {"seed_topic": "Another topic", "owner_id": self.staff_from.id},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 429)
+        self.assertFalse(resp.data["success"])
+        self.assertEqual(AISearchJob.objects.filter(owner=self.staff_from).count(), 1)
 
     def test_admin_ownership_transfer_scrape_targets(self):
         t1 = ScrapeTarget.objects.create(name="T-from", start_url="https://example.com", owner=self.staff_from)
@@ -349,6 +403,115 @@ class DashboardAdminApiTests(TestCase):
         self.assertEqual(create.status_code, 201)
         create_data = create.json()
         self.assertTrue(create_data["success"])
+
+
+class CrawlerDiscoverEndpointTests(TestCase):
+    """
+    Regression tests for PUNCH_LIST #12: the frontend's entire Discover workflow
+    (CrawlerDiscoverPage — Preview URLs, Add to queue, Queue & crawl now) shipped
+    wired to /dashboard/api/v1/crawler/preview/ and /crawler/queue/, but neither
+    endpoint existed anywhere in the backend — every action 404'd.
+    """
+
+    def setUp(self):
+        User = get_user_model()
+        self.user = User.objects.create_user(username="discover1", password="pass12345")
+        group, _ = Group.objects.get_or_create(name=scraper_group_name())
+        self.user.groups.add(group)
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def test_preview_requires_query(self):
+        resp = self.client.post("/dashboard/api/v1/crawler/preview/", {}, format="json")
+        self.assertEqual(resp.status_code, 400)
+
+    @patch("dashboard.api.views.filter_discovery_hits")
+    @patch("dashboard.api.views.discover_websites")
+    def test_preview_returns_kept_and_dropped_hits(self, mock_discover, mock_filter):
+        mock_discover.return_value = [
+            {"domain": "https://kept.example", "source_url": "https://kept.example/tenders"},
+            {"domain": "https://dropped.example", "source_url": "https://dropped.example/"},
+        ]
+        mock_filter.return_value = (
+            [{"domain": "https://kept.example", "source_url": "https://kept.example/tenders"}],
+            [
+                {
+                    "domain": "https://dropped.example",
+                    "source_url": "https://dropped.example/",
+                    "drop_reason": "No active opportunity",
+                }
+            ],
+        )
+        resp = self.client.post(
+            "/dashboard/api/v1/crawler/preview/",
+            {"query": "translation tenders Kenya", "max_results": 10},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertTrue(body["success"])
+        self.assertEqual(len(body["hits"]), 1)
+        self.assertEqual(body["urls"], ["https://kept.example/tenders"])
+        self.assertEqual(body["dropped_count"], 1)
+        self.assertEqual(body["dropped"][0]["drop_reason"], "No active opportunity")
+
+    def test_queue_requires_urls_or_query(self):
+        resp = self.client.post("/dashboard/api/v1/crawler/queue/", {}, format="json")
+        self.assertEqual(resp.status_code, 400)
+
+    @patch("crawler.tasks.crawl_domain_task.delay")
+    def test_queue_urls_creates_domains_without_crawl(self, mock_delay):
+        resp = self.client.post(
+            "/dashboard/api/v1/crawler/queue/",
+            {"query": "x", "urls": ["https://queued.example/tenders/123"], "auto_crawl": False},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertTrue(body["success"])
+        self.assertEqual(body["queued"], 1)
+        self.assertEqual(body["new_domains"], 1)
+        self.assertIsNone(body["run_id"])
+        domain = DiscoveredDomain.objects.get(domain="https://queued.example")
+        self.assertEqual(domain.owner_id, self.user.id)
+        self.assertEqual(domain.crawl_status, "pending")
+        self.assertEqual(domain.source_url, "https://queued.example/tenders/123")
+        mock_delay.assert_not_called()
+
+    @patch("dashboard.api.views.crawl_domain_task.delay")
+    def test_queue_with_auto_crawl_starts_run(self, mock_delay):
+        resp = self.client.post(
+            "/dashboard/api/v1/crawler/queue/",
+            {"query": "x", "urls": ["https://crawlme.example/rfp"], "auto_crawl": True},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertTrue(body["success"])
+        self.assertIsNotNone(body["run_id"])
+        run = CrawlRun.objects.get(id=body["run_id"])
+        self.assertEqual(run.status, CrawlRunStatus.RUNNING)
+        self.assertEqual(run.domains_queued, 1)
+        self.assertEqual(run.owner_id, self.user.id)
+        mock_delay.assert_called_once()
+        self.assertEqual(mock_delay.call_args.kwargs["run_id"], run.id)
+
+    @patch("dashboard.api.views.crawl_domain_task.delay")
+    def test_queue_auto_crawl_skips_already_crawled_domains(self, mock_delay):
+        DiscoveredDomain.objects.create(
+            domain="https://done.example", crawl_status="completed", owner=self.user
+        )
+        resp = self.client.post(
+            "/dashboard/api/v1/crawler/queue/",
+            {"query": "x", "urls": ["https://done.example/"], "auto_crawl": True},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        # Domain already exists and isn't pending: nothing new, no crawl run.
+        self.assertEqual(body["new_domains"], 0)
+        self.assertIsNone(body["run_id"])
+        mock_delay.assert_not_called()
 
 
 class RegisterUserCommandTests(TestCase):

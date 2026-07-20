@@ -3,6 +3,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { getProspect, prospectConvert, prospectMarkContacted, prospectReject } from '@/lib/api/dashboard'
+import { getApiErrorMessage } from '@/shared/api/errors'
+import { AlertBanner } from '@/shared/components/AlertBanner'
 
 export function ProspectDetailPage() {
   const params = useParams()
@@ -77,6 +79,8 @@ export function ProspectDetailPage() {
             </Button>
           </div>
         </>
+      ) : q.isError ? (
+        <AlertBanner error={getApiErrorMessage(q.error, 'Failed to load this prospect.')} />
       ) : (
         <p className="text-sm text-muted-foreground">Loading prospect...</p>
       )}

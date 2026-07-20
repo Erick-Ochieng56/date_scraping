@@ -156,6 +156,7 @@ export function AdminCrawlerDomainsTable({
         columns={columns}
         data={items}
         isLoading={query.isLoading}
+        errorMessage={query.isError ? getApiErrorMessage(query.error, 'Failed to load domains.') : null}
         emptyMessage="No domains match your filters."
         getRowId={(r) => String(r.id)}
       />

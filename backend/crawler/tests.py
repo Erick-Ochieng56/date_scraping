@@ -15,6 +15,7 @@ from crawler.models import (
     EventProspect,
     WebsiteProfile,
 )
+from crawler.crawler import crawl_domain
 from crawler.prospect_pipeline import create_or_update_prospect
 from crawler.services.active_buyer import (
     check_forward_timeline,
@@ -258,6 +259,33 @@ class PromoteAiResultTests(TestCase):
         self.assertFalse(created_second)
         self.assertEqual(first.id, second.id)
         self.assertEqual(Prospect.objects.filter(owner=self.user).count(), 1)
+
+    def test_promote_increments_job_prospects_created(self):
+        """
+        Regression: AISearchJob.prospects_created was defined and serialized to
+        the frontend but never written anywhere — always showed 0 regardless of
+        how many results from the job were actually promoted.
+        """
+        self.assertEqual(self.job.prospects_created, 0)
+
+        promote_ai_search_result_to_prospect(self.result, owner_id=self.user.id)
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.prospects_created, 1)
+
+        # Promoting the same (already-promoted) result again must not double-count.
+        promote_ai_search_result_to_prospect(self.result, owner_id=self.user.id)
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.prospects_created, 1)
+
+        second_result = AISearchResult.objects.create(
+            job=self.job,
+            domain="another-org.or.ke",
+            org_name="Another Org",
+            raw_data={"source_url": "https://another-org.or.ke/tenders"},
+        )
+        promote_ai_search_result_to_prospect(second_result, owner_id=self.user.id)
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.prospects_created, 2)
 
     def test_owner_id_none_does_not_match_another_users_prospect(self):
         """
@@ -953,3 +981,108 @@ class CrawlDomainFailureAndRetryTests(TestCase):
         queued_ids = {c.kwargs["domain_id"] for c in mock_delay.call_args_list}
         self.assertIn(due.id, queued_ids)
         self.assertNotIn(not_due.id, queued_ids)
+
+
+class CrawlDomainRateLimitConfigTests(TestCase):
+    """
+    Regression tests: CRAWLER_RATE_LIMIT_SECONDS (and max pages/depth) used to be
+    computed into CrawlRun.config but crawl_domain() always built its RateLimiter
+    from the hardcoded DEFAULT_DELAY_BETWEEN_REQUESTS_SECONDS constant regardless
+    — operators setting the env var to slow down or speed up crawling saw no
+    effect. crawl_domain now accepts explicit overrides; crawl_domain_task wires
+    them from the live env config.
+    """
+
+    def _domain(self) -> DiscoveredDomain:
+        return DiscoveredDomain.objects.create(domain="ratelimit-test.example.com")
+
+    @patch("crawler.crawler._discover_seed_urls")
+    @patch("crawler.crawler.is_allowed_by_robots", return_value=True)
+    @patch("crawler.crawler.fetch_page")
+    @patch("crawler.crawler.RateLimiter")
+    def test_explicit_rate_limit_seconds_is_used(
+        self, mock_limiter_cls, mock_fetch, mock_robots, mock_seed_urls
+    ):
+        mock_seed_urls.return_value = ["https://ratelimit-test.example.com/"]
+        mock_fetch.return_value = ("<html><body>hi</body></html>", "hi")
+
+        crawl_domain(self._domain(), rate_limit_seconds=9.5, max_pages=1, max_depth=0)
+
+        mock_limiter_cls.assert_called_once_with(seconds=9.5)
+
+    @patch("crawler.crawler._discover_seed_urls")
+    @patch("crawler.crawler.is_allowed_by_robots", return_value=True)
+    @patch("crawler.crawler.fetch_page")
+    @patch("crawler.crawler.RateLimiter")
+    def test_defaults_to_module_constant_when_not_overridden(
+        self, mock_limiter_cls, mock_fetch, mock_robots, mock_seed_urls
+    ):
+        from crawler.constants import DEFAULT_DELAY_BETWEEN_REQUESTS_SECONDS
+
+        mock_seed_urls.return_value = ["https://ratelimit-test.example.com/"]
+        mock_fetch.return_value = ("<html><body>hi</body></html>", "hi")
+
+        crawl_domain(self._domain(), max_pages=1, max_depth=0)
+
+        mock_limiter_cls.assert_called_once_with(seconds=DEFAULT_DELAY_BETWEEN_REQUESTS_SECONDS)
+
+    def test_get_crawler_config_reads_rate_and_page_limits_from_env(self):
+        from crawler.tasks import _get_crawler_config
+
+        with patch.dict(
+            "os.environ",
+            {
+                "CRAWLER_RATE_LIMIT_SECONDS": "3.25",
+                "CRAWLER_MAX_PAGES_PER_DOMAIN": "10",
+                "CRAWLER_MAX_CRAWL_DEPTH": "1",
+            },
+        ):
+            cfg = _get_crawler_config()
+
+        self.assertEqual(cfg["rate_limit_seconds"], 3.25)
+        self.assertEqual(cfg["max_pages_per_domain"], 10)
+        self.assertEqual(cfg["max_crawl_depth"], 1)
+
+
+class FetchPageForQualificationThrottleTests(TestCase):
+    """
+    Regression tests: fetch_page_for_qualification (shared by crawler discovery
+    and AI search qualification) previously had no robots.txt check and no rate
+    limiting at all, unlike the BFS crawler — a discovery/AI-search run could hit
+    target hosts back-to-back with zero politeness control.
+    """
+
+    def setUp(self):
+        # The rate limiter is a lazily-created module-level singleton; reset it
+        # between tests so one test's constructed instance/mock doesn't leak.
+        import crawler.services.prospect_verify as pv
+
+        pv._qualification_rate_limiter = None
+        self.addCleanup(setattr, pv, "_qualification_rate_limiter", None)
+
+    @patch("crawler.crawler.is_allowed_by_robots", return_value=False)
+    def test_disallowed_by_robots_short_circuits_before_fetching(self, mock_robots):
+        import httpx
+
+        from crawler.services.prospect_verify import fetch_page_for_qualification
+
+        with patch("httpx.stream") as mock_stream:
+            ok, text, reason = fetch_page_for_qualification("https://blocked.example.com/page")
+
+        self.assertFalse(ok)
+        self.assertEqual(reason, "Disallowed by robots.txt")
+        mock_stream.assert_not_called()
+
+    @patch("crawler.crawler.is_allowed_by_robots", return_value=True)
+    def test_allowed_by_robots_waits_on_rate_limiter(self, mock_robots):
+        from crawler.services.prospect_verify import (
+            _get_qualification_rate_limiter,
+            fetch_page_for_qualification,
+        )
+
+        limiter = _get_qualification_rate_limiter()
+        with patch.object(limiter, "wait") as mock_wait, patch("httpx.stream") as mock_stream:
+            mock_stream.side_effect = Exception("stop before real network call")
+            fetch_page_for_qualification("https://allowed.example.com/page")
+
+        mock_wait.assert_called_once_with(domain="allowed.example.com")

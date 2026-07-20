@@ -25,7 +25,13 @@ from crawler.models import (
     CrawlSource,
     DiscoveredDomain,
 )
-from crawler.discovery import _get_serper_api_key
+from crawler.discovery import (
+    _get_serper_api_key,
+    discover_websites,
+    discovery_hits_from_user_payload,
+    save_discovered_domains,
+)
+from crawler.services.discovery_qualify import filter_discovery_hits
 from crawler.services.promote_ai_result import promote_ai_search_result_to_prospect
 from crawler.tasks import crawl_domain_task, discover_websites_task, run_ai_search_job
 from dashboard.api.decorators import dashboard_api_view
@@ -377,6 +383,147 @@ def crawl_domain_trigger(request: Request, domain_id: int) -> Response:
     return Response({"success": True, "run_id": run.id})
 
 
+_DISCOVER_MAX_RESULTS_CAP = 20
+
+
+def _parse_discover_max_results(raw) -> int:
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = _DISCOVER_MAX_RESULTS_CAP
+    return max(1, min(_DISCOVER_MAX_RESULTS_CAP, value))
+
+
+@dashboard_api_view(["POST"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def crawler_discover_preview(request: Request) -> Response:
+    """
+    Ad-hoc SERP discovery preview for the frontend Discover page: run the query,
+    qualify each hit with the same rules the scheduled pipeline uses, and return
+    both kept and dropped hits (with drop reasons) without persisting anything.
+
+    The frontend's entire Discover workflow (CrawlerDiscoverPage) shipped wired
+    to this endpoint and the queue one below, but neither existed — every
+    Preview/Queue action 404'd.
+    """
+    query = (request.data.get("query") or "").strip()
+    if not query:
+        return Response(
+            {"success": False, "error": "query is required."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    max_results = _parse_discover_max_results(request.data.get("max_results"))
+
+    hits = discover_websites(query, max_results=max_results)
+    kept, dropped = filter_discovery_hits(hits)
+
+    return Response(
+        {
+            "success": True,
+            "hits": kept,
+            "urls": [h.get("source_url") or h.get("domain") for h in kept],
+            "dropped": dropped,
+            "dropped_count": len(dropped),
+        }
+    )
+
+
+@dashboard_api_view(["POST"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def crawler_discover_queue(request: Request) -> Response:
+    """
+    Persist the Discover page's selection as DiscoveredDomain rows (owned by the
+    requesting user) and optionally start a crawl run over them immediately.
+
+    When `urls` is provided (the normal path — the user curated the preview
+    list), those exact landing URLs are queued without re-running the search.
+    Otherwise the query is re-run and re-qualified server-side.
+    """
+    query = (request.data.get("query") or "").strip()
+    raw_urls = request.data.get("urls") or []
+    auto_crawl = bool(request.data.get("auto_crawl"))
+
+    if not isinstance(raw_urls, list):
+        return Response(
+            {"success": False, "error": "urls must be a list."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if raw_urls:
+        hits = discovery_hits_from_user_payload(raw_urls)
+    elif query:
+        max_results = _parse_discover_max_results(request.data.get("max_results"))
+        found = discover_websites(query, max_results=max_results)
+        hits, _dropped = filter_discovery_hits(found)
+    else:
+        return Response(
+            {"success": False, "error": "Provide urls or a query."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if not hits:
+        return Response(
+            {"success": True, "queued": 0, "new_domains": 0, "run_id": None, "domain_ids": []}
+        )
+
+    new_domains = save_discovered_domains(hits, source=None, owner_id=request.user.id)
+
+    domain_bases = [h["domain"] for h in hits]
+    domain_ids = list(
+        DiscoveredDomain.objects.filter(domain__in=domain_bases).values_list("id", flat=True)
+    )
+
+    run_id: int | None = None
+    if auto_crawl:
+        pending_ids = list(
+            DiscoveredDomain.objects.filter(
+                id__in=domain_ids, crawl_status="pending"
+            ).values_list("id", flat=True)
+        )
+        if pending_ids:
+            run = CrawlRun.objects.create(
+                owner=request.user,
+                trigger=CrawlRunTrigger.MANUAL,
+                status=CrawlRunStatus.RUNNING,
+                started_at=timezone.now(),
+                # Persisted before any enqueue — _finalize_crawl_run_if_complete
+                # compares completed-domain count against this field.
+                domains_queued=len(pending_ids),
+            )
+            for domain_id in pending_ids:
+                CrawlRunDomainResult.objects.get_or_create(
+                    crawl_run_id=run.id,
+                    domain_id=domain_id,
+                    defaults={"state": "queued"},
+                )
+                crawl_domain_task.delay(
+                    domain_id=domain_id, run_id=run.id, owner_id=request.user.id
+                )
+            run_id = run.id
+
+    log_activity(
+        action="crawl_triggered",
+        object_type="crawl_run" if run_id else "crawl_domain",
+        object_id=run_id or (domain_ids[0] if domain_ids else 0),
+        description=f"Discover queue: {len(hits)} domain(s), {new_domains} new"
+        + (f", crawl run #{run_id}" if run_id else ""),
+        user=request.user,
+        metadata={"queued": len(hits), "new_domains": new_domains, "run_id": run_id},
+    )
+
+    return Response(
+        {
+            "success": True,
+            "queued": len(hits),
+            "new_domains": new_domains,
+            "run_id": run_id,
+            "domain_ids": domain_ids,
+        }
+    )
+
+
 def _apply_search(qs, request: Request, fields: list[str]):
     search = (request.query_params.get("search") or "").strip()
     if not search:
@@ -629,6 +776,44 @@ def _ai_search_configured() -> bool:
     return gemini or serper
 
 
+AI_SEARCH_NON_TERMINAL_STATUSES = ("pending", "generating", "searching")
+
+
+def _ai_search_rate_limit_error(owner) -> str | None:
+    """
+    Return an error message if `owner` shouldn't be allowed to start a new AI
+    search job right now, else None.
+
+    The only prior throttle on job creation was a generic 120/min per-user
+    request rate limiter (DashboardUserRateThrottle) — no cap on concurrent
+    jobs or total jobs per day, despite a single job triggering on the order
+    of 40+ real Gemini/Serper API calls (query generation + grounded search +
+    up to 12x3 extraction retries). A user could queue many jobs back-to-back,
+    each burning real API spend, limited only by that generic per-minute
+    request throttle.
+    """
+    max_concurrent = int(getattr(settings, "AI_SEARCH_MAX_CONCURRENT_JOBS_PER_USER", 1) or 1)
+    in_progress = AISearchJob.objects.filter(
+        owner=owner, status__in=AI_SEARCH_NON_TERMINAL_STATUSES
+    ).count()
+    if in_progress >= max_concurrent:
+        return (
+            f"{owner.get_username()} already has {in_progress} AI search job(s) in "
+            "progress. Wait for it to finish before starting another."
+        )
+
+    max_per_day = int(getattr(settings, "AI_SEARCH_MAX_JOBS_PER_DAY_PER_USER", 20) or 20)
+    since = timezone.now() - timedelta(hours=24)
+    jobs_today = AISearchJob.objects.filter(owner=owner, created_at__gte=since).count()
+    if jobs_today >= max_per_day:
+        return (
+            f"{owner.get_username()} has reached the daily limit of {max_per_day} AI "
+            "search jobs. Try again later."
+        )
+
+    return None
+
+
 @dashboard_api_view(["GET", "POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
@@ -644,6 +829,12 @@ def ai_search_jobs(request: Request) -> Response:
                     ),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+        rate_limit_error = _ai_search_rate_limit_error(request.user)
+        if rate_limit_error:
+            return Response(
+                {"success": False, "error": rate_limit_error},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
         seed_topic = (request.data.get("seed_topic") or "").strip()
         if not seed_topic:

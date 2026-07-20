@@ -157,6 +157,7 @@ export function AdminCrawlerRunsTable({ onMessage, initialStatus = '', syncUrl =
         columns={columns}
         data={items}
         isLoading={query.isLoading}
+        errorMessage={query.isError ? getApiErrorMessage(query.error, 'Failed to load crawl runs.') : null}
         emptyMessage="No crawl runs match your filters."
         getRowId={(r) => String(r.id)}
       />

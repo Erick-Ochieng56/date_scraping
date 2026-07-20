@@ -85,7 +85,7 @@ export async function triggerCrawlDomain(domainId: number) {
 }
 
 export async function crawlerPreview(query: string, max_results = 20): Promise<CrawlerPreviewResponse> {
-  const { data } = await apiClient.post<CrawlerPreviewResponse>('/dashboard/api/crawler/preview/', {
+  const { data } = await apiClient.post<CrawlerPreviewResponse>('/dashboard/api/v1/crawler/preview/', {
     query,
     max_results,
   })
@@ -104,7 +104,7 @@ export async function crawlerQueue(payload: {
     new_domains: number
     run_id: number | null
     domain_ids: number[]
-  }>('/dashboard/api/crawler/queue/', payload)
+  }>('/dashboard/api/v1/crawler/queue/', payload)
   return data
 }
 

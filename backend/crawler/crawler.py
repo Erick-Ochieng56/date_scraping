@@ -223,9 +223,23 @@ def _looks_js_heavy(text: str, html: str) -> bool:
     return script_count >= 10
 
 
-def crawl_domain(domain_obj: DiscoveredDomain) -> dict[str, Any]:
+def crawl_domain(
+    domain_obj: DiscoveredDomain,
+    *,
+    rate_limit_seconds: float | None = None,
+    max_pages: int | None = None,
+    max_depth: int | None = None,
+) -> dict[str, Any]:
     """
     Main crawl function for a single domain.
+
+    rate_limit_seconds/max_pages/max_depth override the module defaults when
+    given — previously CRAWLER_RATE_LIMIT_SECONDS was computed and snapshotted
+    onto CrawlRun.config but this function always used the hardcoded
+    DEFAULT_DELAY_BETWEEN_REQUESTS_SECONDS regardless, so operators setting that
+    env var to slow down or speed up crawling saw no effect. Callers without a
+    run context (tests, ad hoc use) can omit these and get the same defaults
+    as before.
 
     Returns dict:
       {
@@ -247,10 +261,12 @@ def crawl_domain(domain_obj: DiscoveredDomain) -> dict[str, Any]:
             "pages_crawled": 0,
             "error": "Invalid domain",
         }
-    limiter = RateLimiter(seconds=DEFAULT_DELAY_BETWEEN_REQUESTS_SECONDS)
+    limiter = RateLimiter(
+        seconds=rate_limit_seconds if rate_limit_seconds is not None else DEFAULT_DELAY_BETWEEN_REQUESTS_SECONDS
+    )
 
-    max_pages = DEFAULT_MAX_PAGES_PER_DOMAIN
-    max_depth = DEFAULT_MAX_CRAWL_DEPTH
+    max_pages = max_pages if max_pages is not None else DEFAULT_MAX_PAGES_PER_DOMAIN
+    max_depth = max_depth if max_depth is not None else DEFAULT_MAX_CRAWL_DEPTH
 
     visited: set[str] = set()
     seeds = _discover_seed_urls(base)

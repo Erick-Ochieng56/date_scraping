@@ -75,6 +75,7 @@ export function AdminCrawlerSourcesTable({ onMessage }: { onMessage?: AdminBanne
         columns={columns}
         data={items}
         isLoading={query.isLoading}
+        errorMessage={query.isError ? getApiErrorMessage(query.error, 'Failed to load crawl sources.') : null}
         emptyMessage="No crawl sources found."
         getRowId={(r) => String(r.id)}
       />

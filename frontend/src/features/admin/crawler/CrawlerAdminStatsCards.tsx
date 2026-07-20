@@ -21,15 +21,21 @@ export function CrawlerAdminStatsCards() {
     <div className="grid gap-3 sm:grid-cols-3">
       <div className="rounded-lg border border-border bg-card p-4">
         <p className="text-sm text-muted-foreground">Sources</p>
-        <p className="text-2xl font-semibold">{sourcesQ.data?.total ?? 0}</p>
+        <p className="text-2xl font-semibold" title={sourcesQ.isError ? 'Failed to load' : undefined}>
+          {sourcesQ.isError ? '—' : (sourcesQ.data?.total ?? 0)}
+        </p>
       </div>
       <div className="rounded-lg border border-border bg-card p-4">
         <p className="text-sm text-muted-foreground">Running runs</p>
-        <p className="text-2xl font-semibold">{runsRunningQ.data?.total ?? 0}</p>
+        <p className="text-2xl font-semibold" title={runsRunningQ.isError ? 'Failed to load' : undefined}>
+          {runsRunningQ.isError ? '—' : (runsRunningQ.data?.total ?? 0)}
+        </p>
       </div>
       <div className="rounded-lg border border-border bg-card p-4">
         <p className="text-sm text-muted-foreground">Pending domains</p>
-        <p className="text-2xl font-semibold">{domainsPendingQ.data?.total ?? 0}</p>
+        <p className="text-2xl font-semibold" title={domainsPendingQ.isError ? 'Failed to load' : undefined}>
+          {domainsPendingQ.isError ? '—' : (domainsPendingQ.data?.total ?? 0)}
+        </p>
       </div>
     </div>
   )

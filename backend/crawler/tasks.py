@@ -95,6 +95,8 @@ def _next_attempt_backoff(crawl_attempts: int) -> timedelta:
 
 def _get_crawler_config() -> dict[str, Any]:
     """Read crawler run config from environment (no scraper dependency)."""
+    from crawler.constants import DEFAULT_MAX_CRAWL_DEPTH, DEFAULT_MAX_PAGES_PER_DOMAIN
+
     return {
         "max_domains_per_run": int(
             os.getenv("CRAWLER_MAX_DOMAINS_PER_RUN", "500") or "500"
@@ -104,6 +106,14 @@ def _get_crawler_config() -> dict[str, Any]:
         ),
         "rate_limit_seconds": float(
             os.getenv("CRAWLER_RATE_LIMIT_SECONDS", "1.5") or "1.5"
+        ),
+        "max_pages_per_domain": int(
+            os.getenv("CRAWLER_MAX_PAGES_PER_DOMAIN", str(DEFAULT_MAX_PAGES_PER_DOMAIN))
+            or DEFAULT_MAX_PAGES_PER_DOMAIN
+        ),
+        "max_crawl_depth": int(
+            os.getenv("CRAWLER_MAX_CRAWL_DEPTH", str(DEFAULT_MAX_CRAWL_DEPTH))
+            or DEFAULT_MAX_CRAWL_DEPTH
         ),
     }
 
@@ -251,7 +261,18 @@ def crawl_domain_task(self, domain_id: int, run_id: int, owner_id: int | None = 
     domain_obj.save(update_fields=["crawl_status", "crawl_attempts"])
 
     try:
-        data = crawl_domain(domain_obj)
+        # Read live from env rather than the run's stored config snapshot: manual
+        # single-domain triggers (dashboard/admin) create their CrawlRun without
+        # ever calling _get_crawler_config(), so run.config is empty for them —
+        # reading fresh here means manually-triggered crawls respect these
+        # settings too, not just scheduled ones.
+        cfg = _get_crawler_config()
+        data = crawl_domain(
+            domain_obj,
+            rate_limit_seconds=cfg["rate_limit_seconds"],
+            max_pages=cfg["max_pages_per_domain"],
+            max_depth=cfg["max_crawl_depth"],
+        )
         pages = int(data.get("pages_crawled") or 0)
         # A domain is "failed" only when nothing was actually collected. crawl_domain's
         # `error` field only ever reflects the *last* fetch failure encountered while

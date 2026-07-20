@@ -306,7 +306,15 @@ def fetch_html_playwright(
         logger.error("Refusing to fetch %s: %s", url, reason)
         raise ValueError(f"Refusing to fetch {url}: {reason}")
 
-    wall_clock_timeout = timeout_ms / 1_000 + 15
+    # The subprocess script can hit up to two independent timeout_ms windows in
+    # sequence — page.goto(), then (only if wait_for_selector is set)
+    # page.wait_for_selector() — each with its own graceful "return partial HTML"
+    # fallback on PlaywrightError. The outer wall-clock budget must cover
+    # whichever of those windows can actually occur, or this Python-level kill
+    # fires first and force-terminates the subprocess before its own graceful
+    # degradation gets a chance to run and print a result.
+    timeout_windows = 2 if wait_for_selector else 1
+    wall_clock_timeout = (timeout_ms / 1_000) * timeout_windows + 15
     payload = json.dumps({
         "url": url,
         "timeout_ms": timeout_ms,

@@ -212,7 +212,13 @@ export function LeadsPage() {
         </Button>
       </div>
 
-      <DataTable columns={columns} data={items} isLoading={query.isLoading} getRowId={(r) => String(r.id)} />
+      <DataTable
+        columns={columns}
+        data={items}
+        isLoading={query.isLoading}
+        errorMessage={query.isError ? getApiErrorMessage(query.error, 'Failed to load leads.') : null}
+        getRowId={(r) => String(r.id)}
+      />
 
       <ListPagination
         page={page}

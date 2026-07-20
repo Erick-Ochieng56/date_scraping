@@ -23,7 +23,7 @@ from dashboard.utils import log_activity
 from scraper.models import ScrapeRun, ScrapeRunStatus, ScrapeTarget
 from scraper.tasks import try_start_scrape
 from crawler.models import AISearchJob, AISearchResult, CrawlRun, CrawlRunStatus, CrawlRunTrigger, CrawlSource, DiscoveredDomain
-from dashboard.api.views import _ai_search_configured
+from dashboard.api.views import _ai_search_configured, _ai_search_rate_limit_error
 from crawler.services.promote_ai_result import promote_ai_search_result_to_prospect
 from crawler.tasks import crawl_domain_task, run_ai_search_job
 from leads.models import Lead, Prospect
@@ -829,6 +829,12 @@ def admin_ai_search_jobs(request: Request) -> Response:
         else:
             owner = request.user
 
+        rate_limit_error = _ai_search_rate_limit_error(owner)
+        if rate_limit_error:
+            return Response(
+                {"success": False, "error": rate_limit_error},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
         seed_topic = (request.data.get("seed_topic") or "").strip()
         if not seed_topic:
             return Response(

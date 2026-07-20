@@ -70,6 +70,8 @@ export function RunDetailPage() {
 
       {retryM.isError ? <AlertBanner error={getApiErrorMessage(retryM.error)} /> : null}
 
+      {runQ.isError ? <AlertBanner error={getApiErrorMessage(runQ.error, 'Failed to load this scrape run.')} /> : null}
+
       {runQ.isLoading ? <p className="text-sm text-muted-foreground">Loading run…</p> : null}
 
       {run ? (

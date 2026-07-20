@@ -6,6 +6,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { adminKeys } from '@/features/admin/queryKeys'
 import { fmtDate } from '@/features/admin/utils'
+import { getApiErrorMessage } from '@/shared/api/errors'
 import { listAdminActivity } from '@/shared/api/admin'
 import type { ActivityLogEntry } from '@/shared/api/types'
 import { DataTable } from '@/shared/components/DataTable'
@@ -136,6 +137,7 @@ export function AdminAuditPage() {
         columns={columns}
         data={rows}
         isLoading={activityQ.isLoading}
+        errorMessage={activityQ.isError ? getApiErrorMessage(activityQ.error, 'Failed to load audit entries.') : null}
         emptyMessage="No audit entries match these filters."
         getRowId={(r) => String(r.id)}
       />

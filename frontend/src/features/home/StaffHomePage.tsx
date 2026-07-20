@@ -198,6 +198,10 @@ export function StaffHomePage() {
               <div className="rounded-md bg-muted p-3">Synced to CRM: {m.leads_synced}</div>
               <div className="rounded-md bg-muted p-3">Scrape success (7d): {m.scrape_success_recent}</div>
             </div>
+          ) : metricsQ.isError ? (
+            <p className="mt-3 text-sm text-destructive" role="alert">
+              Failed to load metrics.
+            </p>
           ) : (
             <p className="mt-3 text-sm text-muted-foreground">Loading metrics…</p>
           )}

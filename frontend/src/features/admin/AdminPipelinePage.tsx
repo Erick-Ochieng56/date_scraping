@@ -6,6 +6,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { adminKeys } from '@/features/admin/queryKeys'
 import { fmtDate } from '@/features/admin/utils'
+import { getApiErrorMessage } from '@/shared/api/errors'
 import { fetchMetricsSummary } from '@/shared/api/metrics'
 import { leadsExportUrl, listLeads, listProspects, prospectsExportUrl } from '@/shared/api/pipeline'
 import type { Lead, Prospect } from '@/shared/api/types'
@@ -202,6 +203,7 @@ export function AdminPipelinePage() {
           columns={prospectColumns}
           data={prospectItems}
           isLoading={prospectsQuery.isLoading}
+          errorMessage={prospectsQuery.isError ? getApiErrorMessage(prospectsQuery.error, 'Failed to load prospects.') : null}
           emptyMessage="No prospects match your filters."
           getRowId={(r) => String(r.id)}
         />
@@ -210,6 +212,7 @@ export function AdminPipelinePage() {
           columns={leadColumns}
           data={leadItems}
           isLoading={leadsQuery.isLoading}
+          errorMessage={leadsQuery.isError ? getApiErrorMessage(leadsQuery.error, 'Failed to load leads.') : null}
           emptyMessage="No leads match your filters."
           getRowId={(r) => String(r.id)}
         />

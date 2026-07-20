@@ -254,6 +254,7 @@ export function AdminUsersPage() {
         columns={columns}
         data={items}
         isLoading={query.isLoading}
+        errorMessage={query.isError ? getApiErrorMessage(query.error, 'Failed to load users.') : null}
         emptyMessage="No users match your search."
         getRowId={(r) => String(r.id)}
       />

@@ -188,6 +188,7 @@ export function TargetsPage() {
         columns={columns}
         data={pageItems}
         isLoading={targetsQ.isLoading}
+        errorMessage={targetsQ.isError ? getApiErrorMessage(targetsQ.error, 'Failed to load targets.') : null}
         emptyMessage="No targets match your filters."
         getRowId={(r) => String(r.id)}
       />

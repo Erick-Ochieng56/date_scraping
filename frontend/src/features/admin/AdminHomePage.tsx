@@ -47,19 +47,27 @@ export function AdminHomePage() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-lg border border-border bg-card p-4">
           <p className="text-sm text-muted-foreground">Enabled targets</p>
-          <p className="text-2xl font-semibold">{m?.targets_enabled ?? 0}</p>
+          <p className="text-2xl font-semibold" title={metricsQ.isError ? 'Failed to load' : undefined}>
+            {metricsQ.isError ? '—' : (m?.targets_enabled ?? 0)}
+          </p>
         </div>
         <div className="rounded-lg border border-border bg-card p-4">
           <p className="text-sm text-muted-foreground">Scrape runs (7d)</p>
-          <p className="text-2xl font-semibold">{m?.scrape_runs_recent ?? 0}</p>
+          <p className="text-2xl font-semibold" title={metricsQ.isError ? 'Failed to load' : undefined}>
+            {metricsQ.isError ? '—' : (m?.scrape_runs_recent ?? 0)}
+          </p>
         </div>
         <div className="rounded-lg border border-border bg-card p-4">
           <p className="text-sm text-muted-foreground">Crawl runs (7d)</p>
-          <p className="text-2xl font-semibold">{m?.crawl_runs_recent ?? 0}</p>
+          <p className="text-2xl font-semibold" title={metricsQ.isError ? 'Failed to load' : undefined}>
+            {metricsQ.isError ? '—' : (m?.crawl_runs_recent ?? 0)}
+          </p>
         </div>
         <div className="rounded-lg border border-border bg-card p-4">
           <p className="text-sm text-muted-foreground">Prospects (new)</p>
-          <p className="text-2xl font-semibold">{m?.prospects_new ?? 0}</p>
+          <p className="text-2xl font-semibold" title={metricsQ.isError ? 'Failed to load' : undefined}>
+            {metricsQ.isError ? '—' : (m?.prospects_new ?? 0)}
+          </p>
         </div>
       </div>
 
@@ -68,17 +76,20 @@ export function AdminHomePage() {
         <div className="mt-3 flex flex-wrap gap-2">
           <Button size="sm" variant="outline" asChild>
             <Link to="/admin/scraper/runs?status=failed">
-              Failed scrape runs: {scrapeFailedQ.data?.total ?? 0}
+              Failed scrape runs:{' '}
+              {scrapeFailedQ.isError ? <span title="Failed to load">—</span> : (scrapeFailedQ.data?.total ?? 0)}
             </Link>
           </Button>
           <Button size="sm" variant="outline" asChild>
             <Link to="/admin/crawler/runs?status=failed">
-              Failed crawl runs: {crawlFailedQ.data?.total ?? 0}
+              Failed crawl runs:{' '}
+              {crawlFailedQ.isError ? <span title="Failed to load">—</span> : (crawlFailedQ.data?.total ?? 0)}
             </Link>
           </Button>
           <Button size="sm" variant="outline" asChild>
             <Link to="/admin/pipeline?tab=leads&status=interested">
-              Interested leads: {m?.leads_interested ?? 0}
+              Interested leads:{' '}
+              {metricsQ.isError ? <span title="Failed to load">—</span> : (m?.leads_interested ?? 0)}
             </Link>
           </Button>
           <Button size="sm" variant="outline" asChild>

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from datetime import date
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -17,6 +19,28 @@ from crawler.services.geo_filter import passes_geo_gate
 logger = logging.getLogger(__name__)
 
 _MAX_FETCH_BYTES = 1_500_000
+
+# fetch_page_for_qualification is the shared low-level fetch used by both crawler
+# discovery (discovery_qualify.py, called once per SERP hit per source — up to 20
+# hits x N sources, back-to-back) and AI search candidate qualification
+# (ai_page_extract.py / ai_search.py). Unlike the BFS crawler in crawler.py, this
+# path previously had no robots.txt check and no rate limiting at all, letting a
+# discovery/AI-search run hit target hosts with zero politeness control even
+# though the later BFS crawl of the same domain does respect both. Shares the
+# same CRAWLER_RATE_LIMIT_SECONDS knob as the BFS crawler for one consistent
+# rate-limit setting across every crawler-originated outbound fetch.
+_qualification_rate_limiter: "RateLimiter | None" = None
+
+
+def _get_qualification_rate_limiter() -> "RateLimiter":
+    global _qualification_rate_limiter
+    if _qualification_rate_limiter is None:
+        from crawler.constants import DEFAULT_DELAY_BETWEEN_REQUESTS_SECONDS
+        from crawler.utils import RateLimiter
+
+        seconds = float(os.getenv("CRAWLER_RATE_LIMIT_SECONDS", "") or DEFAULT_DELAY_BETWEEN_REQUESTS_SECONDS)
+        _qualification_rate_limiter = RateLimiter(seconds=seconds)
+    return _qualification_rate_limiter
 
 _PAST_EVENT_PHRASES = (
     "was held",
@@ -63,6 +87,14 @@ def fetch_page_for_qualification(
     u = (url or "").strip()
     if not u.lower().startswith(("http://", "https://")):
         return False, "", "Invalid URL"
+
+    from crawler.crawler import is_allowed_by_robots
+
+    if not is_allowed_by_robots(u):
+        return False, "", "Disallowed by robots.txt"
+
+    _get_qualification_rate_limiter().wait(domain=urlparse(u).netloc.lower())
+
     try:
         with httpx.stream(
             "GET",

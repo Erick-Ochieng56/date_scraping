@@ -20,6 +20,8 @@ urlpatterns = [
     path("crawl-sources/", views.crawl_sources_list, name="v1_crawl_sources_list"),
     path("crawl-domains/", views.crawl_domains_list, name="v1_crawl_domains_list"),
     path("crawl-domains/<int:domain_id>/trigger/", views.crawl_domain_trigger, name="v1_crawl_domain_trigger"),
+    path("crawler/preview/", views.crawler_discover_preview, name="v1_crawler_discover_preview"),
+    path("crawler/queue/", views.crawler_discover_queue, name="v1_crawler_discover_queue"),
     path("ai-search/jobs/<int:job_id>/", views.ai_search_job_detail, name="v1_ai_search_job_detail"),
     path("ai-search/jobs/", views.ai_search_jobs, name="v1_ai_search_jobs"),
     path(
