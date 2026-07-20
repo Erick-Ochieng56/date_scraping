@@ -367,6 +367,7 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
                 label="Queue owner (optional)"
                 htmlFor="delegate-owner"
                 hint='Leave on "You" to run the search yourself. Pick a staff user to delegate queue ownership.'
+                error={usersQ.isError ? 'Could not load staff users — delegation unavailable.' : undefined}
               >
                 <Select
                   id="delegate-owner"
