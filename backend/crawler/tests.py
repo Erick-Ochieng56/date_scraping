@@ -11,7 +11,10 @@ from crawler.models import (
     CrawlRunDomainResult,
     CrawlRunStatus,
     DiscoveredDomain,
+    EventProspect,
+    WebsiteProfile,
 )
+from crawler.prospect_pipeline import create_or_update_prospect
 from crawler.services.active_buyer import (
     check_forward_timeline,
     has_active_buyer_signal,
@@ -255,6 +258,27 @@ class PromoteAiResultTests(TestCase):
         self.assertEqual(first.id, second.id)
         self.assertEqual(Prospect.objects.filter(owner=self.user).count(), 1)
 
+    def test_owner_id_none_does_not_match_another_users_prospect(self):
+        """
+        Regression: dedup used to be scoped "if owner_id:" (truthy-only), so
+        owner_id=None searched/matched across every owner's Prospects instead of
+        being scoped to the unowned pool — a scheduled/system-initiated promote
+        could silently overwrite a different user's Prospect that happened to
+        share an email. Must now match exactly on owner_id, including None.
+        """
+        other_user_prospect = Prospect.objects.create(
+            owner=self.user,
+            email="procurement@example-hospital.or.ke",
+            company="Someone Else's Record",
+        )
+        prospect, created = promote_ai_search_result_to_prospect(
+            self.result,
+            owner_id=None,
+        )
+        self.assertTrue(created)
+        self.assertNotEqual(prospect.id, other_user_prospect.id)
+        self.assertIsNone(prospect.owner_id)
+
 
 class AiPageExtractTests(TestCase):
     def test_merge_extraction_populates_org_and_score(self):
@@ -274,6 +298,37 @@ class AiPageExtractTests(TestCase):
         self.assertEqual(merged["org_name"], "Example NGO")
         self.assertEqual(merged["translation_need_score"], 82)
         self.assertIn("interpretation", merged["evidence_snippet"])
+
+    def test_contact_email_kept_when_it_appears_in_page_text(self):
+        merged = merge_extraction_into_prospect(
+            {"domain": "example.or.ke"},
+            {"contact_email": "proc@example.or.ke"},
+            page_text="Contact our procurement office at proc@example.or.ke for tender details.",
+        )
+        self.assertEqual(merged["contact_email"], "proc@example.or.ke")
+
+    def test_contact_email_discarded_when_not_present_in_page_text(self):
+        """
+        Prompt-injection hardening: a model-reported contact_email that doesn't
+        actually appear in the source page text is dropped rather than trusted —
+        closes the "page instructs the model to fabricate a different email"
+        vector (redirecting outreach to an attacker-controlled inbox).
+        """
+        merged = merge_extraction_into_prospect(
+            {"domain": "example.or.ke"},
+            {"contact_email": "attacker@evil.example"},
+            page_text="This page has no email address anywhere in its content at all.",
+        )
+        self.assertEqual(merged["contact_email"], "")
+
+    def test_contact_email_kept_when_no_page_text_given(self):
+        """Backward-compatible default: without page_text, no verification is
+        attempted (existing callers that don't pass it keep prior behavior)."""
+        merged = merge_extraction_into_prospect(
+            {"domain": "example.or.ke"},
+            {"contact_email": "proc@example.or.ke"},
+        )
+        self.assertEqual(merged["contact_email"], "proc@example.or.ke")
 
     @override_settings(
         GEMINI_API_KEY="",
@@ -669,3 +724,121 @@ class DiscoverWebsitesTaskStatusTests(TestCase):
         run = CrawlRun.objects.get(id=result["run_id"])
         self.assertEqual(run.status, CrawlRunStatus.SUCCESS)
         self.assertIsNotNone(run.finished_at)
+
+
+class EventProspectUniqueConstraintTests(TestCase):
+    """
+    Regression tests for the missing dedup guard on EventProspect: two concurrent
+    analyze_domain_task runs for the same domain (nothing prevented this — no
+    crawl-in-progress lock beyond the non-atomic DiscoveredDomain.crawl_status
+    field) could both pass event_processor.py's update_or_create() lookup and
+    create duplicate rows for the same event. A DB-level unique constraint on
+    (event_name, organizer_domain) — update_or_create's own key — closes this;
+    Django retries update_or_create on IntegrityError when a matching unique
+    constraint exists.
+    """
+
+    def test_duplicate_event_name_and_organizer_domain_is_rejected_at_db_level(self):
+        from django.db import IntegrityError, transaction
+
+        user = User.objects.create_user(username="evtuser1", password="x")
+        EventProspect.objects.create(
+            owner=user, event_name="Regional Health Summit", organizer_domain="example.org"
+        )
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                EventProspect.objects.create(
+                    owner=user, event_name="Regional Health Summit", organizer_domain="example.org"
+                )
+        self.assertEqual(
+            EventProspect.objects.filter(
+                event_name="Regional Health Summit", organizer_domain="example.org"
+            ).count(),
+            1,
+        )
+
+    def test_update_or_create_with_same_key_updates_instead_of_duplicating(self):
+        user = User.objects.create_user(username="evtuser2", password="x")
+        first, created_first = EventProspect.objects.update_or_create(
+            event_name="Trade Expo",
+            organizer_domain="events.example",
+            defaults={"owner": user, "urgency_score": 10},
+        )
+        self.assertTrue(created_first)
+
+        second, created_second = EventProspect.objects.update_or_create(
+            event_name="Trade Expo",
+            organizer_domain="events.example",
+            defaults={"owner": user, "urgency_score": 20},
+        )
+        self.assertFalse(created_second)
+        self.assertEqual(first.id, second.id)
+        self.assertEqual(
+            EventProspect.objects.filter(
+                event_name="Trade Expo", organizer_domain="events.example"
+            ).count(),
+            1,
+        )
+        second.refresh_from_db()
+        self.assertEqual(second.urgency_score, 20)
+
+
+class CreateOrUpdateProspectOwnerScopingTests(TestCase):
+    """
+    Regression tests for crawler/prospect_pipeline.py's create_or_update_prospect:
+    dedup used to be scoped "if owner_id:" (truthy-only), so owner_id=None — the
+    value passed for every scheduled crawl run, since discover_websites_task's
+    beat schedule calls it with no initiating user — searched/matched across every
+    owner's Prospects instead of the unowned pool. A scheduled run's new lead
+    could then silently overwrite a different user's existing Prospect.
+    """
+
+    def _profile(self, *, domain: str, email: str = "", org_name: str = "Acme") -> WebsiteProfile:
+        discovered = DiscoveredDomain.objects.create(domain=domain)
+        return WebsiteProfile.objects.create(
+            domain=discovered,
+            org_name=org_name,
+            contact_emails=[email] if email else [],
+        )
+
+    def test_owner_id_none_does_not_match_another_users_prospect(self):
+        from leads.models import Prospect
+
+        user = User.objects.create_user(username="pp-owner", password="x")
+        other_prospect = Prospect.objects.create(
+            owner=user, email="shared@example.org", company="Someone Else's Record"
+        )
+        profile = self._profile(domain="shared-example.org", email="shared@example.org")
+
+        prospect, created = create_or_update_prospect(profile, score=90, owner_id=None)
+
+        self.assertTrue(created)
+        self.assertNotEqual(prospect.id, other_prospect.id)
+        self.assertIsNone(prospect.owner_id)
+        other_prospect.refresh_from_db()
+        self.assertEqual(other_prospect.company, "Someone Else's Record")
+
+    def test_same_owner_dedup_still_updates_existing_prospect(self):
+        user = User.objects.create_user(username="pp-owner2", password="x")
+        profile = self._profile(domain="dedup-example.org", email="dedup@example.org")
+
+        first, created_first = create_or_update_prospect(profile, score=90, owner_id=user.id)
+        self.assertTrue(created_first)
+
+        profile.org_name = "Acme Updated"
+        second, created_second = create_or_update_prospect(profile, score=91, owner_id=user.id)
+        self.assertFalse(created_second)
+        self.assertEqual(first.id, second.id)
+        self.assertEqual(second.company, "Acme Updated")
+
+    def test_two_unowned_runs_dedup_against_each_other(self):
+        """The unowned (owner_id=None) pool should still dedup against itself —
+        the fix scopes exactly to owner_id, it doesn't disable dedup for None."""
+        profile = self._profile(domain="system-example.org", email="system@example.org")
+
+        first, created_first = create_or_update_prospect(profile, score=90, owner_id=None)
+        self.assertTrue(created_first)
+
+        second, created_second = create_or_update_prospect(profile, score=91, owner_id=None)
+        self.assertFalse(created_second)
+        self.assertEqual(first.id, second.id)

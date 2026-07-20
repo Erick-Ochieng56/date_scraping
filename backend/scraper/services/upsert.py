@@ -86,9 +86,13 @@ def upsert_prospect_from_item(target: ScrapeTarget, item: dict[str, Any], owner_
     raw_hash = sha256_of_obj(item)
     fields = _map_item_to_prospect_fields(target, item)
 
-    qs = Prospect.objects.all()
-    if owner_id:
-        qs = qs.filter(owner_id=owner_id)
+    # Exact owner match (including owner_id=None -> IS NULL), not "if owner_id"
+    # truthy-only — the old check skipped owner scoping entirely whenever owner_id
+    # was None, which happens for every target created via sync_targets or
+    # /ops/auto-create-target (both leave ScrapeTarget.owner unset). Dedup then
+    # searched every user's Prospects unfiltered, risking a system-provisioned
+    # target's scrape silently overwriting a different user's existing Prospect.
+    qs = Prospect.objects.filter(owner_id=owner_id).select_for_update()
     existing: Prospect | None = None
 
     if fields.get("email"):

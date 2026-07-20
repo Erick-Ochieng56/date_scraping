@@ -52,9 +52,14 @@ def create_or_update_prospect(profile: WebsiteProfile, score: int, owner_id: int
     phone_e164 = (profile.contact_phones[0] if profile.contact_phones else "") or ""
 
     with transaction.atomic():
-        base_qs = Prospect.objects.all()
-        if owner_id:
-            base_qs = base_qs.filter(owner_id=owner_id)
+        # Exact owner match (including owner_id=None -> IS NULL), not "if owner_id"
+        # truthy-only — the old check skipped owner scoping entirely whenever
+        # owner_id was None (every scheduled/system-initiated crawl run, since
+        # discover_websites_task's beat schedule calls it with no owner), so
+        # dedup searched every user's Prospects unfiltered. A scheduled run's new
+        # lead could silently overwrite a different user's existing Prospect if
+        # its hash/email/website happened to match.
+        base_qs = Prospect.objects.filter(owner_id=owner_id).select_for_update()
         existing = base_qs.filter(
             models.Q(raw_payload_hash=payload_hash)
             | (models.Q(email=email) if email else models.Q(pk__in=[]))

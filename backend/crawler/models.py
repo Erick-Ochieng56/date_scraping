@@ -410,6 +410,19 @@ class EventProspect(models.Model):
                 fields=["event_type", "status"], name="crawler_eve_event_t_d3e4f5_idx"
             ),
         ]
+        constraints = [
+            # Matches event_processor.py's update_or_create() key exactly. Without
+            # this, two concurrent analyze_domain_task runs for the same domain
+            # (e.g. a manual re-trigger racing a scheduled run) could both pass
+            # get_or_create's initial lookup and create duplicate rows for the same
+            # event. Django's update_or_create retries on IntegrityError when a
+            # matching unique constraint exists (since 4.1), so this closes the
+            # race without needing an explicit lock at the call site.
+            models.UniqueConstraint(
+                fields=["event_name", "organizer_domain"],
+                name="uniq_eventprospect_event_name_organizer_domain",
+            ),
+        ]
 
     def __str__(self) -> str:  # pragma: no cover
         return f"{self.event_name} ({self.event_date or 'date unknown'})"

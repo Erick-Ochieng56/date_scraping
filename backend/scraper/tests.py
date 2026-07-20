@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 
@@ -16,6 +17,8 @@ from scraper.tasks import (
     scrape_target,
     try_start_scrape,
 )
+
+User = get_user_model()
 
 
 class EnqueueDueLogicTests(TestCase):
@@ -474,3 +477,49 @@ class PlaywrightSubprocessTimeoutTests(TestCase):
             fetch_html_playwright("https://example.com", timeout_ms=1000)
 
         mock_kill_tree.assert_called_once_with(fake_proc)
+
+
+class UpsertProspectOwnerScopingTests(TestCase):
+    """
+    Regression tests for the cross-tenant dedup bug: matching used to be scoped
+    "if owner_id" truthy-only, so owner_id=None — every target created via
+    sync_targets or /ops/auto-create-target leaves ScrapeTarget.owner unset —
+    searched/matched across every user's Prospects instead of the unowned pool.
+    """
+
+    def _target(self, **kwargs) -> ScrapeTarget:
+        defaults = {"name": "owner-scope-target", "start_url": "https://example.com"}
+        defaults.update(kwargs)
+        target = ScrapeTarget(**defaults)
+        target.save()
+        return target
+
+    def test_owner_id_none_does_not_match_another_users_prospect(self):
+        from leads.models import Prospect
+
+        user = User.objects.create_user(username="upsert-owner", password="x")
+        other_prospect = Prospect.objects.create(
+            owner=user, email="shared@example.org", company="Someone Else's Record"
+        )
+        target = self._target(owner=None)
+        item = {"email": "shared@example.org", "full_name": "New Listing"}
+
+        prospect, created = upsert_prospect_from_item(target, item, owner_id=None)
+
+        self.assertTrue(created)
+        self.assertNotEqual(prospect.id, other_prospect.id)
+        self.assertIsNone(prospect.owner_id)
+        other_prospect.refresh_from_db()
+        self.assertEqual(other_prospect.company, "Someone Else's Record")
+
+    def test_two_unowned_scrapes_still_dedup_against_each_other(self):
+        target = self._target(owner=None)
+        item = {"email": "system@example.org", "full_name": "First Pass"}
+
+        first, created_first = upsert_prospect_from_item(target, item, owner_id=None)
+        self.assertTrue(created_first)
+
+        item2 = {"email": "system@example.org", "full_name": "Second Pass"}
+        second, created_second = upsert_prospect_from_item(target, item2, owner_id=None)
+        self.assertFalse(created_second)
+        self.assertEqual(first.id, second.id)
