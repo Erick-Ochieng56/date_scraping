@@ -452,11 +452,29 @@ if SENTRY_DSN:
         pass
 
 # --- Celery ---
-REDIS_URL = (
+def _normalize_redis_url(url: str) -> str:
+    """
+    Celery requires ssl_cert_reqs on rediss:// URLs (managed Redis / Northflank).
+    Leave plain redis:// unchanged.
+    """
+    url = (url or "").strip()
+    if not url.lower().startswith("rediss://"):
+        return url
+    if "ssl_cert_reqs=" in url.lower():
+        return url
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}ssl_cert_reqs=CERT_REQUIRED"
+
+
+REDIS_URL = _normalize_redis_url(
     _get_env("REDIS_URL", "redis://localhost:6379/0") or "redis://localhost:6379/0"
 )
-CELERY_BROKER_URL = _get_env("CELERY_BROKER_URL", REDIS_URL) or REDIS_URL
-CELERY_RESULT_BACKEND = _get_env("CELERY_RESULT_BACKEND", REDIS_URL) or REDIS_URL
+CELERY_BROKER_URL = _normalize_redis_url(
+    _get_env("CELERY_BROKER_URL", REDIS_URL) or REDIS_URL
+)
+CELERY_RESULT_BACKEND = _normalize_redis_url(
+    _get_env("CELERY_RESULT_BACKEND", REDIS_URL) or REDIS_URL
+)
 
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
