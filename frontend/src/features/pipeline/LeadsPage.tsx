@@ -9,6 +9,7 @@ import { DataTable } from '@/shared/components/DataTable'
 import { Input } from '@/shared/components/Input'
 import { ListPagination } from '@/shared/components/ListPagination'
 import { PageHeader } from '@/shared/components/PageHeader'
+import { RowActionsMenu } from '@/shared/components/RowActionsMenu'
 import { Select } from '@/shared/components/Select'
 import { StatusBadge } from '@/shared/components/StatusBadge'
 import { getApiErrorMessage } from '@/shared/api/errors'
@@ -69,7 +70,7 @@ export function LeadsPage() {
   const rejectM = useMutation({
     mutationFn: () => leadsBulkReject(selection.selected),
     onSuccess: () => {
-      setBanner({ message: 'Rejected selected leads.' })
+      setBanner({ message: 'Marked selected leads as not relevant.' })
       refresh()
     },
     onError: onMutationError,
@@ -133,36 +134,35 @@ export function LeadsPage() {
       },
       {
         id: 'actions',
-        header: 'Actions',
+        header: '',
         cell: ({ row }) => {
           const l = row.original
           return (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex items-center justify-end gap-1">
               <Button size="sm" variant="outline" asChild>
                 <Link to={`/leads/${l.id}`}>View</Link>
               </Button>
-              <Button
-                size="sm"
-                disabled={l.status !== 'contacted' || rowInterestedM.isPending}
-                onClick={() => rowInterestedM.mutate(l.id)}
-              >
-                Interested
-              </Button>
-              <Button
-                size="sm"
-                disabled={l.status !== 'interested' || rowSyncM.isPending}
-                onClick={() => rowSyncM.mutate(l.id)}
-              >
-                Sync CRM
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={['rejected', 'synced'].includes(l.status) || rowRejectM.isPending}
-                onClick={() => rowRejectM.mutate(l.id)}
-              >
-                Reject
-              </Button>
+              <RowActionsMenu
+                label={`More actions for ${l.full_name || l.company || 'lead ' + l.id}`}
+                actions={[
+                  {
+                    label: 'Mark interested',
+                    onSelect: () => rowInterestedM.mutate(l.id),
+                    disabled: l.status !== 'contacted' || rowInterestedM.isPending,
+                  },
+                  {
+                    label: 'Sync to CRM',
+                    onSelect: () => rowSyncM.mutate(l.id),
+                    disabled: l.status !== 'interested' || rowSyncM.isPending,
+                  },
+                  {
+                    label: 'Not relevant',
+                    onSelect: () => rowRejectM.mutate(l.id),
+                    disabled: ['rejected', 'synced'].includes(l.status) || rowRejectM.isPending,
+                    destructive: true,
+                  },
+                ]}
+              />
             </div>
           )
         },
@@ -174,20 +174,12 @@ export function LeadsPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Leads"
-        description="Qualify converted prospects and sync interested leads to your CRM."
+        title="My leads"
+        description="Prospects you're pursuing — contacted, interested, and synced to the CRM."
         actions={
-          <>
-            <Button variant="outline" asChild>
-              <a href={leadsExportUrl()}>Export CSV</a>
-            </Button>
-            <Button disabled={!selection.canBulk || interestedM.isPending} onClick={() => interestedM.mutate()}>
-              Mark interested
-            </Button>
-            <Button variant="outline" disabled={!selection.canBulk || rejectM.isPending} onClick={() => rejectM.mutate()}>
-              Reject
-            </Button>
-          </>
+          <Button variant="outline" asChild>
+            <a href={leadsExportUrl()}>Export CSV</a>
+          </Button>
         }
       />
 
@@ -212,11 +204,24 @@ export function LeadsPage() {
         </Button>
       </div>
 
+      {selection.canBulk ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2">
+          <span className="text-sm font-medium text-foreground">{selection.selected.length} selected</span>
+          <Button size="sm" variant="outline" disabled={interestedM.isPending} onClick={() => interestedM.mutate()}>
+            Mark interested
+          </Button>
+          <Button size="sm" variant="destructive" disabled={rejectM.isPending} onClick={() => rejectM.mutate()}>
+            Not relevant
+          </Button>
+        </div>
+      ) : null}
+
       <DataTable
         columns={columns}
         data={items}
         isLoading={query.isLoading}
         errorMessage={query.isError ? getApiErrorMessage(query.error, 'Failed to load leads.') : null}
+        emptyMessage="No leads yet. Track a prospect from the review queue to see it here."
         getRowId={(r) => String(r.id)}
       />
 

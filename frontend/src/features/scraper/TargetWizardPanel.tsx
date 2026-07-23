@@ -154,12 +154,12 @@ export function TargetWizardPanel({
         <div>
           <h3 className="flex items-center gap-2 font-semibold text-foreground">
             <Wand2 className="size-4 text-primary" aria-hidden />
-            {mode === 'create' ? 'Smart target setup' : 'URL assistant'}
+            {mode === 'create' ? 'Set up a new site' : 'Re-check this site'}
           </h3>
           <p className="mt-1 text-sm text-muted-foreground">
             {mode === 'create'
-              ? 'Paste a listing URL — we detect Eventbrite, Meetup, and other platforms and pre-fill CSS selectors.'
-              : 'Re-analyze the start URL to refresh platform-specific selectors.'}
+              ? "Paste a link to the page — we'll detect the site and set it up automatically."
+              : "Re-check the URL to refresh this site's settings."}
           </p>
         </div>
         {analyzed && platform ? (
@@ -179,7 +179,7 @@ export function TargetWizardPanel({
 
       <div className="grid gap-2">
         <label className="text-sm font-medium text-foreground" htmlFor="wizard-url">
-          Listing URL
+          Page URL
         </label>
         <div className="flex flex-wrap gap-2">
           <Input
@@ -203,7 +203,7 @@ export function TargetWizardPanel({
             ) : (
               <>
                 <Sparkles className="size-4" aria-hidden />
-                Analyze URL
+                Check URL
               </>
             )}
           </Button>

@@ -151,7 +151,7 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
         setBanner({ error: res.error ?? 'Could not start job.' })
         return
       }
-      setBanner({ message: `Job #${job.id} queued. Status: ${job.status}.` })
+      setBanner({ message: `Search #${job.id} queued. Status: ${job.status}.` })
       form.reset()
       void qc.invalidateQueries({ queryKey: ['ai-search-jobs', variant] })
       setSelectedId(job.id)
@@ -334,17 +334,23 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="AI prospect search"
+        title="Find new leads"
         description={
           isAdmin
-            ? 'Serper finds buyer pages; Gemini scores each landing page for lead quality (score ≥ 60). Promote high-confidence results to prospects.'
-            : 'Company-first Serper discovery plus Gemini page scoring. Only lead-worthy hits (score ≥ 60) are saved; promote them directly to your pipeline.'
+            ? 'Describe the kind of organization you want; we search the web and score each result for lead quality (score ≥ 60) before saving it.'
+            : "Describe the kind of organization you're looking for — we search the web and keep only strong matches."
         }
         actions={
           <>
-            <Button variant="ghost" size="sm" asChild>
-              <Link to={backHref}>← Back</Link>
-            </Button>
+            {isAdmin ? (
+              <Button variant="ghost" size="sm" asChild>
+                <Link to={backHref}>← Back</Link>
+              </Button>
+            ) : (
+              <Button variant="ghost" size="sm" asChild>
+                <Link to="/crawler/discover">Advanced discovery</Link>
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={() => void jobsQ.refetch()} disabled={jobsQ.isFetching}>
               <RefreshCw className={`mr-2 h-4 w-4 ${jobsQ.isFetching ? 'animate-spin' : ''}`} />
               Refresh list
@@ -384,7 +390,11 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
                 </Select>
               </FormField>
             ) : null}
-            <FormField label="Seed topic" htmlFor="seed-topic" error={form.formState.errors.seedTopic?.message}>
+            <FormField
+              label="What are you looking for?"
+              htmlFor="seed-topic"
+              error={form.formState.errors.seedTopic?.message}
+            >
               <Input
                 id="seed-topic"
                 placeholder="e.g. international conferences East Africa 2026"
@@ -407,26 +417,26 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
               {createM.isPending
                 ? 'Starting…'
                 : jobInProgress
-                  ? `Job #${jobInProgress.id} in progress…`
+                  ? `Search #${jobInProgress.id} in progress…`
                   : 'Run AI search'}
             </Button>
             {jobInProgress && (
               <p className="mt-2 text-sm text-muted-foreground">
-                Wait for job #{jobInProgress.id} to finish before starting another.
+                Wait for search #{jobInProgress.id} to finish before starting another.
               </p>
             )}
           </form>
         </div>
 
         <div className="rounded-lg border border-border bg-card p-4">
-          <h2 className="font-semibold text-foreground">Recent jobs</h2>
+          <h2 className="font-semibold text-foreground">Recent searches</h2>
           <div className="mt-2">
             <DataTable
               columns={jobColumns}
               data={jobsQ.data?.items ?? []}
               isLoading={jobsQ.isLoading}
-              errorMessage={jobsQ.isError ? getApiErrorMessage(jobsQ.error, 'Failed to load AI search jobs.') : null}
-              emptyMessage="No jobs yet."
+              errorMessage={jobsQ.isError ? getApiErrorMessage(jobsQ.error, 'Failed to load recent searches.') : null}
+              emptyMessage="No searches yet."
               getRowId={(r) => String(r.id)}
             />
           </div>
@@ -436,7 +446,7 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
       {selectedId != null ? (
         <div className="rounded-lg border border-border bg-card p-4">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-semibold text-foreground">Job #{selectedId}</h2>
+            <h2 className="font-semibold text-foreground">Search #{selectedId}</h2>
             <Button variant="outline" size="sm" onClick={() => void detailQ.refetch()} disabled={detailQ.isFetching}>
               Refresh detail
             </Button>

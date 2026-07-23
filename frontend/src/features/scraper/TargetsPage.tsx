@@ -87,12 +87,12 @@ export function TargetsPage() {
       },
       {
         id: 'selectors',
-        header: 'Selectors',
+        header: 'Setup',
         cell: ({ row }) =>
           hasItemSelector(row.original.config) ? (
             <span className="rounded bg-muted px-2 py-0.5 text-xs">Ready</span>
           ) : (
-            <span className="text-xs text-amber-700 dark:text-amber-400">Needs config</span>
+            <span className="text-xs text-amber-700 dark:text-amber-400">Needs setup</span>
           ),
       },
       {
@@ -122,7 +122,7 @@ export function TargetsPage() {
           return (
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="outline" asChild>
-                <Link to={`/targets/${target.id}`}>Configure</Link>
+                <Link to={`/targets/${target.id}`}>Edit</Link>
               </Button>
               <Button
                 size="sm"
@@ -132,10 +132,10 @@ export function TargetsPage() {
                   triggerOneM.mutate(target.id)
                 }}
               >
-                Scrape now
+                Check now
               </Button>
               <Button size="sm" variant="ghost" className="h-8 px-2" asChild>
-                <Link to={`/runs?target_id=${target.id}`}>Runs</Link>
+                <Link to={`/runs?target_id=${target.id}`}>History</Link>
               </Button>
             </div>
           )
@@ -148,15 +148,15 @@ export function TargetsPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Scrape targets"
-        description="Each target is one listing page (URL + CSS selectors). Configure selectors, then run scrapes manually — there is no “scrape all” for staff."
+        title="Sites we check"
+        description="Websites we check regularly for new listings. Add a site, then run a check whenever you like."
         actions={
           <>
             <Button variant="outline" asChild>
               <Link to="/targets/new?mode=manual">Manual setup</Link>
             </Button>
             <Button asChild>
-              <Link to="/targets/new">Add target</Link>
+              <Link to="/targets/new">Add site</Link>
             </Button>
           </>
         }

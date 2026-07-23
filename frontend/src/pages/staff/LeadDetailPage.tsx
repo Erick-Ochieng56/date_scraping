@@ -30,7 +30,7 @@ export function LeadDetailPage() {
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-semibold text-foreground">Lead #{leadId}</h2>
         <Link className="text-sm text-primary hover:underline" to="/leads">
-          Back to leads
+          Back to my leads
         </Link>
       </div>
       {l ? (
@@ -60,8 +60,8 @@ export function LeadDetailPage() {
             <Button disabled={l.status !== 'interested' || syncM.isPending} onClick={() => syncM.mutate()}>
               Sync to CRM
             </Button>
-            <Button variant="outline" disabled={['rejected', 'synced'].includes(l.status) || rejectM.isPending} onClick={() => rejectM.mutate()}>
-              Reject
+            <Button variant="destructive" disabled={['rejected', 'synced'].includes(l.status) || rejectM.isPending} onClick={() => rejectM.mutate()}>
+              Not relevant
             </Button>
           </div>
         </>

@@ -171,6 +171,14 @@ class ProspectSerializer(serializers.ModelSerializer):
         ]
 
 
+class ProspectDetailSerializer(ProspectSerializer):
+    """Single-prospect view: adds raw_payload (scoring/evidence data captured at
+    discovery time) — kept off the list serializer so bulk pages stay lean."""
+
+    class Meta(ProspectSerializer.Meta):
+        fields = ProspectSerializer.Meta.fields + ["raw_payload"]
+
+
 class AISearchResultSerializer(serializers.ModelSerializer):
     queued_domain_id = serializers.IntegerField(read_only=True, allow_null=True)
     source_url = serializers.SerializerMethodField()

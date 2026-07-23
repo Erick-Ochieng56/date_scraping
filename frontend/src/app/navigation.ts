@@ -1,4 +1,4 @@
-import { LayoutDashboard, PlayCircle, Target, Users, UserPlus, Globe } from 'lucide-react'
+import { LayoutDashboard, PlayCircle, Sparkles, Target, Users, UserPlus, Globe } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 export type NavItem = {
@@ -14,28 +14,34 @@ export type NavSection = {
   items: NavItem[]
 }
 
-/** Scraper-facing nav only (admin-only Django pages are not linked here). Paths are top-level to avoid /dashboard clashes with the API. */
+/**
+ * Staff-facing nav only (admin-only Django pages are not linked here). Paths are
+ * top-level to avoid /dashboard clashes with the API.
+ *
+ * Grouping and labels per UI_REDESIGN_PLAN.md Phase 3, adapted for decision #1:
+ * staff keep direct access to the crawler and site-check pages (not hidden
+ * behind an "Automation" curtain), so they're grouped with Find new leads
+ * under one "Find leads" section instead of collapsed away.
+ */
 export const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Overview',
-    items: [{ to: '/', label: 'Dashboard', icon: LayoutDashboard }],
+    items: [{ to: '/', label: 'Home', icon: LayoutDashboard }],
   },
   {
-    label: 'Scraper',
+    label: 'Find leads',
     items: [
-      { to: '/targets', label: 'Targets', icon: Target },
-      { to: '/runs', label: 'Scrape runs', icon: PlayCircle },
+      { to: '/find-leads', label: 'Find new leads', icon: Sparkles },
+      { to: '/crawler', label: 'Web crawler', icon: Globe },
+      { to: '/targets', label: 'Sites we check', icon: Target },
+      { to: '/runs', label: 'Check history', icon: PlayCircle },
     ],
-  },
-  {
-    label: 'Crawler',
-    items: [{ to: '/crawler', label: 'Crawler', icon: Globe }],
   },
   {
     label: 'Pipeline',
     items: [
-      { to: '/prospects', label: 'Prospects', icon: UserPlus },
-      { to: '/leads', label: 'Leads', icon: Users },
+      { to: '/prospects', label: 'Review queue', icon: UserPlus },
+      { to: '/leads', label: 'My leads', icon: Users },
     ],
   },
 ]

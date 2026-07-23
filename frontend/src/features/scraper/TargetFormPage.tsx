@@ -141,7 +141,7 @@ export function TargetFormPage() {
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">Invalid target link.</p>
         <Button variant="outline" asChild>
-          <Link to="/targets">Back to targets</Link>
+          <Link to="/targets">Back to sites</Link>
         </Button>
       </div>
     )
@@ -153,15 +153,15 @@ export function TargetFormPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader
-        title={isNew ? 'New scrape target' : 'Edit target'}
+        title={isNew ? 'Add a site to check' : 'Edit site'}
         description={
           isNew
-            ? 'Use smart setup to auto-detect selectors, or switch to manual JSON configuration.'
-            : 'Update selectors and settings, or re-analyze the URL for fresh platform defaults.'
+            ? "Paste a URL and we'll set it up automatically, or configure it yourself."
+            : "Update this site's settings, or re-check its URL for fresh defaults."
         }
         actions={
           <Button variant="outline" asChild>
-            <Link to="/targets">← All targets</Link>
+            <Link to="/targets">← All sites</Link>
           </Button>
         }
       />
@@ -250,7 +250,7 @@ export function TargetFormPage() {
               </div>
               <div className="grid gap-2">
                 <label className="text-sm font-medium text-foreground" htmlFor="tgt-interval">
-                  Run every (minutes)
+                  Check every (minutes)
                 </label>
                 <Input
                   id="tgt-interval"
@@ -260,7 +260,9 @@ export function TargetFormPage() {
                   onChange={(e) => setRunEvery(Number(e.target.value))}
                   disabled={busy}
                 />
-                <p className="text-xs text-muted-foreground">Used by the beat scheduler, not for manual scrapes.</p>
+                <p className="text-xs text-muted-foreground">
+                  How often we check automatically — doesn't affect checks you run yourself.
+                </p>
               </div>
             </div>
 
@@ -304,7 +306,7 @@ export function TargetFormPage() {
                     {scrapeM.isPending ? 'Queueing scrape…' : 'Scrape now'}
                   </Button>
                   <Button variant="outline" asChild>
-                    <Link to={`/runs?target_id=${numericId}`}>View scrape runs</Link>
+                    <Link to={`/runs?target_id=${numericId}`}>View check history</Link>
                   </Button>
                 </>
               ) : null}

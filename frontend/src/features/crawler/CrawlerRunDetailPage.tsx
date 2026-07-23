@@ -16,6 +16,7 @@ import { RunStatusBadge } from '@/shared/components/RunStatusBadge'
 import { Select } from '@/shared/components/Select'
 import { pollIntervalWhenRunning } from '@/shared/hooks/usePollWhen'
 import { useServerList } from '@/shared/hooks/useServerList'
+import { summarizeCrawlRun } from '@/shared/utils/runSummary'
 
 export function CrawlerRunDetailPage() {
   const params = useParams()
@@ -108,10 +109,7 @@ export function CrawlerRunDetailPage() {
   }
 
   const run = runQ.data
-  const statusHint =
-    run?.status === 'running'
-      ? 'Running — this page auto-refreshes while the batch is in progress.'
-      : run?.status_display || run?.status || ''
+  const statusHint = run ? summarizeCrawlRun(run) : ''
 
   return (
     <div className="space-y-4">

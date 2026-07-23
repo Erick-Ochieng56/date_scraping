@@ -1,9 +1,17 @@
 import { apiClient } from '@/lib/api/client'
 
-import type { MetricsSummary, RunsStreamPayload } from './types'
+import type { MetricsGranularity, MetricsSummary, MetricsTimeseries, RunsStreamPayload } from './types'
 
 export async function fetchMetricsSummary() {
   const { data } = await apiClient.get<{ success: boolean; data: MetricsSummary }>('/dashboard/api/v1/metrics/summary/')
+  return data.data
+}
+
+export async function fetchMetricsTimeseries(granularity: MetricsGranularity, periods?: number) {
+  const { data } = await apiClient.get<{ success: boolean; data: MetricsTimeseries }>(
+    '/dashboard/api/v1/metrics/timeseries/',
+    { params: { granularity, periods } }
+  )
   return data.data
 }
 

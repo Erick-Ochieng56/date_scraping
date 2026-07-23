@@ -1,0 +1,864 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+</head>
+<body>
+<title>Ateric Leads — UI Redesign Mock</title>
+<style>
+  :root {
+    --navy: #012269;
+    --navy-hover: #1a3f9e;
+    --navy-soft: #e8eefb;
+    --red: #e31836;
+    --red-soft: #fdecef;
+    --bg: #f6f7fa;
+    --card: #ffffff;
+    --ink: #131a2e;
+    --muted: #5b6478;
+    --faint: #8b93a7;
+    --border: #e3e7ef;
+    --row-hover: #f3f6fc;
+    --good: #1e7d4f;
+    --good-soft: #e7f4ed;
+    --warn: #a16207;
+    --warn-soft: #fdf3e0;
+    --src-ai: #2a52b0;
+    --src-crawler: #0f9e8e;
+    --src-scraper: #c05f10;
+    --src-ai-soft: #e9eefa;
+    --src-crawler-soft: #e4f5f3;
+    --src-scraper-soft: #faeee2;
+    --sidebar-bg: #012269;
+    --sidebar-ink: #d9e0f2;
+    --sidebar-active: rgba(255, 255, 255, 0.12);
+    --shadow: 0 1px 2px rgba(19, 26, 46, 0.05), 0 4px 16px rgba(19, 26, 46, 0.06);
+    --shadow-lift: 0 2px 6px rgba(19, 26, 46, 0.08), 0 12px 32px rgba(19, 26, 46, 0.12);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --navy: #4a72d8;
+      --navy-hover: #6289e2;
+      --navy-soft: #1b2544;
+      --red: #f0435c;
+      --red-soft: #3a1520;
+      --bg: #0e1322;
+      --card: #171e31;
+      --ink: #e8ecf5;
+      --muted: #99a3ba;
+      --faint: #6b7590;
+      --border: #262f47;
+      --row-hover: #1d2540;
+      --good: #3dbb7e;
+      --good-soft: #14301f;
+      --warn: #d9a03c;
+      --warn-soft: #33270f;
+      --src-ai: #4a72d8;
+      --src-crawler: #159a86;
+      --src-scraper: #cf6f1d;
+      --src-ai-soft: #1a2440;
+      --src-crawler-soft: #102b27;
+      --src-scraper-soft: #33210f;
+      --sidebar-bg: #0a1636;
+      --sidebar-ink: #b9c3dd;
+      --sidebar-active: rgba(255, 255, 255, 0.1);
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.35);
+      --shadow-lift: 0 2px 6px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.5);
+    }
+  }
+  :root[data-theme="dark"] {
+    --navy: #4a72d8; --navy-hover: #6289e2; --navy-soft: #1b2544; --red: #f0435c; --red-soft: #3a1520;
+    --bg: #0e1322; --card: #171e31; --ink: #e8ecf5; --muted: #99a3ba; --faint: #6b7590;
+    --border: #262f47; --row-hover: #1d2540; --good: #3dbb7e; --good-soft: #14301f;
+    --warn: #d9a03c; --warn-soft: #33270f;
+    --src-ai: #4a72d8; --src-crawler: #159a86; --src-scraper: #cf6f1d;
+    --src-ai-soft: #1a2440; --src-crawler-soft: #102b27; --src-scraper-soft: #33210f;
+    --sidebar-bg: #0a1636; --sidebar-ink: #b9c3dd; --sidebar-active: rgba(255,255,255,0.1);
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.35);
+    --shadow-lift: 0 2px 6px rgba(0,0,0,.4), 0 12px 32px rgba(0,0,0,.5);
+  }
+  :root[data-theme="light"] {
+    --navy: #012269; --navy-hover: #1a3f9e; --navy-soft: #e8eefb; --red: #e31836; --red-soft: #fdecef;
+    --bg: #f6f7fa; --card: #ffffff; --ink: #131a2e; --muted: #5b6478; --faint: #8b93a7;
+    --border: #e3e7ef; --row-hover: #f3f6fc; --good: #1e7d4f; --good-soft: #e7f4ed;
+    --warn: #a16207; --warn-soft: #fdf3e0;
+    --src-ai: #2a52b0; --src-crawler: #0f9e8e; --src-scraper: #c05f10;
+    --src-ai-soft: #e9eefa; --src-crawler-soft: #e4f5f3; --src-scraper-soft: #faeee2;
+    --sidebar-bg: #012269; --sidebar-ink: #d9e0f2; --sidebar-active: rgba(255,255,255,0.12);
+    --shadow: 0 1px 2px rgba(19,26,46,.05), 0 4px 16px rgba(19,26,46,.06);
+    --shadow-lift: 0 2px 6px rgba(19,26,46,.08), 0 12px 32px rgba(19,26,46,.12);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg); color: var(--ink);
+    font-size: 14.5px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; cursor: pointer; }
+  button:focus-visible, a:focus-visible { outline: 2px solid var(--navy); outline-offset: 2px; border-radius: 6px; }
+
+  .shell { display: flex; min-height: 100vh; }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar {
+    width: 232px; flex-shrink: 0; background: var(--sidebar-bg); color: var(--sidebar-ink);
+    display: flex; flex-direction: column; padding: 18px 12px 14px;
+    position: sticky; top: 0; height: 100vh;
+  }
+  .wordmark { display: flex; align-items: center; gap: 9px; padding: 2px 10px 18px; }
+  .wordmark .tick { width: 12px; height: 12px; border-radius: 3px; background: #e31836; flex-shrink: 0; }
+  .wordmark .name { font-size: 17px; font-weight: 700; color: #fff; letter-spacing: 0.01em; }
+  .wordmark .sub { font-size: 11px; opacity: 0.65; margin-top: 1px; }
+  .nav-group { margin-top: 14px; }
+  .nav-label {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.09em;
+    opacity: 0.55; padding: 0 10px 5px; font-weight: 600;
+  }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    padding: 8px 10px; border: 0; background: transparent; color: var(--sidebar-ink);
+    border-radius: 8px; font-size: 13.5px; text-align: left; margin-bottom: 2px;
+    transition: background 0.15s ease;
+  }
+  .nav-item:hover { background: rgba(255, 255, 255, 0.07); }
+  .nav-item.active { background: var(--sidebar-active); color: #fff; font-weight: 600; }
+  .nav-item svg { width: 16px; height: 16px; flex-shrink: 0; opacity: 0.85; }
+  .nav-item .badge {
+    margin-left: auto; background: #e31836; color: #fff; font-size: 11px; font-weight: 700;
+    border-radius: 999px; padding: 1px 7px; font-variant-numeric: tabular-nums;
+  }
+  .sidebar .foot {
+    margin-top: auto; padding: 12px 10px 0; border-top: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 12.5px; display: flex; align-items: center; gap: 9px;
+  }
+  .avatar {
+    width: 28px; height: 28px; border-radius: 50%; background: rgba(255, 255, 255, 0.15);
+    display: grid; place-items: center; font-size: 11.5px; font-weight: 700; color: #fff;
+  }
+
+  /* ---------- Main ---------- */
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .mockbar {
+    background: var(--navy-soft); color: var(--ink); font-size: 12px;
+    padding: 6px 22px; display: flex; gap: 8px; align-items: center;
+    border-bottom: 1px solid var(--border);
+  }
+  .mockbar b { color: var(--navy); }
+  .content { padding: 26px 30px 48px; max-width: 1060px; width: 100%; margin: 0 auto; }
+
+  .page { display: none; }
+  .page.active { display: block; animation: pageIn 0.28s ease both; }
+  @keyframes pageIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  h1 { font-size: 24px; font-weight: 700; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+  .h-sub { color: var(--muted); margin: 4px 0 0; font-size: 14px; }
+  .eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--faint); font-weight: 700; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    box-shadow: var(--shadow); padding: 20px 22px;
+  }
+  .stagger > * { animation: pageIn 0.35s ease both; }
+  .stagger > *:nth-child(2) { animation-delay: 0.06s; }
+  .stagger > *:nth-child(3) { animation-delay: 0.12s; }
+  .stagger > *:nth-child(4) { animation-delay: 0.18s; }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex; align-items: center; gap: 7px; border-radius: 9px;
+    padding: 9px 16px; font-size: 13.5px; font-weight: 600; border: 1px solid transparent;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+  }
+  .btn:active { transform: translateY(1px); }
+  .btn-primary { background: var(--navy); color: #fff; }
+  .btn-primary:hover { background: var(--navy-hover); }
+  .btn-outline { background: var(--card); border-color: var(--border); color: var(--ink); }
+  .btn-outline:hover { border-color: var(--navy); color: var(--navy); }
+  .btn-quiet { background: transparent; color: var(--muted); border-color: transparent; }
+  .btn-quiet:hover { color: var(--ink); background: var(--row-hover); }
+  .btn-danger-outline { background: var(--card); border-color: var(--border); color: var(--red); }
+  .btn-danger-outline:hover { border-color: var(--red); background: var(--red-soft); }
+  .btn-lg { padding: 12px 22px; font-size: 14.5px; border-radius: 11px; }
+
+  /* Chips / pills */
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px; border-radius: 999px;
+    font-size: 12px; font-weight: 600; padding: 3px 10px; white-space: nowrap;
+  }
+  .chip svg { width: 12px; height: 12px; }
+  .chip-ai { background: var(--src-ai-soft); color: var(--src-ai); }
+  .chip-crawler { background: var(--src-crawler-soft); color: var(--src-crawler); }
+  .chip-scraper { background: var(--src-scraper-soft); color: var(--src-scraper); }
+  .chip-strong { background: var(--good-soft); color: var(--good); }
+  .chip-possible { background: var(--warn-soft); color: var(--warn); }
+  .chip-date { background: var(--navy-soft); color: var(--navy); font-variant-numeric: tabular-nums; }
+
+  /* ---------- Home ---------- */
+  .hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-bottom: 22px; }
+  .hero-cta { display: flex; gap: 10px; flex-wrap: wrap; }
+  .alert-strip {
+    display: flex; align-items: center; gap: 12px; background: var(--red-soft);
+    border: 1px solid color-mix(in srgb, var(--red) 25%, transparent); border-left: 4px solid var(--red);
+    border-radius: 10px; padding: 11px 16px; margin-bottom: 22px; font-size: 13.5px;
+  }
+  .alert-strip svg { width: 16px; height: 16px; color: var(--red); flex-shrink: 0; }
+  .alert-strip a { margin-left: auto; color: var(--red); font-weight: 600; text-decoration: none; white-space: nowrap; }
+  .alert-strip a:hover { text-decoration: underline; }
+
+  .stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 22px; }
+  @media (max-width: 760px) { .stat-row { grid-template-columns: 1fr; } }
+  .stat { display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; }
+  .stat .num { font-size: 30px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .stat .lbl { color: var(--muted); font-size: 13px; margin-bottom: 2px; }
+  .stat .delta { font-size: 12px; font-weight: 600; color: var(--good); }
+  .spark { width: 96px; height: 30px; flex-shrink: 0; }
+
+  .grid-2 { display: grid; grid-template-columns: 3fr 2fr; gap: 14px; align-items: start; }
+  @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .card h3 { margin: 0 0 2px; font-size: 15.5px; font-weight: 700; }
+  .card .card-sub { color: var(--muted); font-size: 12.5px; margin: 0 0 14px; }
+
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+  .chart-wrap { position: relative; height: 190px; }
+  .chart-grid { position: absolute; inset: 0 0 22px 26px; }
+  .chart-grid .gl { position: absolute; left: 0; right: 0; border-top: 1px solid var(--border); }
+  .chart-grid .gv { position: absolute; left: -26px; font-size: 10.5px; color: var(--faint); transform: translateY(-50%); font-variant-numeric: tabular-nums; }
+  .chart-cols { position: absolute; inset: 0 0 22px 26px; display: flex; align-items: flex-end; gap: 10%; padding: 0 4%; }
+  .ccol { flex: 1; display: flex; flex-direction: column-reverse; align-items: stretch; height: 100%; position: relative; cursor: default; }
+  .ccol .seg { width: 100%; margin-top: 2px; transform-origin: bottom; }
+  .ccol .seg:last-child { border-radius: 4px 4px 0 0; }
+  .ccol:hover .seg { filter: brightness(1.08); }
+  .chart-x { position: absolute; left: 26px; right: 0; bottom: 0; display: flex; gap: 10%; padding: 0 4%; }
+  .chart-x span { flex: 1; text-align: center; font-size: 11px; color: var(--faint); }
+  .grow .seg { animation: growUp 0.5s ease both; }
+  .grow .ccol:nth-child(2) .seg { animation-delay: 0.05s; } .grow .ccol:nth-child(3) .seg { animation-delay: 0.1s; }
+  .grow .ccol:nth-child(4) .seg { animation-delay: 0.15s; } .grow .ccol:nth-child(5) .seg { animation-delay: 0.2s; }
+  .grow .ccol:nth-child(6) .seg { animation-delay: 0.25s; } .grow .ccol:nth-child(7) .seg { animation-delay: 0.3s; }
+  @keyframes growUp { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+
+  .tooltip {
+    position: fixed; z-index: 90; background: var(--ink); color: var(--bg);
+    border-radius: 8px; padding: 8px 11px; font-size: 12px; pointer-events: none;
+    opacity: 0; transition: opacity 0.12s ease; box-shadow: var(--shadow-lift); max-width: 240px;
+  }
+  .tooltip b { display: block; margin-bottom: 3px; }
+  .tooltip .trow { display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+  .tooltip .trow i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+
+  .feed { list-style: none; margin: 0; padding: 0; }
+  .feed li { display: flex; gap: 11px; padding: 10px 0; border-top: 1px solid var(--border); font-size: 13.5px; }
+  .feed li:first-child { border-top: 0; padding-top: 2px; }
+  .feed .dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; }
+  .feed .t { color: var(--faint); font-size: 12px; white-space: nowrap; margin-left: auto; padding-left: 10px; }
+
+  /* ---------- Review ---------- */
+  .filter-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 18px 0 14px; }
+  .fchip {
+    display: inline-flex; align-items: center; gap: 7px; padding: 7px 14px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--card); color: var(--muted);
+    font-size: 13px; font-weight: 600; transition: all 0.15s ease;
+  }
+  .fchip:hover { border-color: var(--navy); color: var(--navy); }
+  .fchip.on { background: var(--navy); border-color: var(--navy); color: #fff; }
+  .fchip .n { font-variant-numeric: tabular-nums; opacity: 0.75; }
+
+  table.queue { width: 100%; border-collapse: collapse; }
+  .queue th {
+    text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--faint); font-weight: 700; padding: 10px 12px; border-bottom: 1px solid var(--border);
+  }
+  .queue td { padding: 13px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .queue tbody tr { transition: background 0.12s ease; }
+  .queue tbody tr:hover { background: var(--row-hover); }
+  .queue .org { font-weight: 600; }
+  .queue .evt { color: var(--muted); font-size: 12.5px; margin-top: 1px; }
+  .rowbtn { display: flex; gap: 6px; justify-content: flex-end; align-items: center; }
+  .kebab { border: 0; background: transparent; color: var(--faint); border-radius: 7px; padding: 5px 8px; font-weight: 700; }
+  .kebab:hover { background: var(--row-hover); color: var(--ink); }
+  .row-out { animation: rowOut 0.3s ease both; }
+  @keyframes rowOut { to { opacity: 0; transform: translateX(18px); } }
+
+  /* ---------- Focus (one-by-one) mode ---------- */
+  .focus-veil {
+    position: fixed; inset: 0; z-index: 60; background: color-mix(in srgb, var(--navy) 14%, rgba(10, 14, 28, 0.55));
+    backdrop-filter: blur(3px); display: none; align-items: flex-start; justify-content: center; padding: 5vh 18px;
+  }
+  .focus-veil.open { display: flex; animation: veilIn 0.2s ease both; }
+  @keyframes veilIn { from { opacity: 0; } to { opacity: 1; } }
+  .focus-panel { width: min(660px, 100%); }
+  .focus-top { display: flex; align-items: center; gap: 14px; color: #fff; margin-bottom: 14px; }
+  .focus-top .cnt { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .pbar { flex: 1; height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.25); overflow: hidden; }
+  .pbar i { display: block; height: 100%; background: #fff; border-radius: 999px; transition: width 0.3s ease; }
+  .focus-close { border: 0; background: rgba(255, 255, 255, 0.15); color: #fff; border-radius: 8px; padding: 6px 12px; font-size: 12.5px; font-weight: 600; }
+  .focus-close:hover { background: rgba(255, 255, 255, 0.28); }
+
+  .fcard { background: var(--card); border-radius: 18px; box-shadow: var(--shadow-lift); padding: 28px 30px; }
+  .fcard.enter { animation: cardIn 0.28s cubic-bezier(0.2, 0.9, 0.3, 1) both; }
+  .fcard.exit-l { animation: cardOutL 0.22s ease both; }
+  @keyframes cardIn { from { opacity: 0; transform: translateX(26px) scale(0.985); } to { opacity: 1; transform: none; } }
+  @keyframes cardOutL { to { opacity: 0; transform: translateX(-30px) scale(0.985); } }
+  .fcard .top-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .fcard h2 { margin: 0; font-size: 21px; font-weight: 700; letter-spacing: -0.01em; }
+  .fcard .evt-line { color: var(--muted); font-size: 14.5px; margin: 3px 0 16px; }
+  .evidence {
+    border-left: 3px solid var(--navy); background: var(--navy-soft);
+    border-radius: 0 10px 10px 0; padding: 12px 16px; font-size: 13.5px; margin-bottom: 8px;
+  }
+  .evidence .src-line { font-size: 12px; color: var(--muted); margin-top: 7px; }
+  .evidence .src-line b { color: var(--navy); font-weight: 600; }
+  .meta-row { display: flex; gap: 20px; flex-wrap: wrap; margin: 16px 0 22px; font-size: 13px; color: var(--muted); }
+  .meta-row b { color: var(--ink); font-weight: 600; }
+  .decide { display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: 10px; }
+  @media (max-width: 620px) { .decide { grid-template-columns: 1fr; } }
+  .decide .btn { justify-content: center; padding: 13px 10px; }
+  .keys { text-align: center; color: var(--faint); font-size: 11.5px; margin-top: 12px; }
+  kbd {
+    background: var(--row-hover); border: 1px solid var(--border); border-bottom-width: 2px;
+    border-radius: 5px; padding: 0 6px; font-family: inherit; font-size: 11px;
+  }
+
+  .done-card { text-align: center; padding: 44px 30px; }
+  .done-card .ring {
+    width: 64px; height: 64px; border-radius: 50%; background: var(--good-soft); color: var(--good);
+    display: grid; place-items: center; margin: 0 auto 16px; animation: popIn 0.4s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+  }
+  .done-card .ring svg { width: 30px; height: 30px; }
+  @keyframes popIn { from { transform: scale(0.4); opacity: 0; } to { transform: none; opacity: 1; } }
+  .done-sum { display: flex; justify-content: center; gap: 26px; margin: 18px 0 24px; }
+  .done-sum div { text-align: center; }
+  .done-sum .n { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .done-sum .l { font-size: 12px; color: var(--muted); }
+
+  .toast {
+    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(70px);
+    background: var(--ink); color: var(--bg); border-radius: 10px; padding: 10px 16px;
+    font-size: 13px; display: flex; gap: 14px; align-items: center; z-index: 80;
+    transition: transform 0.25s ease; box-shadow: var(--shadow-lift);
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+  .toast button { border: 0; background: transparent; color: inherit; font-weight: 700; text-decoration: underline; padding: 0; }
+
+  .bulkbar {
+    display: none; align-items: center; gap: 10px; background: var(--navy-soft);
+    border: 1px solid color-mix(in srgb, var(--navy) 25%, transparent);
+    border-radius: 10px; padding: 9px 14px; margin-bottom: 12px; font-size: 13px;
+  }
+  .bulkbar.show { display: flex; animation: pageIn 0.2s ease both; }
+
+  /* Stub pages */
+  .stub-note {
+    margin-top: 18px; border: 1.5px dashed var(--border); border-radius: 12px;
+    padding: 18px 20px; color: var(--muted); font-size: 13.5px; background: var(--card);
+  }
+  .stub-note b { color: var(--ink); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+  @media (max-width: 860px) {
+    .sidebar { display: none; }
+    .content { padding: 18px 16px 40px; }
+  }
+</style>
+
+<div class="shell">
+  <aside class="sidebar">
+    <div class="wordmark">
+      <span class="tick" aria-hidden="true"></span>
+      <span>
+        <span class="name">Ateric Leads</span>
+        <div class="sub">for the Ateric team</div>
+      </span>
+    </div>
+
+    <nav aria-label="Main">
+      <div class="nav-group">
+        <button class="nav-item active" data-page="home">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>
+          Home
+        </button>
+      </div>
+      <div class="nav-group">
+        <div class="nav-label">Find leads</div>
+        <button class="nav-item" data-page="find">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.7 4.6L18 9.3l-4.3 1.7L12 15.6l-1.7-4.6L6 9.3l4.3-1.7z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>
+          Find new leads
+        </button>
+        <button class="nav-item" data-page="crawler">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.7 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.7-3.8-9S9.5 5.6 12 3z"/></svg>
+          Web crawler
+        </button>
+        <button class="nav-item" data-page="sites">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="0.5" fill="currentColor"/></svg>
+          Site checks
+        </button>
+      </div>
+      <div class="nav-group">
+        <div class="nav-label">Pipeline</div>
+        <button class="nav-item" data-page="review">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z"/><path d="M8 10h8M8 14h5"/></svg>
+          Review queue
+          <span class="badge" id="navBadge">12</span>
+        </button>
+        <button class="nav-item" data-page="leads">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.4 3.4-5.5 6.5-5.5s5.7 2.1 6.5 5.5"/><path d="M16 8.5l2 2 3.5-4"/></svg>
+          My leads
+        </button>
+      </div>
+    </nav>
+
+    <div class="foot">
+      <span class="avatar">AW</span>
+      <span>Amina W.<br /><span style="opacity:.6">Staff</span></span>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="mockbar">
+      <b>Interactive mock</b><span>— proposed redesign, illustrative data. Click around; nothing is saved.</span>
+      <button class="btn btn-quiet" style="margin-left:auto;padding:3px 10px;font-size:12px" onclick="resetDemo()">Reset demo</button>
+    </div>
+
+    <div class="content">
+      <!-- ============ HOME ============ -->
+      <section class="page active" id="page-home">
+        <div class="hero">
+          <div>
+            <div class="eyebrow">Monday, 20 July</div>
+            <h1>Good morning, Amina</h1>
+            <p class="h-sub"><b id="heroCount">12</b> new prospects are waiting for your review.</p>
+          </div>
+          <div class="hero-cta">
+            <button class="btn btn-primary btn-lg" onclick="goReviewFocus()">Start reviewing</button>
+            <button class="btn btn-outline btn-lg" data-page="find">Find more leads</button>
+          </div>
+        </div>
+
+        <div class="alert-strip" role="alert">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2.5 20h19z"/><path d="M12 9.5V14M12 17.2v.1"/></svg>
+          <span>Yesterday's check of <b>Eventbrite Nairobi</b> didn't finish. Its next attempt is tonight.</span>
+          <a href="#" onclick="event.preventDefault(); showPage('sites')">View site checks</a>
+        </div>
+
+        <div class="stat-row stagger">
+          <div class="card stat">
+            <div><div class="lbl">New prospects this week</div><div class="num" data-count="23">0</div></div>
+            <svg class="spark" viewBox="0 0 96 30" aria-hidden="true"><polyline fill="none" stroke="var(--src-ai)" stroke-width="2" points="2,24 18,21 34,22 50,15 66,17 82,8 94,6"/><circle cx="94" cy="6" r="3" fill="var(--src-ai)"/></svg>
+          </div>
+          <div class="card stat">
+            <div><div class="lbl">Contacted this week</div><div class="num" data-count="8">0</div></div>
+            <svg class="spark" viewBox="0 0 96 30" aria-hidden="true"><polyline fill="none" stroke="var(--src-crawler)" stroke-width="2" points="2,26 18,25 34,20 50,21 66,14 82,13 94,10"/><circle cx="94" cy="10" r="3" fill="var(--src-crawler)"/></svg>
+          </div>
+          <div class="card stat">
+            <div><div class="lbl">Interested leads</div><div class="num" data-count="3">0</div><div class="delta">+2 this week</div></div>
+            <svg class="spark" viewBox="0 0 96 30" aria-hidden="true"><polyline fill="none" stroke="var(--good)" stroke-width="2" points="2,27 18,27 34,24 50,24 66,18 82,14 94,12"/><circle cx="94" cy="12" r="3" fill="var(--good)"/></svg>
+          </div>
+        </div>
+
+        <div class="grid-2 stagger">
+          <div class="card">
+            <h3>Where this week's prospects came from</h3>
+            <p class="card-sub">Daily discoveries, by the feature that found them</p>
+            <div class="legend">
+              <span><i style="background:var(--src-ai)"></i>AI search</span>
+              <span><i style="background:var(--src-crawler)"></i>Web crawler</span>
+              <span><i style="background:var(--src-scraper)"></i>Site checks</span>
+            </div>
+            <div class="chart-wrap" id="weekChart"></div>
+          </div>
+          <div class="card">
+            <h3>Latest activity</h3>
+            <p class="card-sub">What the system did for you recently</p>
+            <ul class="feed">
+              <li><span class="dot" style="background:var(--src-ai)"></span><span>AI search for <b>"health NGOs East Africa"</b> found <b>5 strong matches</b>.</span><span class="t">2 h ago</span></li>
+              <li><span class="dot" style="background:var(--src-crawler)"></span><span>Web crawler qualified <b>4 new organizations</b> from 61 pages.</span><span class="t">5 h ago</span></li>
+              <li><span class="dot" style="background:var(--src-scraper)"></span><span>Site check of <b>Meetup Kampala</b> found <b>3 new events</b>.</span><span class="t">this morning</span></li>
+              <li><span class="dot" style="background:var(--red)"></span><span>Site check of <b>Eventbrite Nairobi</b> didn't finish — retrying tonight.</span><span class="t">yesterday</span></li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ REVIEW ============ -->
+      <section class="page" id="page-review">
+        <div class="hero" style="margin-bottom:6px">
+          <div>
+            <h1>Review queue</h1>
+            <p class="h-sub"><b id="queueCount">12</b> prospects waiting — newest first.</p>
+          </div>
+          <div class="hero-cta">
+            <button class="btn btn-primary btn-lg" onclick="openFocus()">
+              Review one by one
+              <svg style="width:15px;height:15px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="filter-row" id="srcFilters">
+          <button class="fchip on" data-src="all">All <span class="n" id="fAll">12</span></button>
+          <button class="fchip" data-src="ai">AI search <span class="n" id="fAi">5</span></button>
+          <button class="fchip" data-src="crawler">Web crawler <span class="n" id="fCrawler">4</span></button>
+          <button class="fchip" data-src="scraper">Site checks <span class="n" id="fScraper">3</span></button>
+        </div>
+
+        <div class="bulkbar" id="bulkbar">
+          <b id="bulkN">0 selected</b>
+          <button class="btn btn-outline" style="padding:5px 12px" onclick="alert('Mock: would mark selected as contacted')">Mark contacted</button>
+          <button class="btn btn-outline" style="padding:5px 12px" onclick="alert('Mock: would track selected as leads')">Track as leads</button>
+          <button class="btn btn-danger-outline" style="padding:5px 12px" onclick="alert('Mock: would mark selected not relevant')">Not relevant</button>
+        </div>
+
+        <div class="card" style="padding:6px 10px">
+          <table class="queue" aria-label="Prospects waiting for review">
+            <thead>
+              <tr>
+                <th style="width:34px"><input type="checkbox" id="chkAll" aria-label="Select all" onclick="toggleAll(this)"/></th>
+                <th>Organization</th>
+                <th>When</th>
+                <th>Match</th>
+                <th>Found by</th>
+                <th style="text-align:right">Action</th>
+              </tr>
+            </thead>
+            <tbody id="queueBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ============ STUBS ============ -->
+      <section class="page" id="page-find">
+        <h1>Find new leads</h1>
+        <p class="h-sub">Describe the kind of organization you're looking for — we search the web and keep only strong matches.</p>
+        <div class="stub-note"><b>Unchanged in this mock.</b> The existing AI search form moves here with friendlier labels ("What are you looking for?" instead of "Seed topic"), and results land in your Review queue tagged <span class="chip chip-ai">AI search</span>.</div>
+      </section>
+      <section class="page" id="page-crawler">
+        <h1>Web crawler</h1>
+        <p class="h-sub">Give the crawler a topic or a list of sites; it explores the web on its own and brings back qualified organizations.</p>
+        <div class="stub-note"><b>Unchanged in this mock.</b> Discover, domains, and crawl runs stay available for staff — results land in Review tagged <span class="chip chip-crawler">Web crawler</span>. The domain list gains a "found by" column so every domain shows which feature queued it.</div>
+      </section>
+      <section class="page" id="page-sites">
+        <h1>Site checks</h1>
+        <p class="h-sub">Websites we check on a schedule (your scrape targets), with plain-language history.</p>
+        <div class="stub-note"><b>Unchanged in this mock.</b> Targets + runs, reworded: "Checked Eventbrite Nairobi this morning — found 3 new prospects." New finds land in Review tagged <span class="chip chip-scraper">Site check</span>.</div>
+      </section>
+      <section class="page" id="page-leads">
+        <h1>My leads</h1>
+        <p class="h-sub">Prospects you're pursuing — contacted, interested, and synced to the CRM.</p>
+        <div class="stub-note"><b>Unchanged in this mock.</b> The current Leads table stays, minus the button overload — one primary action per row plus a ⋯ menu.</div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!-- Focus mode overlay -->
+<div class="focus-veil" id="focusVeil" role="dialog" aria-modal="true" aria-label="Review prospects one by one">
+  <div class="focus-panel">
+    <div class="focus-top">
+      <span class="cnt" id="focusCnt">1 of 12</span>
+      <div class="pbar"><i id="focusBar" style="width:0%"></i></div>
+      <button class="focus-close" onclick="closeFocus()">Close ✕</button>
+    </div>
+    <div id="focusCardHolder"></div>
+    <p class="keys" style="color:rgba(255,255,255,.75)">Shortcuts: <kbd>1</kbd> not relevant · <kbd>2</kbd> contacted · <kbd>3</kbd> track as lead</p>
+  </div>
+</div>
+
+<div class="toast" id="toast"><span id="toastMsg"></span><button onclick="undoLast()">Undo</button></div>
+
+<script>
+  // ---------- Data ----------
+  const SRC = {
+    ai:      { label: 'AI search',   chip: 'chip-ai',      color: 'var(--src-ai)' },
+    crawler: { label: 'Web crawler', chip: 'chip-crawler', color: 'var(--src-crawler)' },
+    scraper: { label: 'Site check',  chip: 'chip-scraper', color: 'var(--src-scraper)' },
+  };
+  const P = [
+    { id: 1,  org: 'Nairobi Health Alliance',        evt: 'East Africa Health Summit 2026',      when: 'Sep 14', inWks: 8,  match: 'strong',   src: 'ai',
+      site: 'nha.or.ke', quote: 'Request for proposals: simultaneous interpretation and conference equipment for the regional health summit. Deadline 14 September 2026.' },
+    { id: 2,  org: 'EAC Secretariat',                evt: 'Trade Ministers Forum',               when: 'Aug 2',  inWks: 2,  match: 'strong',   src: 'ai',
+      site: 'eac.int', quote: 'The Secretariat invites qualified vendors for conference interpretation services (EN/FR/SW) for the upcoming ministerial forum.' },
+    { id: 3,  org: 'Uganda Law Society',             evt: 'Kampala Legal Aid Conference',        when: 'Oct 9',  inWks: 12, match: 'possible', src: 'crawler',
+      site: 'uls.ug', quote: 'Annual conference brings together 400+ legal professionals from across the region. Programme available in English and Swahili.' },
+    { id: 4,  org: 'TanPorts Authority',             evt: 'Port Expansion RFP briefing',         when: 'Oct 30', inWks: 15, match: 'strong',   src: 'ai',
+      site: 'tanports.tz', quote: 'Bidders conference for the Dar es Salaam port expansion. International bidders welcome; interpretation will be required.' },
+    { id: 5,  org: 'Rwanda ICT Chamber',             evt: 'Kigali Fintech Week',                 when: 'Nov 5',  inWks: 16, match: 'possible', src: 'scraper',
+      site: 'ict.rw', quote: 'Five-day summit expecting delegations from 20+ countries. Speaker sessions in English and French.' },
+    { id: 6,  org: 'Amref Health Africa',            evt: 'Community Health Workers Congress',   when: 'Sep 28', inWks: 10, match: 'strong',   src: 'crawler',
+      site: 'amref.org', quote: 'Tender notice: provision of translation and sign-language interpretation for the CHW Congress, Nairobi.' },
+    { id: 7,  org: 'Ethiopian Investment Board',     evt: 'Addis Investment Roundtable',         when: 'Aug 19', inWks: 4,  match: 'possible', src: 'ai',
+      site: 'investethiopia.gov.et', quote: 'Quarterly roundtable with international investors. Working languages: English, Amharic, French.' },
+    { id: 8,  org: 'Burundi Chamber of Commerce',    evt: 'Cross-Border Trade Expo',             when: 'Sep 3',  inWks: 6,  match: 'possible', src: 'crawler',
+      site: 'ccib.bi', quote: 'Regional expo connecting traders from Burundi, DRC, Rwanda and Tanzania. Multilingual programme planned.' },
+    { id: 9,  org: 'Kenya Medical Association',      evt: 'Annual Scientific Conference',        when: 'Nov 20', inWks: 18, match: 'strong',   src: 'scraper',
+      site: 'kma.co.ke', quote: 'Call for service providers: AV, interpretation booths and conference materials for the 2026 scientific conference.' },
+    { id: 10, org: 'South Sudan NGO Forum',          evt: 'Humanitarian Coordination Meeting',   when: 'Aug 12', inWks: 3,  match: 'possible', src: 'ai',
+      site: 'ssngoforum.org', quote: 'Monthly coordination meeting of 200+ national and international NGOs operating in South Sudan.' },
+    { id: 11, org: 'Zanzibar Tourism Commission',    evt: 'Indian Ocean Tourism Forum',          when: 'Oct 16', inWks: 13, match: 'possible', src: 'crawler',
+      site: 'zanzibartourism.go.tz', quote: 'International forum with delegations from 15 Indian Ocean states; interpretation services under procurement review.' },
+    { id: 12, org: 'Makerere University',            evt: 'Research & Innovation Week',          when: 'Sep 21', inWks: 9,  match: 'possible', src: 'scraper',
+      site: 'mak.ac.ug', quote: 'Week-long programme with international keynote speakers and partner university delegations.' },
+  ];
+  const WEEK = [
+    { d: 'Mon', ai: 1, crawler: 1, scraper: 0 }, { d: 'Tue', ai: 0, crawler: 2, scraper: 1 },
+    { d: 'Wed', ai: 2, crawler: 0, scraper: 1 }, { d: 'Thu', ai: 1, crawler: 1, scraper: 0 },
+    { d: 'Fri', ai: 3, crawler: 2, scraper: 1 }, { d: 'Sat', ai: 0, crawler: 1, scraper: 0 },
+    { d: 'Sun', ai: 5, crawler: 0, scraper: 1 },
+  ];
+
+  let decided = {};        // id -> 'rejected' | 'contacted' | 'lead'
+  let lastDecision = null; // { id, action }
+  let filter = 'all';
+  let focusIdx = 0;
+  const total = P.length;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ---------- Nav ----------
+  const pages = ['home', 'find', 'crawler', 'sites', 'leads', 'review'];
+  function showPage(name) {
+    pages.forEach((p) => document.getElementById('page-' + p).classList.toggle('active', p === name));
+    document.querySelectorAll('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.page === name));
+    if (name === 'review') renderQueue();
+    if (name === 'home') { animateCounts(); buildChart(); }
+  }
+  document.querySelectorAll('[data-page]').forEach((b) => b.addEventListener('click', () => showPage(b.dataset.page)));
+
+  // ---------- Home: count-up + chart ----------
+  let counted = false;
+  function animateCounts() {
+    if (counted) return; counted = true;
+    document.querySelectorAll('[data-count]').forEach((el) => {
+      const target = +el.dataset.count;
+      if (reduced) { el.textContent = target; return; }
+      const t0 = performance.now();
+      const tick = (t) => {
+        const k = Math.min(1, (t - t0) / 800);
+        el.textContent = Math.round(target * (1 - Math.pow(1 - k, 3)));
+        if (k < 1) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+  }
+  let chartBuilt = false;
+  function buildChart() {
+    if (chartBuilt) return; chartBuilt = true;
+    const wrap = document.getElementById('weekChart');
+    const max = 8;
+    const grid = document.createElement('div'); grid.className = 'chart-grid';
+    [0, 2, 4, 6, 8].forEach((v) => {
+      const y = (1 - v / max) * 100;
+      const gl = document.createElement('div'); gl.className = 'gl'; gl.style.top = y + '%'; grid.appendChild(gl);
+      const gv = document.createElement('span'); gv.className = 'gv'; gv.style.top = y + '%'; gv.textContent = v; grid.appendChild(gv);
+    });
+    const cols = document.createElement('div'); cols.className = 'chart-cols' + (reduced ? '' : ' grow');
+    const xrow = document.createElement('div'); xrow.className = 'chart-x';
+    WEEK.forEach((day) => {
+      const col = document.createElement('div'); col.className = 'ccol';
+      ['ai', 'crawler', 'scraper'].forEach((s) => {
+        if (!day[s]) return;
+        const seg = document.createElement('div'); seg.className = 'seg';
+        seg.style.height = (day[s] / max) * 100 + '%';
+        seg.style.background = SRC[s].color;
+        col.appendChild(seg);
+      });
+      col.addEventListener('mousemove', (e) => tooltipChart(e, day));
+      col.addEventListener('mouseleave', hideTooltip);
+      cols.appendChild(col);
+      const x = document.createElement('span'); x.textContent = day.d; xrow.appendChild(x);
+    });
+    wrap.append(grid, cols, xrow);
+  }
+  const tooltip = document.createElement('div'); tooltip.className = 'tooltip'; document.body.appendChild(tooltip);
+  function tooltipChart(e, day) {
+    const rows = ['ai', 'crawler', 'scraper']
+      .map((s) => `<span class="trow"><i style="background:${SRC[s].color}"></i>${SRC[s].label}: ${day[s]}</span>`)
+      .join('');
+    tooltip.innerHTML = `<b>${day.d} — ${day.ai + day.crawler + day.scraper} prospects</b>${rows}`;
+    tooltip.style.left = Math.min(e.clientX + 14, innerWidth - 200) + 'px';
+    tooltip.style.top = e.clientY - 10 + 'px';
+    tooltip.style.opacity = 1;
+  }
+  function hideTooltip() { tooltip.style.opacity = 0; }
+
+  // ---------- Review queue ----------
+  const remaining = () => P.filter((p) => !decided[p.id]);
+  function chip(cls, label) { return `<span class="chip ${cls}">${label}</span>`; }
+  function matchChip(m) {
+    return m === 'strong'
+      ? chip('chip-strong', '● Strong match')
+      : chip('chip-possible', '○ Possible match');
+  }
+  function renderQueue() {
+    const body = document.getElementById('queueBody');
+    const rows = remaining().filter((p) => filter === 'all' || p.src === filter);
+    body.innerHTML = rows
+      .map(
+        (p) => `
+      <tr data-id="${p.id}">
+        <td><input type="checkbox" class="rowchk" aria-label="Select ${p.org}" onchange="updateBulk()"/></td>
+        <td><div class="org">${p.org}</div><div class="evt">${p.evt}</div></td>
+        <td><span class="chip chip-date">${p.when} · in ${p.inWks} wks</span></td>
+        <td>${matchChip(p.match)}</td>
+        <td>${chip(SRC[p.src].chip, SRC[p.src].label)}</td>
+        <td>
+          <div class="rowbtn">
+            <button class="btn btn-outline" style="padding:6px 14px" onclick="openFocusAt(${p.id})">Review</button>
+            <button class="kebab" aria-label="More actions for ${p.org}" onclick="alert('Mock: contacted / track as lead / not relevant / open website')">⋯</button>
+          </div>
+        </td>
+      </tr>`
+      )
+      .join('') || `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:34px">Nothing waiting in this view — nice work.</td></tr>`;
+    updateCounts();
+    updateBulk();
+  }
+  function updateCounts() {
+    const r = remaining();
+    const by = (s) => r.filter((p) => p.src === s).length;
+    document.getElementById('fAll').textContent = r.length;
+    document.getElementById('fAi').textContent = by('ai');
+    document.getElementById('fCrawler').textContent = by('crawler');
+    document.getElementById('fScraper').textContent = by('scraper');
+    document.getElementById('queueCount').textContent = r.length;
+    document.getElementById('heroCount').textContent = r.length;
+    const badge = document.getElementById('navBadge');
+    badge.textContent = r.length; badge.style.display = r.length ? '' : 'none';
+  }
+  document.querySelectorAll('#srcFilters .fchip').forEach((b) =>
+    b.addEventListener('click', () => {
+      filter = b.dataset.src;
+      document.querySelectorAll('#srcFilters .fchip').forEach((x) => x.classList.toggle('on', x === b));
+      renderQueue();
+    })
+  );
+  function toggleAll(master) {
+    document.querySelectorAll('.rowchk').forEach((c) => (c.checked = master.checked));
+    updateBulk();
+  }
+  function updateBulk() {
+    const n = document.querySelectorAll('.rowchk:checked').length;
+    document.getElementById('bulkbar').classList.toggle('show', n > 0);
+    document.getElementById('bulkN').textContent = n + ' selected';
+  }
+
+  // ---------- Focus mode ----------
+  const veil = document.getElementById('focusVeil');
+  function goReviewFocus() { showPage('review'); openFocus(); }
+  function openFocus() { focusIdx = 0; veil.classList.add('open'); renderFocus('enter'); }
+  function openFocusAt(id) {
+    const list = remaining();
+    focusIdx = Math.max(0, list.findIndex((p) => p.id === id));
+    veil.classList.add('open'); renderFocus('enter');
+  }
+  function closeFocus() { veil.classList.remove('open'); renderQueue(); }
+  function renderFocus(anim) {
+    const list = remaining();
+    const holder = document.getElementById('focusCardHolder');
+    const doneN = total - list.length;
+    document.getElementById('focusBar').style.width = (doneN / total) * 100 + '%';
+    if (!list.length) {
+      const byA = (a) => Object.values(decided).filter((x) => x === a).length;
+      document.getElementById('focusCnt').textContent = 'Done';
+      holder.innerHTML = `
+        <div class="fcard done-card ${anim === 'enter' ? 'enter' : ''}">
+          <div class="ring"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4.5 12.5l5 5L19.5 7"/></svg></div>
+          <h2>All caught up</h2>
+          <p class="h-sub">You reviewed ${total} prospects.</p>
+          <div class="done-sum">
+            <div><div class="n" style="color:var(--good)">${byA('lead')}</div><div class="l">Tracked as leads</div></div>
+            <div><div class="n" style="color:var(--navy)">${byA('contacted')}</div><div class="l">Contacted</div></div>
+            <div><div class="n" style="color:var(--muted)">${byA('rejected')}</div><div class="l">Not relevant</div></div>
+          </div>
+          <button class="btn btn-primary btn-lg" onclick="closeFocus()">Back to queue</button>
+        </div>`;
+      return;
+    }
+    if (focusIdx >= list.length) focusIdx = 0;
+    const p = list[focusIdx];
+    document.getElementById('focusCnt').textContent = `${doneN + 1} of ${total}`;
+    holder.innerHTML = `
+      <div class="fcard ${anim === 'enter' ? 'enter' : ''}" id="fcard">
+        <div class="top-chips">
+          ${chip(SRC[p.src].chip, 'Found by ' + SRC[p.src].label)}
+          ${matchChip(p.match)}
+          ${chip('chip-date', p.when + ' · in ' + p.inWks + ' wks')}
+        </div>
+        <h2>${p.org}</h2>
+        <p class="evt-line">${p.evt}</p>
+        <div class="evidence">
+          “${p.quote}”
+          <div class="src-line">Found on <b>${p.site}</b></div>
+        </div>
+        <div class="meta-row">
+          <span>Website — <b>${p.site}</b></span>
+          <span>Added — <b>today</b></span>
+        </div>
+        <div class="decide">
+          <button class="btn btn-danger-outline" onclick="decide(${p.id}, 'rejected')">Not relevant</button>
+          <button class="btn btn-outline" onclick="decide(${p.id}, 'contacted')">Contacted</button>
+          <button class="btn btn-primary" onclick="decide(${p.id}, 'lead')">★ Track as lead</button>
+        </div>
+      </div>`;
+  }
+  const ACTION_MSG = { rejected: 'Marked not relevant', contacted: 'Marked as contacted', lead: 'Tracking as a lead' };
+  function decide(id, action) {
+    lastDecision = { id, action };
+    const card = document.getElementById('fcard');
+    const commit = () => { decided[id] = action; toast(ACTION_MSG[action]); renderFocus('enter'); };
+    if (card && !reduced) {
+      card.classList.add('exit-l');
+      setTimeout(commit, 190);
+    } else commit();
+  }
+  function undoLast() {
+    if (!lastDecision) return;
+    delete decided[lastDecision.id];
+    lastDecision = null;
+    hideToast();
+    if (veil.classList.contains('open')) renderFocus('enter');
+    renderQueue();
+  }
+  document.addEventListener('keydown', (e) => {
+    if (!veil.classList.contains('open')) return;
+    if (e.key === 'Escape') return closeFocus();
+    const list = remaining();
+    if (!list.length || focusIdx >= list.length) return;
+    const id = list[focusIdx].id;
+    if (e.key === '1') decide(id, 'rejected');
+    if (e.key === '2') decide(id, 'contacted');
+    if (e.key === '3') decide(id, 'lead');
+  });
+
+  // ---------- Toast ----------
+  let toastTimer;
+  function toast(msg) {
+    document.getElementById('toastMsg').textContent = msg;
+    const el = document.getElementById('toast');
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(hideToast, 3200);
+  }
+  function hideToast() { document.getElementById('toast').classList.remove('show'); }
+
+  function resetDemo() {
+    decided = {}; lastDecision = null; filter = 'all'; counted = false;
+    document.querySelectorAll('#srcFilters .fchip').forEach((x) => x.classList.toggle('on', x.dataset.src === 'all'));
+    renderQueue(); showPage('home');
+  }
+
+  // ---------- Init ----------
+  renderQueue();
+  animateCounts();
+  buildChart();
+</script>
+
+</body>
+</html>

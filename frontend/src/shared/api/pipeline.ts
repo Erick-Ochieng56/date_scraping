@@ -1,6 +1,6 @@
 import { apiClient } from '@/lib/api/client'
 
-import type { Lead, Paginated, Prospect } from './types'
+import type { Lead, Paginated, Prospect, ProspectDetail } from './types'
 
 export async function listProspects(params?: { page?: number; page_size?: number; status?: string; search?: string }) {
   const { data } = await apiClient.get<{ success: boolean; data: Paginated<Prospect> }>('/dashboard/api/v1/prospects/', {
@@ -34,7 +34,9 @@ export async function prospectsBulkReject(prospect_ids: number[]) {
 }
 
 export async function getProspect(prospectId: number) {
-  const { data } = await apiClient.get<{ success: boolean; data: Prospect }>(`/dashboard/api/v1/prospects/${prospectId}/`)
+  const { data } = await apiClient.get<{ success: boolean; data: ProspectDetail }>(
+    `/dashboard/api/v1/prospects/${prospectId}/`
+  )
   return data.data
 }
 

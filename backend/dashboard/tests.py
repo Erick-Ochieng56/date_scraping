@@ -1,9 +1,11 @@
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.management import call_command
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 from io import StringIO
 
@@ -182,6 +184,104 @@ class DashboardV1ApiTests(TestCase):
         data = resp.json()
         self.assertFalse(data["success"])
         self.assertTrue(data["existing"])
+
+    def test_prospect_detail_includes_raw_payload_but_list_does_not(self):
+        Prospect.objects.create(
+            company="Evidence Co",
+            status="new",
+            owner=self.user,
+            source_name="ai_search",
+            raw_payload={"translation_need_score": 82, "evidence_snippet": "Tender notice for interpretation."},
+        )
+        prospect = Prospect.objects.get(company="Evidence Co")
+
+        list_resp = self.client.get("/dashboard/api/v1/prospects/")
+        self.assertEqual(list_resp.status_code, 200)
+        self.assertNotIn("raw_payload", list_resp.json()["data"]["items"][0])
+
+        detail_resp = self.client.get(f"/dashboard/api/v1/prospects/{prospect.id}/")
+        self.assertEqual(detail_resp.status_code, 200)
+        detail_data = detail_resp.json()["data"]
+        self.assertIn("raw_payload", detail_data)
+        self.assertEqual(detail_data["raw_payload"]["translation_need_score"], 82)
+
+    def test_metrics_summary_reports_recent_contacted_count(self):
+        now = timezone.now()
+        Prospect.objects.create(
+            company="Contacted recently", status="contacted", owner=self.user,
+            contacted_at=now - timedelta(days=1),
+        )
+        Prospect.objects.create(
+            company="Contacted long ago", status="contacted", owner=self.user,
+            contacted_at=now - timedelta(days=30),
+        )
+        Prospect.objects.create(company="Never contacted", status="new", owner=self.user)
+
+        resp = self.client.get("/dashboard/api/v1/metrics/summary/")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()["data"]
+        self.assertEqual(data["prospects_contacted_recent"], 1)
+        self.assertEqual(data["prospects_contacted"], 2)
+
+    def test_metrics_timeseries_buckets_by_day_and_classifies_source(self):
+        now = timezone.now()
+        Prospect.objects.create(
+            company="AI hit", source_name="ai_search", status="new", owner=self.user,
+            created_at=now - timedelta(hours=2),
+        )
+        Prospect.objects.create(
+            company="Crawler hit", source_name="web_crawler", status="new", owner=self.user,
+            created_at=now - timedelta(hours=3),
+        )
+        Prospect.objects.create(
+            company="Site check hit", source_name="Eventbrite Nairobi", status="new", owner=self.user,
+            created_at=now - timedelta(days=1, hours=1),
+        )
+        Lead.objects.create(company="Tracked lead", status="contacted", owner=self.user, created_at=now - timedelta(hours=1))
+
+        resp = self.client.get("/dashboard/api/v1/metrics/timeseries/?granularity=day&periods=3")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()["data"]
+        self.assertEqual(data["granularity"], "day")
+        self.assertEqual(len(data["buckets"]), 3)
+
+        today_bucket = data["buckets"][-1]
+        yesterday_bucket = data["buckets"][-2]
+        self.assertEqual(today_bucket["prospects_by_source"], {"ai_search": 1, "web_crawler": 1, "site_check": 0})
+        self.assertEqual(today_bucket["prospects_total"], 2)
+        self.assertEqual(today_bucket["leads_created"], 1)
+        self.assertEqual(yesterday_bucket["prospects_by_source"], {"ai_search": 0, "web_crawler": 0, "site_check": 1})
+
+    def test_metrics_timeseries_only_counts_own_records(self):
+        other = get_user_model().objects.create_user(username="staff2", password="pass12345")
+        Prospect.objects.create(company="Not mine", source_name="ai_search", status="new", owner=other)
+        Prospect.objects.create(company="Mine", source_name="ai_search", status="new", owner=self.user)
+
+        resp = self.client.get("/dashboard/api/v1/metrics/timeseries/?granularity=day&periods=1")
+        self.assertEqual(resp.status_code, 200)
+        bucket = resp.json()["data"]["buckets"][0]
+        self.assertEqual(bucket["prospects_by_source"]["ai_search"], 1)
+
+    def test_metrics_timeseries_rejects_invalid_granularity(self):
+        resp = self.client.get("/dashboard/api/v1/metrics/timeseries/?granularity=year")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("granularity", resp.json())
+
+    def test_metrics_timeseries_clamps_periods_to_max(self):
+        resp = self.client.get("/dashboard/api/v1/metrics/timeseries/?granularity=day&periods=999")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()["data"]
+        self.assertEqual(data["periods"], 90)
+        self.assertEqual(len(data["buckets"]), 90)
+
+    def test_metrics_timeseries_week_and_month_granularity(self):
+        resp = self.client.get("/dashboard/api/v1/metrics/timeseries/?granularity=week&periods=4")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.json()["data"]["buckets"]), 4)
+
+        resp2 = self.client.get("/dashboard/api/v1/metrics/timeseries/?granularity=month&periods=6")
+        self.assertEqual(resp2.status_code, 200)
+        self.assertEqual(len(resp2.json()["data"]["buckets"]), 6)
 
 
 class DashboardAdminApiTests(TestCase):

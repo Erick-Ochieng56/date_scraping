@@ -48,8 +48,8 @@ export function LoginPage() {
     <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm space-y-6 rounded-xl border border-border bg-card p-8 shadow-sm">
         <div className="text-center">
-          <h1 className="text-xl font-semibold text-foreground">Scraper portal</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Sign in with your staff or admin portal account.</p>
+          <h1 className="text-xl font-semibold text-foreground">Ateric Leads</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Sign in to continue.</p>
         </div>
 
         <form className="space-y-4" onSubmit={onSubmit}>

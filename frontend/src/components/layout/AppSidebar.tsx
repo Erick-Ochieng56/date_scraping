@@ -5,6 +5,7 @@ import { NAV_SECTIONS } from '@/app/navigation'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
+import { ThemeToggle } from '@/shared/components/ThemeToggle'
 
 export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const navigate = useNavigate()
@@ -21,8 +22,8 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
       <div className="flex items-center gap-2 px-2">
         <img src="/atericlogo.svg" alt="" className="size-9 shrink-0 rounded-md bg-white/10 p-1" />
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-sidebar-foreground">Ateric</p>
-          <p className="truncate text-xs text-sidebar-foreground/70">Scraper portal</p>
+          <p className="truncate text-sm font-semibold text-sidebar-foreground">Ateric Leads</p>
+          <p className="truncate text-xs text-sidebar-foreground/70">for the Ateric team</p>
         </div>
       </div>
 
@@ -58,12 +59,13 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
         ))}
       </nav>
 
-      <div className="border-t border-sidebar-border pt-3">
+      <div className="space-y-0.5 border-t border-sidebar-border pt-3">
         {me && me.authenticated && me.role === 'staff' ? (
           <p className="mb-2 truncate px-2 text-xs text-sidebar-foreground/80" title={me.username}>
             Signed in as <span className="font-medium">{me.username}</span>
           </p>
         ) : null}
+        <ThemeToggle />
         <Button
           type="button"
           variant="ghost"
@@ -74,12 +76,6 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
           <LogOut className="size-4 shrink-0" aria-hidden />
           Sign out
         </Button>
-        <p className="mt-3 px-2 text-[0.65rem] text-sidebar-foreground/60">
-          API:{' '}
-          <code className="rounded bg-black/20 px-1 py-0.5">
-            {import.meta.env.VITE_API_BASE || '(proxy → :8000)'}
-          </code>
-        </p>
       </div>
     </div>
   )

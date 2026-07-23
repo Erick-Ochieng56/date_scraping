@@ -1,5 +1,5 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Copy, ExternalLink, Plus, Search, Trash2, ChevronDown, ChevronRight } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { AlertTriangle, Copy, ExternalLink, Plus, Search, Trash2, ChevronDown, ChevronRight } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -14,9 +14,9 @@ import {
   type PreviewRow,
   urlsToRows,
 } from '@/features/crawler/discoverUtils'
-import { invalidateCrawlerQueries } from '@/features/crawler/queryKeys'
+import { crawlerKeys, invalidateCrawlerQueries } from '@/features/crawler/queryKeys'
 import { getApiErrorMessage } from '@/shared/api/errors'
-import { crawlerPreview, crawlerQueue } from '@/shared/api/crawler'
+import { crawlerPreview, crawlerQueue, listCrawlDomains, listCrawlRuns } from '@/shared/api/crawler'
 import { AlertBanner } from '@/shared/components/AlertBanner'
 import { Input } from '@/shared/components/Input'
 import { PageHeader } from '@/shared/components/PageHeader'
@@ -42,6 +42,33 @@ export function CrawlerDiscoverPage() {
     () => previewRows.filter((r) => selected.has(r.id)).map((r) => r.landing),
     [previewRows, selected]
   )
+
+  // Attention counts previously surfaced on the (removed) crawler Overview page.
+  const failedRunCountQ = useQuery({
+    queryKey: crawlerKeys.runStats('failed'),
+    queryFn: () => listCrawlRuns({ page_size: 1, status: 'failed' }),
+    staleTime: 10_000,
+    refetchInterval: 25_000,
+  })
+  const failedDomainCountQ = useQuery({
+    queryKey: crawlerKeys.domainStats('failed'),
+    queryFn: () => listCrawlDomains({ page_size: 1, crawl_status: 'failed' }),
+    staleTime: 10_000,
+    refetchInterval: 20_000,
+  })
+
+  const attentionItems: Array<{ label: string; to: string }> = []
+  const failedRunsTotal = failedRunCountQ.data?.total ?? 0
+  const failedDomainsTotal = failedDomainCountQ.data?.total ?? 0
+  if (failedRunsTotal > 0) {
+    attentionItems.push({ label: `${failedRunsTotal} failed crawl run(s)`, to: '/crawler/runs?status=failed' })
+  }
+  if (failedDomainsTotal > 0) {
+    attentionItems.push({
+      label: `${failedDomainsTotal} failed domain(s) in queue`,
+      to: '/crawler/domains?crawl_status=failed',
+    })
+  }
 
   const previewM = useMutation({
     mutationFn: () => crawlerPreview(query.trim(), maxResults),
@@ -168,11 +195,25 @@ export function CrawlerDiscoverPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Discover domains"
-        description="Search the open web for sites to add to your crawler queue. Serp results keep the landing page URL (e.g. /events/…) so the crawler starts on that page. Preview, trim the list, then enqueue or enqueue + crawl."
+        title="Discover"
+        description="Search the web for sites to check. Preview the results, remove any you don't want, then add them to the crawler."
       />
 
-
+      {attentionItems.length > 0 ? (
+        <div className="rounded-xl border border-amber-300/60 bg-amber-50/70 p-4 dark:border-amber-700/50 dark:bg-amber-950/20">
+          <div className="flex items-center gap-2 text-amber-900 dark:text-amber-300">
+            <AlertTriangle className="size-4 shrink-0" aria-hidden />
+            <h3 className="font-semibold">Crawler attention</h3>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {attentionItems.map((item) => (
+              <Button key={item.label} size="sm" variant="outline" asChild>
+                <Link to={item.to}>{item.label}</Link>
+              </Button>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <AlertBanner message={banner.message} error={banner.error} />
 
@@ -254,22 +295,22 @@ export function CrawlerDiscoverPage() {
             variant="secondary"
             disabled={!canQueue || queueM.isPending}
             onClick={() => queueM.mutate(false)}
-            title="Save domains to your queue without starting a crawl run"
+            title="Save these sites for later without crawling them now"
           >
-            {queueM.isPending ? 'Working…' : 'Add to queue only'}
+            {queueM.isPending ? 'Working…' : 'Save for later'}
           </Button>
           <Button
             disabled={!canQueue || queueM.isPending}
             onClick={() => queueM.mutate(true)}
-            title="Enqueue and start a crawl run for domains that are due"
+            title="Save these sites and start crawling them now"
           >
-            {queueM.isPending ? 'Working…' : 'Queue & crawl now'}
+            {queueM.isPending ? 'Working…' : 'Save & crawl now'}
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
           {previewRows.length > 0
-            ? `${selected.size} of ${previewRows.length} row(s) selected — queue sends the landing URL for each checked row. Re-preview after changing the phrase.`
-            : 'Run a preview to see URLs.'}
+            ? `${selected.size} of ${previewRows.length} selected. Change the search above and preview again to try something else.`
+            : 'Preview to see results.'}
         </p>
       </div>
 

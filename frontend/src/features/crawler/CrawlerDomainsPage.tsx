@@ -111,8 +111,8 @@ export function CrawlerDomainsPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Domain queue"
-        description="Domains discovered via search or scheduled sources. Crawl individually or from the runs page."
+        title="Websites found"
+        description="Sites found by search or scheduled discovery, waiting to be crawled."
       />
 
       <AlertBanner message={banner.message} error={banner.error} />

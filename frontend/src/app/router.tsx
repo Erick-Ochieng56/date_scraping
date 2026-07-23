@@ -19,7 +19,6 @@ import {
   CrawlerAdminLayout,
   CrawlerDiscoverPage,
   CrawlerDomainsPage,
-  CrawlerHomePage,
   CrawlerLayout,
   CrawlerRunDetailPage,
   CrawlerRunsPage,
@@ -61,6 +60,7 @@ export const router = createBrowserRouter([
     errorElement: <RouteErrorPage />,
     children: [
       { index: true, element: <HomePage /> },
+      { path: 'find-leads', element: <AiSearchPage variant="staff" /> },
       { path: 'targets', element: <TargetsPage /> },
       { path: 'targets/wizard', element: <Navigate to="/targets/new" replace /> },
       { path: 'targets/:targetId', element: <TargetFormPage /> },
@@ -70,12 +70,15 @@ export const router = createBrowserRouter([
         path: 'crawler',
         element: <CrawlerLayout />,
         children: [
-          { index: true, element: <CrawlerHomePage /> },
+          // The Overview page was removed — Discover is the crawler's front door.
+          { index: true, element: <Navigate to="/crawler/discover" replace /> },
           { path: 'discover', element: <CrawlerDiscoverPage /> },
           { path: 'domains', element: <CrawlerDomainsPage /> },
           { path: 'runs', element: <CrawlerRunsPage /> },
           { path: 'runs/:runId', element: <CrawlerRunDetailPage /> },
-          { path: 'ai-search', element: <AiSearchPage variant="staff" /> },
+          // Moved to the top-level /find-leads hub (Phase 3) — kept as a redirect
+          // so old bookmarks/links still resolve.
+          { path: 'ai-search', element: <Navigate to="/find-leads" replace /> },
         ],
       },
       { path: 'prospects', element: <ProspectsPage /> },

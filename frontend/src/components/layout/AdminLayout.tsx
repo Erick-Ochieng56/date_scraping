@@ -6,7 +6,7 @@ import { AppShell } from '@/shared/layouts/AppShell'
 export function AdminLayout() {
   return (
     <AppShell
-      headerTitle="Admin dashboard"
+      headerTitle="Ateric Leads — Admin"
       sidebarWidthClass="w-64"
       renderSidebar={({ onNavigate }) => <AdminSidebar onNavigate={onNavigate} />}
     >

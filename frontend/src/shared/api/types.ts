@@ -178,7 +178,18 @@ export type Prospect = {
   phone_raw: string
   website: string
   status: string
+  source_name: string
+  source_url: string
+  notes: string
   created_at: string
+  updated_at: string
+  contacted_at: string | null
+  converted_at: string | null
+  rejected_at: string | null
+}
+
+export type ProspectDetail = Prospect & {
+  raw_payload: Record<string, unknown>
 }
 
 export type Lead = {
@@ -201,10 +212,32 @@ export type MetricsSummary = {
   failed_crawls_recent?: number
   prospects_new: number
   prospects_contacted: number
+  prospects_contacted_recent?: number
   leads_interested: number
   leads_synced: number
   prospect_status_breakdown: Array<{ status: string; count: number }>
   lead_status_breakdown: Array<{ status: string; count: number }>
+}
+
+export type MetricsGranularity = 'day' | 'week' | 'month'
+
+export type ProspectSourceBreakdown = {
+  ai_search: number
+  web_crawler: number
+  site_check: number
+}
+
+export type MetricsTimeseriesBucket = {
+  date: string
+  prospects_total: number
+  prospects_by_source: ProspectSourceBreakdown
+  leads_created: number
+}
+
+export type MetricsTimeseries = {
+  granularity: MetricsGranularity
+  periods: number
+  buckets: MetricsTimeseriesBucket[]
 }
 
 export type AdminUser = {

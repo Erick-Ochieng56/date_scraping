@@ -1,231 +1,293 @@
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, PlugZap, Radio, Sparkles, Target, UserPlus } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { AlertTriangle } from 'lucide-react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/AuthContext'
-import { fetchMetricsSummary } from '@/shared/api/metrics'
+import { cn } from '@/lib/utils'
+import { listAiSearchJobs, listCrawlRuns } from '@/shared/api/crawler'
+import { fetchMetricsSummary, fetchMetricsTimeseries } from '@/shared/api/metrics'
+import { listScrapeRuns } from '@/shared/api/scraper'
+import type { AISearchJob, CrawlRun, MetricsGranularity, ScrapeRun } from '@/shared/api/types'
+import { DiscoveriesChart } from '@/shared/components/DiscoveriesChart'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { useRunsStream } from '@/shared/hooks/useRunsStream'
+import { summarizeAiSearchJob, summarizeCrawlRun, summarizeScrapeRun } from '@/shared/utils/runSummary'
+
+function capitalize(s: string) {
+  return s ? s[0].toUpperCase() + s.slice(1) : s
+}
+
+function greeting() {
+  const hour = new Date().getHours()
+  if (hour < 12) return 'Good morning'
+  if (hour < 18) return 'Good afternoon'
+  return 'Good evening'
+}
+
+function todayEyebrow() {
+  return new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })
+}
+
+function formatRelative(iso: string) {
+  const diffMs = Date.now() - new Date(iso).getTime()
+  const mins = Math.round(diffMs / 60_000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.round(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.round(hours / 24)
+  if (days === 1) return 'yesterday'
+  if (days < 7) return `${days}d ago`
+  return new Date(iso).toLocaleDateString()
+}
+
+type ActivityItem = { id: string; color: string; text: string; at: string }
+
+function scrapeRunActivity(run: ScrapeRun): ActivityItem | null {
+  if (run.status === 'running') return null
+  return {
+    id: `scrape-${run.id}`,
+    color: run.status === 'failed' ? 'bg-destructive' : 'bg-chart-3',
+    text: summarizeScrapeRun(run),
+    at: run.started_at,
+  }
+}
+
+function crawlRunActivity(run: CrawlRun): ActivityItem | null {
+  if (run.status === 'running') return null
+  return {
+    id: `crawl-${run.id}`,
+    color: run.status === 'failed' ? 'bg-destructive' : 'bg-chart-2',
+    text: summarizeCrawlRun(run),
+    at: run.started_at,
+  }
+}
+
+function aiSearchActivity(job: AISearchJob): ActivityItem | null {
+  if (job.status !== 'done' && job.status !== 'failed') return null
+  return {
+    id: `ai-${job.id}`,
+    color: job.status === 'failed' ? 'bg-destructive' : 'bg-chart-1',
+    text: summarizeAiSearchJob(job),
+    at: job.created_at,
+  }
+}
+
+const GRANULARITIES: { value: MetricsGranularity; label: string }[] = [
+  { value: 'day', label: 'Day' },
+  { value: 'week', label: 'Week' },
+  { value: 'month', label: 'Month' },
+]
+
+const RANGE_CAPTION: Record<MetricsGranularity, string> = {
+  day: 'last 14 days',
+  week: 'last 8 weeks',
+  month: 'last 6 months',
+}
+
+function Sparkline({ values, color }: { values: number[]; color: string }) {
+  const width = 96
+  const height = 30
+  const max = Math.max(1, ...values)
+  const step = values.length > 1 ? width / (values.length - 1) : 0
+  const points = values
+    .map((v, i) => `${(i * step).toFixed(1)},${(height - 4 - (v / max) * (height - 8)).toFixed(1)}`)
+    .join(' ')
+  const last = points.split(' ').at(-1)?.split(',').map(Number) ?? [width - 2, height / 2]
+
+  return (
+    <svg className="h-[30px] w-24 shrink-0" viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
+      <polyline fill="none" stroke={color} strokeWidth="2" points={points} />
+      <circle cx={last[0]} cy={last[1]} r="3" fill={color} />
+    </svg>
+  )
+}
 
 export function StaffHomePage() {
-  const { me, isLoading: sessionLoading } = useAuth()
-  const chartContainerRef = useRef<HTMLDivElement | null>(null)
-  const [chartSize, setChartSize] = useState({ width: 0, height: 0 })
+  const { me } = useAuth()
+  const name = me && 'username' in me ? me.username : undefined
+  const [granularity, setGranularity] = useState<MetricsGranularity>('day')
 
   const metricsQ = useQuery({
     queryKey: ['metrics-summary'],
     queryFn: fetchMetricsSummary,
     refetchInterval: 15_000,
   })
+  const weeklyQ = useQuery({
+    queryKey: ['metrics-timeseries', 'day', 7],
+    queryFn: () => fetchMetricsTimeseries('day', 7),
+  })
+  const timeseriesQ = useQuery({
+    queryKey: ['metrics-timeseries', granularity],
+    queryFn: () => fetchMetricsTimeseries(granularity),
+  })
+  const scrapeRunsQ = useQuery({
+    queryKey: ['scrape-runs', 'home-activity'],
+    queryFn: () => listScrapeRuns({ page_size: 5 }),
+  })
+  const crawlRunsQ = useQuery({
+    queryKey: ['crawler', 'runs', 'home-activity'],
+    queryFn: () => listCrawlRuns({ page_size: 5 }),
+  })
+  const aiSearchQ = useQuery({
+    queryKey: ['ai-search', 'jobs', 'home-activity'],
+    queryFn: () => listAiSearchJobs({ page_size: 5 }),
+    refetchInterval: 30_000,
+  })
 
-  const { transport } = useRunsStream(true)
+  // Keeps run-related queries fresh in the background (SSE with polling fallback);
+  // no need to surface which transport is active to the user.
+  useRunsStream(true)
 
-  const sessionOk = Boolean(me?.authenticated && me.role === 'staff')
   const m = metricsQ.data
-
-  const attentionItems: Array<{ label: string; value: number; to: string }> = []
-  const failedCrawls = m?.failed_crawls_recent ?? 0
-  if (failedCrawls > 0) {
-    attentionItems.push({ label: 'Failed crawl runs (7d)', value: failedCrawls, to: '/crawler/runs?status=failed' })
-  }
   const newProspects = m?.prospects_new ?? 0
-  if (newProspects >= 25) {
-    attentionItems.push({ label: 'New prospects to review', value: newProspects, to: '/prospects?status=new' })
-  }
+  const failedCrawls = m?.failed_crawls_recent ?? 0
 
-  useEffect(() => {
-    const el = chartContainerRef.current
-    if (!el) return
+  const weekBuckets = weeklyQ.data?.buckets ?? []
+  const prospectsThisWeek = weekBuckets.reduce((sum, b) => sum + b.prospects_total, 0)
+  const prospectsSparkline = weekBuckets.map((b) => b.prospects_total)
 
-    const update = () => {
-      setChartSize({
-        width: Math.max(0, Math.floor(el.clientWidth)),
-        height: Math.max(0, Math.floor(el.clientHeight)),
-      })
-    }
+  const buckets = timeseriesQ.data?.buckets ?? []
 
-    update()
-    const ro = new ResizeObserver(update)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
+  const activity = [
+    ...(scrapeRunsQ.data?.items ?? []).flatMap((r) => scrapeRunActivity(r) ?? []),
+    ...(crawlRunsQ.data?.items ?? []).flatMap((r) => crawlRunActivity(r) ?? []),
+    ...(aiSearchQ.data?.items ?? []).flatMap((j) => aiSearchActivity(j) ?? []),
+  ]
+    .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+    .slice(0, 6)
+
+  const activityLoading = scrapeRunsQ.isLoading || crawlRunsQ.isLoading || aiSearchQ.isLoading
+  const activityAllFailed = scrapeRunsQ.isError && crawlRunsQ.isError && aiSearchQ.isError
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Operations dashboard"
-        description="Daily workflows for Scraper, Crawler, and Pipeline. Scraper runs are per-target; crawler uses the domain queue."
+        eyebrow={todayEyebrow()}
+        title={`${greeting()}${name ? `, ${capitalize(name)}` : ''}`}
+        description={
+          newProspects > 0 ? (
+            <>
+              <b className="font-semibold text-foreground">{newProspects}</b> new prospect
+              {newProspects === 1 ? '' : 's'} {newProspects === 1 ? 'is' : 'are'} waiting for your review.
+            </>
+          ) : (
+            "You're all caught up — nothing new to review right now."
+          )
+        }
         actions={
           <>
-            <span className="self-center text-xs text-muted-foreground">
-              Runs updates: {transport === 'sse' ? 'live stream' : 'polling'}
-            </span>
-            <Button variant="outline" onClick={() => void metricsQ.refetch()}>
-              Refresh
-            </Button>
             <Button asChild>
-              <Link to="/targets/new">Add scrape target</Link>
+              <Link to="/prospects">Start reviewing</Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link to="/find-leads">Find more leads</Link>
             </Button>
           </>
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-lg border border-border bg-card p-4">
-          <p className="text-sm text-muted-foreground">Enabled targets</p>
-          <p className="text-2xl font-semibold">{m?.targets_enabled ?? '—'}</p>
-        </div>
-        <div className="rounded-lg border border-border bg-card p-4">
-          <p className="text-sm text-muted-foreground">Scrape runs (7d)</p>
-          <p className="text-2xl font-semibold">{m?.scrape_runs_recent ?? '—'}</p>
-          <Link className="text-sm text-primary hover:underline" to="/runs">
-            View runs
+      {failedCrawls > 0 ? (
+        <div
+          role="alert"
+          className="flex items-center gap-3 rounded-xl border border-destructive/30 border-l-4 border-l-destructive bg-destructive/10 px-4 py-3 text-sm"
+        >
+          <AlertTriangle className="size-4 shrink-0 text-destructive" aria-hidden />
+          <span>
+            {failedCrawls} web crawler run{failedCrawls === 1 ? '' : 's'} didn't finish this week.
+          </span>
+          <Link to="/crawler/runs?status=failed" className="ml-auto shrink-0 font-medium text-destructive hover:underline">
+            View details
           </Link>
-        </div>
-        <div className="rounded-lg border border-border bg-card p-4">
-          <p className="text-sm text-muted-foreground">Crawl runs (7d)</p>
-          <p className="text-2xl font-semibold">{m?.crawl_runs_recent ?? '—'}</p>
-          <Link className="text-sm text-primary hover:underline" to="/crawler/runs">
-            View runs
-          </Link>
-        </div>
-        <div className="rounded-lg border border-border bg-card p-4">
-          <p className="text-sm text-muted-foreground">New prospects</p>
-          <p className="text-2xl font-semibold">{m?.prospects_new ?? '—'}</p>
-          <Link className="text-sm text-primary hover:underline" to="/prospects?status=new">
-            Review queue
-          </Link>
-        </div>
-      </div>
-
-      {attentionItems.length > 0 ? (
-        <div className="rounded-xl border border-amber-300/60 bg-amber-50/70 p-4 dark:border-amber-700/50 dark:bg-amber-950/20">
-          <div className="flex items-center gap-2 text-amber-900 dark:text-amber-300">
-            <AlertTriangle className="size-4 shrink-0" aria-hidden />
-            <h3 className="font-semibold">Attention needed</h3>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {attentionItems.map((item) => (
-              <Button key={item.label} size="sm" variant="outline" asChild>
-                <Link to={item.to}>
-                  {item.label}: {item.value}
-                </Link>
-              </Button>
-            ))}
-          </div>
         </div>
       ) : null}
 
-      <div className="rounded-lg border border-border bg-card p-4">
-        <h3 className="font-semibold text-foreground">Workflow shortcuts</h3>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-md border border-border bg-muted/30 p-3">
-            <div className="flex items-center gap-2 font-medium text-foreground">
-              <PlugZap className="size-4 text-primary" aria-hidden />
-              Session
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {sessionLoading && 'Checking session…'}
-              {!sessionLoading && (sessionOk ? 'Signed in as staff.' : 'Session missing or unauthorized.')}
-            </p>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="flex items-end justify-between gap-3 rounded-xl border border-border bg-card p-4">
+          <div>
+            <p className="text-sm text-muted-foreground">New prospects this week</p>
+            <p className="text-[28px] font-semibold leading-tight tabular-nums text-foreground">{prospectsThisWeek}</p>
           </div>
-          <div className="rounded-md border border-border bg-muted/30 p-3">
-            <div className="flex items-center gap-2 font-medium text-foreground">
-              <Target className="size-4 text-primary" aria-hidden />
-              Scraper
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground">Configure targets and trigger manual scrapes.</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" asChild>
-                <Link to="/targets">Targets</Link>
-              </Button>
-              <Button size="sm" variant="outline" asChild>
-                <Link to="/runs">Runs</Link>
-              </Button>
-            </div>
-          </div>
-          <div className="rounded-md border border-border bg-muted/30 p-3">
-            <div className="flex items-center gap-2 font-medium text-foreground">
-              <Radio className="size-4 text-primary" aria-hidden />
-              Crawler
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground">Discover domains and monitor crawl batches.</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" asChild>
-                <Link to="/crawler/discover">Discover</Link>
-              </Button>
-              <Button size="sm" variant="outline" asChild>
-                <Link to="/crawler">Overview</Link>
-              </Button>
-            </div>
-          </div>
-          <div className="rounded-md border border-border bg-muted/30 p-3">
-            <div className="flex items-center gap-2 font-medium text-foreground">
-              <UserPlus className="size-4 text-primary" aria-hidden />
-              Pipeline
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground">Qualify prospects and sync interested leads.</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" asChild>
-                <Link to="/prospects">Prospects</Link>
-              </Button>
-              <Button size="sm" variant="outline" asChild>
-                <Link to="/leads">Leads</Link>
-              </Button>
-            </div>
-          </div>
+          {prospectsSparkline.some((v) => v > 0) ? <Sparkline values={prospectsSparkline} color="var(--chart-1)" /> : null}
         </div>
-        <div className="mt-3">
-          <Button size="sm" variant="outline" asChild>
-            <Link to="/crawler/ai-search">
-              <Sparkles className="mr-1 inline size-3.5" aria-hidden />
-              AI prospect search
-            </Link>
-          </Button>
+        <div className="rounded-xl border border-border bg-card p-4">
+          <p className="text-sm text-muted-foreground">Contacted this week</p>
+          <p className="text-[28px] font-semibold leading-tight tabular-nums text-foreground">
+            {m?.prospects_contacted_recent ?? 0}
+          </p>
+        </div>
+        <div className="rounded-xl border border-border bg-card p-4">
+          <p className="text-sm text-muted-foreground">Interested leads</p>
+          <p className="text-[28px] font-semibold leading-tight tabular-nums text-foreground">{m?.leads_interested ?? 0}</p>
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="min-w-0 rounded-xl border border-border bg-card p-5">
-          <h3 className="font-semibold text-foreground">Pipeline snapshot</h3>
-          {m ? (
-            <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-              <div className="rounded-md bg-muted p-3">Contacted prospects: {m.prospects_contacted}</div>
-              <div className="rounded-md bg-muted p-3">Interested leads: {m.leads_interested}</div>
-              <div className="rounded-md bg-muted p-3">Synced to CRM: {m.leads_synced}</div>
-              <div className="rounded-md bg-muted p-3">Scrape success (7d): {m.scrape_success_recent}</div>
+      <div className="grid gap-4 lg:grid-cols-5">
+        <div className="min-w-0 rounded-xl border border-border bg-card p-5 lg:col-span-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="font-semibold text-foreground">Where prospects came from</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Discoveries by the feature that found them — {RANGE_CAPTION[granularity]}.
+              </p>
             </div>
-          ) : metricsQ.isError ? (
-            <p className="mt-3 text-sm text-destructive" role="alert">
-              Failed to load metrics.
-            </p>
-          ) : (
-            <p className="mt-3 text-sm text-muted-foreground">Loading metrics…</p>
-          )}
-        </div>
-        <div className="min-w-0 rounded-xl border border-border bg-card p-5">
-          <h3 className="font-semibold text-foreground">Status distribution</h3>
-          <div ref={chartContainerRef} className="mt-3 h-64 min-h-[16rem] min-w-0">
-            {chartSize.width > 0 && chartSize.height > 0 ? (
-              <BarChart
-                width={chartSize.width}
-                height={chartSize.height}
-                data={[
-                  ...(m?.prospect_status_breakdown ?? []).map((x) => ({ name: `P:${x.status}`, count: x.count })),
-                  ...(m?.lead_status_breakdown ?? []).map((x) => ({ name: `L:${x.status}`, count: x.count })),
-                ]}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis allowDecimals={false} />
-                <Tooltip />
-                <Bar dataKey="count" fill="currentColor" />
-              </BarChart>
-            ) : null}
+            <div className="flex rounded-lg border border-border p-0.5">
+              {GRANULARITIES.map((g) => (
+                <button
+                  key={g.value}
+                  type="button"
+                  onClick={() => setGranularity(g.value)}
+                  aria-pressed={granularity === g.value}
+                  className={cn(
+                    'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                    granularity === g.value
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  {g.label}
+                </button>
+              ))}
+            </div>
           </div>
+
+          <div className="mt-4">
+            {timeseriesQ.isLoading ? (
+              <p className="text-sm text-muted-foreground">Loading chart…</p>
+            ) : timeseriesQ.isError ? (
+              <p className="text-sm text-destructive" role="alert">
+                Couldn't load the chart.
+              </p>
+            ) : (
+              <DiscoveriesChart buckets={buckets} granularity={granularity} />
+            )}
+          </div>
+        </div>
+
+        <div className="min-w-0 rounded-xl border border-border bg-card p-5 lg:col-span-2">
+          <h3 className="font-semibold text-foreground">Latest activity</h3>
+          <p className="mt-1 text-sm text-muted-foreground">What the system did for you recently.</p>
+          {activityLoading ? (
+            <p className="mt-4 text-sm text-muted-foreground">Loading recent activity…</p>
+          ) : activityAllFailed ? (
+            <p className="mt-4 text-sm text-destructive" role="alert">
+              Couldn't load recent activity.
+            </p>
+          ) : activity.length === 0 ? (
+            <p className="mt-4 text-sm text-muted-foreground">No recent activity yet — try Find more leads to get started.</p>
+          ) : (
+            <ul className="mt-3">
+              {activity.map((item, i) => (
+                <li key={item.id} className={cn('flex items-start gap-3 py-2.5 text-sm', i > 0 && 'border-t border-border')}>
+                  <span className={cn('mt-1.5 size-2 shrink-0 rounded-full', item.color)} aria-hidden />
+                  <span className="flex-1">{item.text}</span>
+                  <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">{formatRelative(item.at)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
     </div>

@@ -5,7 +5,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { invalidateCrawlerQueries } from '@/features/crawler/queryKeys'
-import { crawlTriggerLabel, truncateText } from '@/features/crawler/utils'
+import { crawlTriggerLabel } from '@/features/crawler/utils'
 import { getApiErrorMessage } from '@/shared/api/errors'
 import { cancelAllRunningCrawls, cancelCrawlRun, listCrawlRuns, triggerCrawler } from '@/shared/api/crawler'
 import type { CrawlRun } from '@/shared/api/types'
@@ -17,6 +17,7 @@ import { RunStatusBadge } from '@/shared/components/RunStatusBadge'
 import { Select } from '@/shared/components/Select'
 import { pollIntervalWhenRunning } from '@/shared/hooks/usePollWhen'
 import { useServerList } from '@/shared/hooks/useServerList'
+import { summarizeCrawlRun } from '@/shared/utils/runSummary'
 
 export function CrawlerRunsPage() {
   const qc = useQueryClient()
@@ -107,15 +108,10 @@ export function CrawlerRunsPage() {
           <RunStatusBadge status={row.original.status} display={row.original.status_display || row.original.status} />
         ),
       },
-      { accessorKey: 'domains_queued', header: 'Domains' },
       {
-        id: 'prospects',
-        header: 'Prospects',
-        cell: ({ row }) => (
-          <span>
-            +{row.original.prospects_created} / upd {row.original.prospects_updated}
-          </span>
-        ),
+        id: 'summary',
+        header: 'Summary',
+        cell: ({ row }) => <span className="max-w-[280px] text-sm">{summarizeCrawlRun(row.original)}</span>,
       },
       {
         accessorKey: 'started_at',
@@ -127,15 +123,6 @@ export function CrawlerRunsPage() {
         header: 'Finished',
         cell: ({ row }) =>
           row.original.finished_at ? new Date(row.original.finished_at).toLocaleString() : '—',
-      },
-      {
-        accessorKey: 'error_text',
-        header: 'Last error',
-        cell: ({ row }) => (
-          <span className="max-w-[220px] text-muted-foreground" title={row.original.error_text || undefined}>
-            {row.original.error_text ? truncateText(row.original.error_text) : '—'}
-          </span>
-        ),
       },
       {
         id: 'actions',
@@ -168,8 +155,8 @@ export function CrawlerRunsPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Crawl runs"
-        description="Discovery and domain crawl jobs — separate from manual scraper runs under Scraper."
+        title="Crawl history"
+        description="Past web crawls, most recent first."
         actions={
           <>
             <Button variant="outline" onClick={() => void query.refetch()}>

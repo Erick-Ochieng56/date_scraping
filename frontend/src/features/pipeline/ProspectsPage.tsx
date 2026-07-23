@@ -4,11 +4,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
+import { ProspectReviewFocus } from '@/features/pipeline/ProspectReviewFocus'
 import { AlertBanner } from '@/shared/components/AlertBanner'
 import { DataTable } from '@/shared/components/DataTable'
 import { Input } from '@/shared/components/Input'
 import { ListPagination } from '@/shared/components/ListPagination'
 import { PageHeader } from '@/shared/components/PageHeader'
+import { RowActionsMenu } from '@/shared/components/RowActionsMenu'
 import { Select } from '@/shared/components/Select'
 import { StatusBadge } from '@/shared/components/StatusBadge'
 import { getApiErrorMessage } from '@/shared/api/errors'
@@ -37,6 +39,7 @@ export function ProspectsPage() {
   const [search, setSearch] = useState(searchParams.get('search') ?? '')
   const [status, setStatus] = useState(searchParams.get('status') ?? '')
   const [banner, setBanner] = useState<{ message?: string; error?: string }>({})
+  const [focusOpen, setFocusOpen] = useState(false)
 
   const selection = useRowSelection<Prospect['id']>((r) => r.id)
 
@@ -79,7 +82,7 @@ export function ProspectsPage() {
   const convertM = useMutation({
     mutationFn: () => prospectsBulkConvert(selection.selected),
     onSuccess: () => {
-      setBanner({ message: 'Converted selected prospects to leads.' })
+      setBanner({ message: 'Tracking selected prospects as leads.' })
       refresh()
     },
     onError: onMutationError,
@@ -87,7 +90,7 @@ export function ProspectsPage() {
   const rejectM = useMutation({
     mutationFn: () => prospectsBulkReject(selection.selected),
     onSuccess: () => {
-      setBanner({ message: 'Rejected selected prospects.' })
+      setBanner({ message: 'Marked selected prospects as not relevant.' })
       refresh()
     },
     onError: onMutationError,
@@ -156,36 +159,35 @@ export function ProspectsPage() {
       },
       {
         id: 'actions',
-        header: 'Actions',
+        header: '',
         cell: ({ row }) => {
           const p = row.original
           return (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex items-center justify-end gap-1">
               <Button size="sm" variant="outline" asChild>
                 <Link to={`/prospects/${p.id}`}>View</Link>
               </Button>
-              <Button
-                size="sm"
-                disabled={p.status !== 'new' || rowContactM.isPending}
-                onClick={() => rowContactM.mutate(p.id)}
-              >
-                Contacted
-              </Button>
-              <Button
-                size="sm"
-                disabled={!['new', 'contacted'].includes(p.status) || rowConvertM.isPending}
-                onClick={() => rowConvertM.mutate(p.id)}
-              >
-                Convert
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={p.status === 'rejected' || rowRejectM.isPending}
-                onClick={() => rowRejectM.mutate(p.id)}
-              >
-                Reject
-              </Button>
+              <RowActionsMenu
+                label={`More actions for ${p.company || p.event_name || 'prospect ' + p.id}`}
+                actions={[
+                  {
+                    label: 'Mark contacted',
+                    onSelect: () => rowContactM.mutate(p.id),
+                    disabled: p.status !== 'new' || rowContactM.isPending,
+                  },
+                  {
+                    label: 'Track as lead',
+                    onSelect: () => rowConvertM.mutate(p.id),
+                    disabled: !['new', 'contacted'].includes(p.status) || rowConvertM.isPending,
+                  },
+                  {
+                    label: 'Not relevant',
+                    onSelect: () => rowRejectM.mutate(p.id),
+                    disabled: p.status === 'rejected' || rowRejectM.isPending,
+                    destructive: true,
+                  },
+                ]}
+              />
             </div>
           )
         },
@@ -197,21 +199,13 @@ export function ProspectsPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Prospects"
-        description="Review crawler discoveries and move qualified contacts into the lead pipeline."
+        title="Review queue"
+        description="New organizations found by AI search, the web crawler, and site checks."
         actions={
           <>
+            <Button onClick={() => setFocusOpen(true)}>Review one by one</Button>
             <Button variant="outline" asChild>
               <a href={prospectsExportUrl()}>Export CSV</a>
-            </Button>
-            <Button disabled={!selection.canBulk || contactM.isPending} onClick={() => contactM.mutate()}>
-              Mark contacted
-            </Button>
-            <Button disabled={!selection.canBulk || convertM.isPending} onClick={() => convertM.mutate()}>
-              Convert to leads
-            </Button>
-            <Button variant="outline" disabled={!selection.canBulk || rejectM.isPending} onClick={() => rejectM.mutate()}>
-              Reject
             </Button>
           </>
         }
@@ -238,11 +232,27 @@ export function ProspectsPage() {
         </Button>
       </div>
 
+      {selection.canBulk ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2">
+          <span className="text-sm font-medium text-foreground">{selection.selected.length} selected</span>
+          <Button size="sm" variant="outline" disabled={contactM.isPending} onClick={() => contactM.mutate()}>
+            Mark contacted
+          </Button>
+          <Button size="sm" variant="outline" disabled={convertM.isPending} onClick={() => convertM.mutate()}>
+            Track as leads
+          </Button>
+          <Button size="sm" variant="destructive" disabled={rejectM.isPending} onClick={() => rejectM.mutate()}>
+            Not relevant
+          </Button>
+        </div>
+      ) : null}
+
       <DataTable
         columns={columns}
         data={items}
         isLoading={query.isLoading}
         errorMessage={query.isError ? getApiErrorMessage(query.error, 'Failed to load prospects.') : null}
+        emptyMessage="Nothing to review yet. Try Find new leads to search for more prospects."
         getRowId={(r) => String(r.id)}
       />
 
@@ -254,6 +264,14 @@ export function ProspectsPage() {
         onPrev={goPrev}
         onNext={goNext}
         isLoading={query.isFetching}
+      />
+
+      <ProspectReviewFocus
+        open={focusOpen}
+        onClose={() => {
+          setFocusOpen(false)
+          refresh()
+        }}
       />
     </div>
   )

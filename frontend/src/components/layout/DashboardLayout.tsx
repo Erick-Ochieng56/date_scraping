@@ -5,7 +5,7 @@ import { AppShell } from '@/shared/layouts/AppShell'
 
 export function DashboardLayout() {
   return (
-    <AppShell headerTitle="Scraper dashboard" renderSidebar={({ onNavigate }) => <AppSidebar onNavigate={onNavigate} />}>
+    <AppShell headerTitle="Ateric Leads" renderSidebar={({ onNavigate }) => <AppSidebar onNavigate={onNavigate} />}>
       <Outlet />
     </AppShell>
   )

@@ -15,6 +15,7 @@ import { RunStatusBadge } from '@/shared/components/RunStatusBadge'
 import { Select } from '@/shared/components/Select'
 import { pollIntervalWhenRunning } from '@/shared/hooks/usePollWhen'
 import { useServerList } from '@/shared/hooks/useServerList'
+import { summarizeScrapeRun } from '@/shared/utils/runSummary'
 
 export function RunsPage() {
   const qc = useQueryClient()
@@ -78,14 +79,13 @@ export function RunsPage() {
     () => [
       {
         accessorKey: 'id',
-        header: 'Run',
+        header: 'Check',
         cell: ({ row }) => (
           <Link className="font-medium text-primary hover:underline" to={`/runs/${row.original.id}`}>
             #{row.original.id}
           </Link>
         ),
       },
-      { accessorKey: 'target_name', header: 'Target' },
       {
         accessorKey: 'status',
         header: 'Status',
@@ -93,15 +93,10 @@ export function RunsPage() {
           <RunStatusBadge status={row.original.status} display={row.original.status_display || row.original.status} />
         ),
       },
-      { accessorKey: 'item_count', header: 'Items' },
       {
-        id: 'leads',
-        header: 'Leads',
-        cell: ({ row }) => (
-          <span>
-            +{row.original.created_leads} / upd {row.original.updated_leads}
-          </span>
-        ),
+        id: 'summary',
+        header: 'Summary',
+        cell: ({ row }) => <span className="text-sm">{summarizeScrapeRun(row.original)}</span>,
       },
       {
         accessorKey: 'started_at',
@@ -133,15 +128,15 @@ export function RunsPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Scrape runs"
-        description="Manual scraper runs for individual targets. The list auto-refreshes while any run is in progress."
+        title="Check history"
+        description="Past site checks, most recent first. This list updates automatically while a check is running."
         actions={
           <>
             <Button
               disabled={!targetId || triggerTargetM.isPending}
               onClick={() => targetId && triggerTargetM.mutate(targetId)}
             >
-              {triggerTargetM.isPending ? 'Queueing…' : 'Trigger selected target'}
+              {triggerTargetM.isPending ? 'Starting…' : 'Check selected site'}
             </Button>
             <Button variant="outline" onClick={() => void query.refetch()}>
               Refresh
@@ -158,7 +153,7 @@ export function RunsPage() {
           onChange={(e) => setTargetId(Number(e.target.value))}
           className="min-w-[12rem]"
         >
-          <option value={0}>All targets</option>
+          <option value={0}>All sites</option>
           {(targetsQ.data?.items ?? []).map((t) => (
             <option key={t.id} value={t.id}>
               {t.name}
@@ -177,8 +172,8 @@ export function RunsPage() {
         columns={columns}
         data={items}
         isLoading={query.isLoading}
-        errorMessage={query.isError ? getApiErrorMessage(query.error, 'Failed to load scrape runs.') : null}
-        emptyMessage="No scrape runs match your filters."
+        errorMessage={query.isError ? getApiErrorMessage(query.error, 'Failed to load check history.') : null}
+        emptyMessage="No checks match your filters."
         getRowId={(r) => String(r.id)}
       />
 

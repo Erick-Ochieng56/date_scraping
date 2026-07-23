@@ -45,6 +45,7 @@ urlpatterns = [
     path("leads/bulk/interested/", views.leads_bulk_interested, name="v1_leads_bulk_interested"),
     path("leads/bulk/reject/", views.leads_bulk_reject, name="v1_leads_bulk_reject"),
     path("metrics/summary/", views.metrics_summary, name="v1_metrics_summary"),
+    path("metrics/timeseries/", views.metrics_timeseries, name="v1_metrics_timeseries"),
     path("stream/runs/", stream_views.stream_runs, name="v1_stream_runs"),
     path("stream/runs/<int:run_id>/", stream_views.stream_run_detail, name="v1_stream_run_detail"),
 ]

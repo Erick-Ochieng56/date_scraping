@@ -55,7 +55,6 @@ export const AiSearchPage: LazyExoticComponent<ComponentType<{ variant: AiSearch
 export const CrawlerLayout = lazyNamed(() => import('@/features/crawler/CrawlerLayout'), 'CrawlerLayout')
 export const CrawlerDiscoverPage = lazyNamed(() => import('@/pages/staff/CrawlerDiscoverPage'), 'CrawlerDiscoverPage')
 export const CrawlerDomainsPage = lazyNamed(() => import('@/pages/staff/CrawlerDomainsPage'), 'CrawlerDomainsPage')
-export const CrawlerHomePage = lazyNamed(() => import('@/pages/staff/CrawlerHomePage'), 'CrawlerHomePage')
 export const CrawlerRunDetailPage = lazyNamed(() => import('@/pages/staff/CrawlerRunDetailPage'), 'CrawlerRunDetailPage')
 export const CrawlerRunsPage = lazyNamed(() => import('@/pages/staff/CrawlerRunsPage'), 'CrawlerRunsPage')
 export const HomePage = lazyNamed(() => import('@/pages/HomePage'), 'HomePage')

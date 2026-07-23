@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 
 from celery import current_app
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Count, Q
+from django.db.models import Case, CharField, Count, Q, Value, When
+from django.db.models.functions import TruncDate, TruncMonth, TruncWeek
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.authentication import SessionAuthentication
@@ -44,6 +45,7 @@ from dashboard.api.serializers import (
     DiscoveredDomainSerializer,
     CrawlRunSerializer,
     LeadSerializer,
+    ProspectDetailSerializer,
     ProspectSerializer,
     ScrapeRunSerializer,
     ScrapeTargetSerializer,
@@ -594,7 +596,7 @@ def prospect_detail(request: Request, prospect_id: int) -> Response:
         prospect = _owned_qs(request, Prospect.objects.all()).get(id=prospect_id)
     except Prospect.DoesNotExist:
         return Response({"success": False, "error": "Prospect not found"}, status=status.HTTP_404_NOT_FOUND)
-    return Response({"success": True, "data": ProspectSerializer(prospect).data})
+    return Response({"success": True, "data": ProspectDetailSerializer(prospect).data})
 
 
 @dashboard_api_view(["POST"])
@@ -754,6 +756,7 @@ def metrics_summary(request: Request) -> Response:
         "crawl_runs_recent": crawl_recent.count(),
         "prospects_new": prospects_qs.filter(status=ProspectStatus.NEW).count(),
         "prospects_contacted": prospects_qs.filter(status=ProspectStatus.CONTACTED).count(),
+        "prospects_contacted_recent": prospects_qs.filter(contacted_at__gte=since).count(),
         "leads_interested": leads_qs.filter(status=LeadStatus.INTERESTED).count(),
         "leads_synced": leads_qs.filter(status=LeadStatus.SYNCED).count(),
         "failed_crawls_recent": failed_crawls,
@@ -766,6 +769,98 @@ def metrics_summary(request: Request) -> Response:
     }
     cache.set(cache_key, data, 60)
     return Response({"success": True, "data": data})
+
+
+_TIMESERIES_TRUNC_FNS = {"day": TruncDate, "week": TruncWeek, "month": TruncMonth}
+_TIMESERIES_DEFAULT_PERIODS = {"day": 14, "week": 8, "month": 6}
+_TIMESERIES_MAX_PERIODS = {"day": 90, "week": 52, "month": 24}
+
+# source_name is set by exactly one of three pipelines: the crawler and AI search
+# promotion paths write a fixed literal, the scraper path writes the ScrapeTarget's
+# name — so anything that isn't one of the two literals is a site check.
+_PROSPECT_SOURCE_BUCKET = Case(
+    When(source_name="ai_search", then=Value("ai_search")),
+    When(source_name="web_crawler", then=Value("web_crawler")),
+    default=Value("site_check"),
+    output_field=CharField(),
+)
+
+
+def _timeseries_bucket_starts(granularity: str, periods: int) -> list[date]:
+    today = timezone.localdate()
+    if granularity == "day":
+        return [today - timedelta(days=i) for i in range(periods - 1, -1, -1)]
+    if granularity == "week":
+        monday = today - timedelta(days=today.weekday())
+        return [monday - timedelta(weeks=i) for i in range(periods - 1, -1, -1)]
+    # month: roll back by absolute month index so year boundaries wrap correctly.
+    first_of_month = today.replace(day=1)
+    base_index = first_of_month.year * 12 + (first_of_month.month - 1)
+    buckets = []
+    for i in range(periods - 1, -1, -1):
+        year, month0 = divmod(base_index - i, 12)
+        buckets.append(date(year, month0 + 1, 1))
+    return buckets
+
+
+def _timeseries_bucket_key(value):
+    """Trunc*'s output is a date for TruncDate but an aware datetime for
+    TruncWeek/TruncMonth — normalize both to a plain date for dict keys."""
+    return value.date() if isinstance(value, datetime) else value
+
+
+@dashboard_api_view(["GET"])
+@authentication_classes([SessionAuthentication])
+@permission_classes([IsAuthenticated, IsDashboardPortalUser])
+def metrics_timeseries(request: Request) -> Response:
+    granularity = request.query_params.get("granularity", "day")
+    if granularity not in _TIMESERIES_TRUNC_FNS:
+        raise ValidationError({"granularity": "Must be one of: day, week, month."})
+
+    periods = _parse_positive_int(
+        request.query_params.get("periods"),
+        field="periods",
+        default=_TIMESERIES_DEFAULT_PERIODS[granularity],
+        minimum=1,
+        maximum=_TIMESERIES_MAX_PERIODS[granularity],
+    )
+
+    buckets = _timeseries_bucket_starts(granularity, periods)
+    since = timezone.make_aware(datetime.combine(buckets[0], datetime.min.time()))
+    trunc_fn = _TIMESERIES_TRUNC_FNS[granularity]
+
+    prospects_qs = _owned_qs(request, Prospect.objects.filter(created_at__gte=since))
+    prospect_rows = (
+        prospects_qs.annotate(bucket=trunc_fn("created_at"), src=_PROSPECT_SOURCE_BUCKET)
+        .values("bucket", "src")
+        .annotate(count=Count("id"))
+    )
+    prospects_by_bucket: dict = {}
+    for row in prospect_rows:
+        entry = prospects_by_bucket.setdefault(
+            _timeseries_bucket_key(row["bucket"]), {"ai_search": 0, "web_crawler": 0, "site_check": 0}
+        )
+        entry[row["src"]] = row["count"]
+
+    leads_qs = _owned_qs(request, Lead.objects.filter(created_at__gte=since))
+    lead_rows = leads_qs.annotate(bucket=trunc_fn("created_at")).values("bucket").annotate(count=Count("id"))
+    leads_by_bucket = {_timeseries_bucket_key(row["bucket"]): row["count"] for row in lead_rows}
+
+    bucket_data = []
+    for b in buckets:
+        src = prospects_by_bucket.get(b, {"ai_search": 0, "web_crawler": 0, "site_check": 0})
+        bucket_data.append(
+            {
+                "date": b.isoformat(),
+                "prospects_total": sum(src.values()),
+                "prospects_by_source": src,
+                "leads_created": leads_by_bucket.get(b, 0),
+            }
+        )
+
+    return Response(
+        {"success": True, "data": {"granularity": granularity, "periods": periods, "buckets": bucket_data}}
+    )
 
 
 def _ai_search_configured() -> bool:
