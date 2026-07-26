@@ -22,6 +22,7 @@ from crawler.services.active_buyer import (
     has_active_buyer_signal,
     is_buyer_procurement_context,
     is_generic_hub_page,
+    is_procurement_portal_listing_url,
     is_procurement_portal_url,
     is_verifiable_procurement_portal,
     passes_active_buyer_gate,
@@ -78,6 +79,41 @@ class CompetitorFilterTests(TestCase):
             "for the regional health summit in Nairobi, Kenya. Procurement deadline next month."
         )
         flagged, _ = is_likely_competitor("health-ministry.go.ke", [text])
+        self.assertFalse(flagged)
+
+    def test_flags_interpretation_equipment_rental_seller(self):
+        """
+        Regression test for a real false negative: seamevents.com's
+        /interpretation-equipment-rental page is a fellow LSP renting interpretation
+        equipment (one of Ateric's own service lines), not a client — but it never
+        mentions "translator"/"LSP"/"language service provider" anywhere, so the
+        staffing-agency-focused keyword checks above never flagged it.
+        """
+        text = (
+            "SEAM Events provides interpretation equipment rental for conferences and "
+            "summits across the region, including receivers, headsets, and booths "
+            "for simultaneous interpretation."
+        )
+        flagged, reason = is_likely_competitor(
+            "seamevents.com",
+            [text],
+            landing_url="https://seamevents.com/interpretation-equipment-rental",
+        )
+        self.assertTrue(flagged, reason)
+        self.assertIn("equipment rental", reason.lower())
+
+    def test_allows_buyer_page_needing_equipment_rental(self):
+        """A genuine buyer's tender for equipment rental services must not itself be
+        misflagged as a competitor just because it mentions "equipment rental"."""
+        text = (
+            "Request for proposals: we require interpretation equipment rental services "
+            "for our annual regional conference. Closing date 15 October 2026."
+        )
+        flagged, _ = is_likely_competitor(
+            "health-ministry.go.ke",
+            [text],
+            landing_url="https://health-ministry.go.ke/tenders/equipment-rental-rfp",
+        )
         self.assertFalse(flagged)
 
 
@@ -585,6 +621,47 @@ class ActiveBuyerTests(TestCase):
         )
         self.assertTrue(ok)
 
+    def test_has_active_buyer_signal_rejects_unrelated_grant_tender(self):
+        """
+        Regression test: a real false positive (pfizer.com's competitive-grants page)
+        had generic procurement language ("request for proposals", "closing date")
+        about HOSPITAL EQUIPMENT, with no connection to translation/interpretation at
+        all. is_buyer_procurement_context alone can't tell subject matter apart from
+        any other grant/tender — has_active_buyer_signal must also require a language-
+        service signal on the page.
+        """
+        page = (
+            "Pfizer Competitive Grants Program: request for proposals for hospital "
+            "equipment upgrades supporting patient care. Closing date: 30 September 2026. "
+            "Submit your grant proposal describing the medical equipment needed."
+        )
+        ok, reason = has_active_buyer_signal(
+            page,
+            url="https://www.pfizer.com/about/programs-policies/grants/competitive-grants",
+        )
+        self.assertFalse(ok)
+        self.assertIn("not about translation", reason.lower())
+
+    def test_passes_active_buyer_gate_rejects_unrelated_grant_even_with_flags_set(self):
+        """
+        Even when upstream flags (has_active_procurement=True, buyer_signal_type="tender")
+        claim an active opportunity, passes_active_buyer_gate must still require the
+        opportunity be about language services before accepting it.
+        """
+        page = (
+            "Pfizer Competitive Grants Program: request for proposals for hospital "
+            "equipment upgrades supporting patient care. Closing date: 30 September 2026."
+        )
+        ok, reason = passes_active_buyer_gate(
+            page,
+            url="https://www.pfizer.com/about/programs-policies/grants/competitive-grants",
+            domain="pfizer.com",
+            has_active_procurement=True,
+            buyer_signal_type="tender",
+            today=date(2026, 6, 19),
+        )
+        self.assertFalse(ok, reason)
+
     def test_verified_portal_with_current_language_tender(self):
         page = (
             "Procurement notices. Open tenders.\n"
@@ -735,6 +812,48 @@ class ModeAwareThresholdAndTemplateTests(TestCase):
         gov_template = next(t for t in templates if t["expected_prospect_type"] == "government" and "site:" in t["query"])
         self.assertIn("site:.go.ug", gov_template["query"])
         self.assertNotIn("site:.go.ke", gov_template["query"])
+
+    def test_company_first_templates_target_tender_procurement_and_event_paths(self):
+        """
+        User-requested path targeting: search queries should aim at /tender(s) and
+        /procurement(s) pages (where live opportunities actually live) and at
+        /event(s) pages (where interpretation/translation needs for a specific
+        event are often announced).
+        """
+        templates = company_first_query_templates(region="Kenya", seed="")
+        queries_text = " ".join(t["query"] for t in templates)
+        self.assertIn("inurl:tender", queries_text)
+        self.assertIn("inurl:tenders", queries_text)
+        self.assertIn("inurl:procurement", queries_text)
+        self.assertIn("inurl:procurements", queries_text)
+        self.assertIn("inurl:event", queries_text)
+        self.assertIn("inurl:events", queries_text)
+
+
+class PriorityPathAndProcurementUrlTests(TestCase):
+    """
+    Regression tests for user-requested path targeting: /tender(s), /procurement(s),
+    and /event(s) pages should be prioritized during crawling and recognized as
+    procurement-portal-style URLs, matching both singular and plural forms.
+    """
+
+    def test_priority_paths_include_tender_procurement_and_event_variants(self):
+        from crawler.constants import PRIORITY_PATHS
+
+        for path in ("/tender", "/tenders", "/procurement", "/procurements", "/event", "/events"):
+            self.assertIn(path, PRIORITY_PATHS)
+
+    def test_procurement_portal_listing_recognizes_singular_and_plural(self):
+        self.assertTrue(is_procurement_portal_listing_url("https://example.org/tender"))
+        self.assertTrue(is_procurement_portal_listing_url("https://example.org/tenders"))
+        self.assertTrue(is_procurement_portal_listing_url("https://example.org/procurement"))
+        self.assertTrue(is_procurement_portal_listing_url("https://example.org/procurements"))
+
+    def test_procurement_portal_listing_still_rejects_single_tender_detail_pages(self):
+        """A single tender's own detail page is not a listing page — unchanged behavior."""
+        self.assertFalse(
+            is_procurement_portal_listing_url("https://example.org/tenders/interpretation-2026")
+        )
 
 
 class AutoDeriveCompetitorSignalsTests(TestCase):

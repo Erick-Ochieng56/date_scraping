@@ -252,18 +252,13 @@ def is_procurement_portal_listing_url(url: str) -> bool:
         "/invitations-to-tender",
         "/invitation-to-tender",
         "/procurement",
+        "/procurements",
+        "/tender",
         "/tenders",
     )
     if path in listing_endings or any(path.endswith(e) for e in listing_endings):
         return True
-    return any(
-        e in path
-        for e in (
-            "/procurement-notices",
-            "/procurement-opportunities",
-            "/procurement-opportunities",
-        )
-    )
+    return any(e in path for e in ("/procurement-notices", "/procurement-opportunities"))
 
 
 def is_procurement_portal_url(url: str) -> bool:
@@ -523,6 +518,16 @@ def has_active_buyer_signal(page_text: str, *, url: str = "", domain: str = "") 
         return False, reason
     if not is_buyer_procurement_context(page_text):
         return False, "No active tender, RFP, event procurement, or interpreter hiring on page."
+    # is_buyer_procurement_context only detects generic tender/RFP/grant phrasing
+    # ("request for proposals", "closing date", etc.) — it has no idea what the
+    # tender is FOR. Without this check, any active procurement notice passed
+    # regardless of subject (e.g. a hospital-equipment grant page), even though it
+    # has nothing to do with translation/interpretation/language services.
+    if not _mentions_language_opportunity(page_text):
+        return False, (
+            "Active tender/RFP/procurement found, but it is not about translation, "
+            "interpretation, or language services."
+        )
     return True, ""
 
 
@@ -726,7 +731,12 @@ def passes_active_buyer_gate(
     if not ok:
         return False, reason
 
-    if has_active_procurement is True:
+    # has_active_procurement is an upstream (often Gemini-extracted) flag meaning
+    # "this page shows an open tender/RFP/hiring notice right now" — it says nothing
+    # about the SUBJECT of that opportunity. Trusting it alone let procurement pages
+    # for unrelated goods (e.g. a hospital-equipment grant) pass as language-service
+    # leads; _mentions_language_opportunity is the missing subject-matter check.
+    if has_active_procurement is True and _mentions_language_opportunity(page_text):
         return True, ""
 
     primary = _primary_opportunity_text(page_text)
@@ -746,7 +756,9 @@ def passes_active_buyer_gate(
 
     signal = (buyer_signal_type or "").strip().lower()
     if signal in ("tender", "event", "hiring", "programme"):
-        if is_buyer_procurement_context(page_text) or signal == "hiring":
+        if (is_buyer_procurement_context(page_text) or signal == "hiring") and _mentions_language_opportunity(
+            page_text
+        ):
             return True, ""
 
     return has_active_buyer_signal(page_text, url=url, domain=domain)

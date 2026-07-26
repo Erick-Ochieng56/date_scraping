@@ -15,6 +15,12 @@ _GOV_TLD_BY_COUNTRY = {
 }
 
 
+# Path-targeting operator covering both singular/plural forms of the pages most
+# likely to host an actual language-service opportunity, per user-observed evidence.
+_TENDER_PROCUREMENT_INURL = "(inurl:tender OR inurl:tenders OR inurl:procurement OR inurl:procurements)"
+_EVENT_INURL = "(inurl:event OR inurl:events)"
+
+
 def _government_site_fragment(region: str) -> str:
     """
     Build a `site:<gov-tld>` OR-fragment for whichever East African countries are
@@ -54,11 +60,19 @@ def company_first_query_templates(
     return [
         {
             "query": (
-                f'{geo} {ind_bit}inurl:tender "simultaneous interpretation" OR "translation services" '
-                f'"closing date" {year} {exclude}'
+                f'{geo} {ind_bit}{_TENDER_PROCUREMENT_INURL} "simultaneous interpretation" OR '
+                f'"translation services" "closing date" {year} {exclude}'
             ),
             "intent": "Active government/NGO tenders for interpretation or translation",
             "expected_prospect_type": "government",
+        },
+        {
+            "query": (
+                f'{geo} {ind_bit}{_EVENT_INURL} "simultaneous interpretation" OR '
+                f'"conference interpretation" OR "translation services" {year} OR {next_year} {exclude}'
+            ),
+            "intent": "Event pages announcing an interpretation/translation need",
+            "expected_prospect_type": "event_organizer",
         },
         {
             "query": (

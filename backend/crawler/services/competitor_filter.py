@@ -34,6 +34,44 @@ _LSP_SELLER_PHRASES = (
     "hire our linguists",
 )
 
+# Interpretation/conference EQUIPMENT rental/hire is one of Ateric's own service lines
+# (analyzer.py's "conference_equipment" category), so a company selling/renting that
+# equipment is a direct competitor too — even though its site never mentions
+# "translator"/"LSP"/"language service provider" anywhere (it's an AV/equipment
+# business, not a staffing agency). BASE_COMPETITOR_KEYWORDS/_LSP_SELLER_PHRASES above
+# only catch the staffing-agency side of the business, missing this real case
+# (e.g. seamevents.com/interpretation-equipment-rental).
+_EQUIPMENT_SELLER_PHRASES = (
+    "interpretation equipment rental",
+    "interpretation equipment hire",
+    "interpretation equipment for hire",
+    "simultaneous interpretation equipment rental",
+    "simultaneous interpretation equipment hire",
+    "conference equipment rental",
+    "conference equipment hire",
+    "av equipment rental",
+    "audio visual equipment rental",
+    "booth rental",
+    "interpreter booth rental",
+    "headset rental",
+    "we rent interpretation equipment",
+    "we provide interpretation equipment",
+    "we supply interpretation equipment",
+    "hire our interpretation equipment",
+    "equipment rental services",
+    "event equipment rental",
+    "interpretation system rental",
+    "interpretation system hire",
+)
+
+_EQUIPMENT_SELLER_URL_PATTERNS = (
+    "interpretation-equipment",
+    "equipment-rental",
+    "equipment-hire",
+    "booth-rental",
+    "av-rental",
+)
+
 GENERIC_COMPETITOR_ORG_TYPES = {
     "translation_agency",
     "lsp",
@@ -94,6 +132,19 @@ def is_likely_competitor(
     seller_hits = [p for p in _LSP_SELLER_PHRASES if p in combined]
     if len(seller_hits) >= 1 and len(hits) >= 1:
         return True, f"Content matches LSP seller signals: {seller_hits[:3]}"
+
+    # Equipment/AV rental sellers rarely mention "translator"/"LSP"/etc at all (they're
+    # an equipment business, not a staffing agency), so they'd never trip the check
+    # above. Gate on "not buyer_context" the same way _ORG_HARD_BLOCK_PATTERNS does
+    # below, so a genuine buyer's tender page that happens to need equipment rental
+    # ("we require interpretation equipment rental services for our conference") isn't
+    # itself misflagged as a competitor.
+    equipment_hits = [p for p in _EQUIPMENT_SELLER_PHRASES if p in combined]
+    url_lower = (landing_url or "").lower()
+    equipment_url_hits = [p for p in _EQUIPMENT_SELLER_URL_PATTERNS if p in url_lower]
+    if (equipment_hits or equipment_url_hits) and not buyer_context:
+        evidence = equipment_hits[:3] or equipment_url_hits[:1]
+        return True, f"Content/URL matches interpretation/conference equipment rental signals: {evidence}"
 
     if len(hits) >= 3:
         return True, f"Content matches keywords: {hits[:5]}"
