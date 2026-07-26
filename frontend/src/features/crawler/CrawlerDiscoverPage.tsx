@@ -26,6 +26,7 @@ export function CrawlerDiscoverPage() {
   const qc = useQueryClient()
   const [query, setQuery] = useState('')
   const [maxResults, setMaxResults] = useState<number>(20)
+  const [strictActiveBuyer, setStrictActiveBuyer] = useState(false)
   const [manualUrl, setManualUrl] = useState('')
   const [previewRows, setPreviewRows] = useState<PreviewRow[]>([])
   const [droppedRows, setDroppedRows] = useState<DroppedRow[]>([])
@@ -71,7 +72,7 @@ export function CrawlerDiscoverPage() {
   }
 
   const previewM = useMutation({
-    mutationFn: () => crawlerPreview(query.trim(), maxResults),
+    mutationFn: () => crawlerPreview(query.trim(), maxResults, strictActiveBuyer),
     onMutate: () => {
       setBanner({})
       setLastQueue(null)
@@ -106,6 +107,7 @@ export function CrawlerDiscoverPage() {
         max_results: maxResults,
         auto_crawl: withCrawl,
         urls: selectedLandings,
+        strict_active_buyer: strictActiveBuyer,
       }),
     onMutate: () => setBanner({}),
     onSuccess: (data, withCrawl) => {
@@ -252,6 +254,23 @@ export function CrawlerDiscoverPage() {
             </Select>
           </div>
         </div>
+
+        <label htmlFor="strict-active-buyer" className="flex items-start gap-2 text-sm text-foreground">
+          <input
+            id="strict-active-buyer"
+            type="checkbox"
+            className="mt-0.5 size-4 rounded border-border"
+            checked={strictActiveBuyer}
+            onChange={(e) => setStrictActiveBuyer(e.target.checked)}
+          />
+          <span>
+            Only show active opportunities (live tender/RFP/hiring) right now
+            <span className="block text-xs text-muted-foreground">
+              Off (default) keeps any organization that's a good fit for our services, even with no live
+              opportunity posted today.
+            </span>
+          </span>
+        </label>
 
         <div>
           <p className="text-xs font-medium text-muted-foreground">Try an example</p>

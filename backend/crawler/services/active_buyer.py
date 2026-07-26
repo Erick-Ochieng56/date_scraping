@@ -438,11 +438,33 @@ def best_portal_opportunity_snippet(page_text: str, *, today: date | None = None
     return ""
 
 
+def _homepage_shows_lsp_relevance(page_text: str) -> bool:
+    """
+    True when a homepage's own content plausibly indicates translation/
+    interpretation/localization need — a detected service or org-type signal,
+    or an international/multilingual indicator — rather than being generic.
+    """
+    from crawler.analyzer import build_international_signals, detect_org_types, detect_services
+
+    text = (page_text or "").strip()
+    if not text:
+        return False
+    if detect_services(text) or detect_org_types(text) or build_international_signals(text):
+        return True
+    return _mentions_language_opportunity(text)
+
+
 def is_org_homepage_or_careers_hub(url: str, page_text: str = "") -> bool:
     """Reject org front doors and careers sections (not procurement portals)."""
     path = urlparse((url or "").strip()).path.lower().rstrip("/") or "/"
     if path in ("/", ""):
-        return True
+        # A homepage is a "generic hub" (reject) only when its own content shows
+        # no LSP-relevant signal at all. Previously ANY root URL was rejected
+        # unconditionally regardless of content — but a normal search for
+        # "NGO language services Africa" or "international conference" mostly
+        # returns organization homepages, so this discarded most organic,
+        # on-target hits before scoring ever ran (DISCOVERY_QUALITY_ANALYSIS.md F1).
+        return not _homepage_shows_lsp_relevance(page_text)
     if is_procurement_portal_url(url):
         return False
     for marker in _CAREERS_HUB_MARKERS:

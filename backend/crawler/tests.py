@@ -35,14 +35,23 @@ from crawler.services.event_validation import accept_event_candidate
 from crawler.services.geo_filter import (
     ensure_query_has_geo,
     passes_geo_gate,
+    serper_geo_payload,
     text_mentions_east_africa,
 )
+from crawler.services.service_scope import classify_service_scope, requires_strict_geo
 from crawler.services.promote_ai_result import promote_ai_search_result_to_prospect
 from crawler.services.ai_page_extract import (
+    ai_search_min_score,
+    ai_search_promote_min_score,
     merge_extraction_into_prospect,
     qualify_ai_search_candidate,
     result_promotable,
     result_translation_need_score,
+)
+from crawler.services.company_discovery import (
+    _government_site_fragment,
+    company_first_query_templates,
+    general_prospect_query_templates,
 )
 from crawler.services.prospect_verify import (
     looks_like_past_event_text,
@@ -191,6 +200,68 @@ class GeoFilterTests(TestCase):
 
     def test_text_mentions_east_africa(self):
         self.assertTrue(text_mentions_east_africa("Forum in Kampala, Uganda"))
+
+    @override_settings(CRAWLER_GEO_MODE="east_africa")
+    def test_passes_geo_gate_allows_virtual_service_outside_east_africa(self):
+        """
+        Regression test for D2 (DISCOVERY_QUALITY_ANALYSIS.md): location-agnostic
+        services (document translation, localization, etc.) must not be rejected just
+        because the candidate is outside East Africa — only physical-presence needs
+        (simultaneous/conference interpretation, equipment) stay geo-gated.
+        """
+        ok, reason = passes_geo_gate(
+            "We provide certified document translation services for clients "
+            "in London, United Kingdom and across Europe.",
+            domain="example.co.uk",
+        )
+        self.assertTrue(ok, reason)
+
+    @override_settings(CRAWLER_GEO_MODE="east_africa")
+    def test_passes_geo_gate_still_rejects_physical_service_outside_east_africa(self):
+        ok, reason = passes_geo_gate(
+            "We need simultaneous interpretation and conference equipment for our "
+            "annual meeting in London, United Kingdom.",
+            domain="example.co.uk",
+        )
+        self.assertFalse(ok)
+        self.assertIn("outside", reason.lower())
+
+    @override_settings(CRAWLER_GEO_MODE="east_africa")
+    def test_ensure_query_has_geo_skips_prepend_for_virtual_query(self):
+        q = ensure_query_has_geo("document translation localization services", "")
+        self.assertNotIn("Kenya", q)
+
+    @override_settings(CRAWLER_GEO_MODE="east_africa")
+    def test_serper_geo_payload_skips_bias_for_virtual_query(self):
+        self.assertEqual(serper_geo_payload(query="document translation localization services"), {})
+        self.assertNotEqual(serper_geo_payload(query="simultaneous interpretation booking"), {})
+
+
+class ServiceScopeTests(TestCase):
+    def test_classifies_physical_presence_terms(self):
+        self.assertEqual(
+            classify_service_scope("We need simultaneous interpretation for our summit"),
+            "physical",
+        )
+
+    def test_classifies_virtual_terms(self):
+        self.assertEqual(
+            classify_service_scope("We need document translation and localization"),
+            "virtual",
+        )
+
+    def test_virtual_interpretation_overrides_bare_interpretation_word(self):
+        """'virtual interpretation' must classify as virtual despite containing the
+        generic word 'interpretation', which alone would lean physical."""
+        self.assertEqual(classify_service_scope("We need virtual interpretation support"), "virtual")
+
+    def test_no_signal_is_unknown(self):
+        self.assertEqual(classify_service_scope("Welcome to our company website"), "unknown")
+
+    def test_requires_strict_geo_only_lifted_for_virtual(self):
+        self.assertTrue(requires_strict_geo("physical"))
+        self.assertTrue(requires_strict_geo("unknown"))
+        self.assertFalse(requires_strict_geo("virtual"))
 
 
 class DirectoryFilterTests(TestCase):
@@ -384,7 +455,14 @@ class AiPageExtractTests(TestCase):
         self.assertEqual(enriched["domain"], "health-assoc.or.ke")
 
     @override_settings(AI_SEARCH_REQUIRE_ACTIVE_BUYER=True, CRAWLER_GEO_MODE="global")
-    def test_qualify_rejects_org_homepage(self):
+    def test_qualify_rejects_org_homepage_with_no_active_opportunity(self):
+        """
+        Since F1's fix (DISCOVERY_QUALITY_ANALYSIS.md), a homepage showing genuine
+        LSP-relevant signals (multilingual/international, as here) is no longer
+        rejected outright as a "generic hub" — it's now rejected by the (separate,
+        still-active) active-buyer gate because it has no tender/RFP/hiring signal,
+        which is the correct, more specific reason under strict active-buyer mode.
+        """
         page = (
             "The East African Community is an intergovernmental organization working toward "
             "political integration across partner states with multilingual programmes and "
@@ -400,11 +478,38 @@ class AiPageExtractTests(TestCase):
             allow_gemini=False,
         )
         self.assertFalse(ok)
-        self.assertIn("opportunity", reason.lower())
+        self.assertIn("no active tender", reason.lower())
+
+    @override_settings(CRAWLER_GEO_MODE="global")
+    def test_qualify_accepts_general_fit_homepage_when_active_buyer_not_required(self):
+        """
+        Regression test for D1 (general-prospect mode, the new default): the same kind
+        of institutional homepage rejected in strict active-buyer mode above should now
+        pass qualification when require_active_buyer=False is explicitly requested —
+        it's a genuine org-type + international-signal fit, just with no live tender.
+        """
+        page = (
+            "The East African Community is an intergovernmental organization working toward "
+            "political integration across partner states with multilingual programmes and "
+            "international cooperation across the region."
+        )
+        ok, reason, _ = qualify_ai_search_candidate(
+            {
+                "domain": "eac.int",
+                "source_url": "https://www.eac.int/",
+            },
+            seed_topic="East Africa regional organizations",
+            page_text=page,
+            allow_gemini=False,
+            require_active_buyer=False,
+        )
+        self.assertTrue(ok, reason)
 
     def test_result_promotable_respects_score(self):
         user = User.objects.create_user(username="scoreuser", password="x")
-        job = AISearchJob.objects.create(owner=user, seed_topic="test", status="done")
+        job = AISearchJob.objects.create(
+            owner=user, seed_topic="test", status="done", require_active_buyer=True
+        )
         low = AISearchResult.objects.create(
             job=job,
             domain="low.example",
@@ -421,6 +526,23 @@ class AiPageExtractTests(TestCase):
             self.assertTrue(result_promotable(high))
             self.assertFalse(result_promotable(legacy))
         self.assertEqual(result_translation_need_score(high), 85)
+
+    def test_result_promotable_uses_general_mode_threshold_by_default(self):
+        """
+        Regression test for D1's mode-aware thresholds: a job that doesn't require an
+        active buyer (the new default) is judged against AI_SEARCH_GENERAL_PROMOTE_MIN_SCORE,
+        not AI_SEARCH_PROMOTE_MIN_SCORE (the narrow active-buyer threshold).
+        """
+        user = User.objects.create_user(username="scoreuser2", password="x")
+        job = AISearchJob.objects.create(
+            owner=user, seed_topic="test", status="done", require_active_buyer=False
+        )
+        mid = AISearchResult.objects.create(
+            job=job, domain="mid.example", raw_data={"translation_need_score": 55}
+        )
+        with self.settings(AI_SEARCH_PROMOTE_MIN_SCORE=80, AI_SEARCH_GENERAL_PROMOTE_MIN_SCORE=50):
+            # Would fail the strict active-buyer threshold (80) but passes the general one (50).
+            self.assertTrue(result_promotable(mid))
 
 
 class ActiveBuyerTests(TestCase):
@@ -505,6 +627,30 @@ class ActiveBuyerTests(TestCase):
         self.assertFalse(verifiable)
         self.assertIn("aggregator", reason.lower())
 
+    def test_homepage_with_no_lsp_signal_is_still_rejected(self):
+        """
+        Regression guard for F1's fix: a homepage with genuinely no LSP-relevant
+        content (no org type, service, or international signal) should still be
+        treated as a generic hub, same as before the fix.
+        """
+        page = "Welcome to our site. Click here to browse our product catalog and shop now."
+        self.assertTrue(is_generic_hub_page("https://widgets-shop.example.com/", page))
+
+    def test_homepage_with_lsp_signal_is_no_longer_blanket_rejected(self):
+        """
+        Regression test for DISCOVERY_QUALITY_ANALYSIS.md F1: is_org_homepage_or_careers_hub
+        used to reject EVERY root-URL hit unconditionally, regardless of content — discarding
+        most organic search hits for organizational queries (NGO/university/hospital homepages
+        overwhelmingly land on the domain root). A homepage whose own text shows a genuine
+        LSP-relevant signal must now pass through to scoring instead of being dropped here.
+        """
+        page = (
+            "We are an international humanitarian NGO working across 40 countries. "
+            "Our multilingual teams provide translation and interpretation support "
+            "for global health programmes."
+        )
+        self.assertFalse(is_generic_hub_page("https://global-health-ngo.example.org/", page))
+
     @override_settings(AI_SEARCH_REQUIRE_ACTIVE_BUYER=True, CRAWLER_GEO_MODE="global")
     def test_qualify_accepts_verified_portal_with_current_tender(self):
         page = (
@@ -522,6 +668,105 @@ class ActiveBuyerTests(TestCase):
             allow_gemini=False,
         )
         self.assertTrue(ok, reason)
+
+
+class ModeAwareThresholdAndTemplateTests(TestCase):
+    """
+    Regression tests for D1 (DISCOVERY_QUALITY_ANALYSIS.md): active-buyer mode and
+    general-prospect mode (the new default) must use distinct, independently
+    configurable score thresholds and query template sets.
+    """
+
+    def test_min_score_functions_differ_by_mode(self):
+        with self.settings(AI_SEARCH_MIN_SCORE=80, AI_SEARCH_GENERAL_MIN_SCORE=50):
+            self.assertEqual(ai_search_min_score(True), 80)
+            self.assertEqual(ai_search_min_score(False), 50)
+
+    def test_promote_min_score_functions_differ_by_mode(self):
+        with self.settings(AI_SEARCH_PROMOTE_MIN_SCORE=80, AI_SEARCH_GENERAL_PROMOTE_MIN_SCORE=50):
+            self.assertEqual(ai_search_promote_min_score(True), 80)
+            self.assertEqual(ai_search_promote_min_score(False), 50)
+
+    def test_general_prospect_templates_do_not_require_tender_language(self):
+        """
+        company_first_query_templates (active-buyer mode) is entirely tender/RFP-hunting.
+        general_prospect_query_templates must offer a wide variety of industries without
+        forcing tender/RFP phrasing into every query.
+        """
+        templates = general_prospect_query_templates(region="East Africa", seed="")
+        prospect_types = {t["expected_prospect_type"] for t in templates}
+        self.assertGreaterEqual(
+            len(prospect_types),
+            8,
+            "expected a wide variety of industries, not just NGOs",
+        )
+        self.assertIn("law_firm", prospect_types)
+        self.assertIn("hospital", prospect_types)
+        self.assertIn("diplomatic", prospect_types)
+        self.assertIn("financial", prospect_types)
+        # None of the general templates should hard-require a tender/RFP phrase —
+        # that would defeat the purpose of general (no-active-opportunity) prospecting.
+        for t in templates:
+            self.assertNotIn("request for proposal", t["query"].lower())
+            self.assertNotIn("inurl:tender", t["query"].lower())
+
+    def test_active_buyer_templates_are_still_tender_oriented(self):
+        """Sanity check that the pre-existing active-buyer templates are untouched."""
+        templates = company_first_query_templates(region="East Africa", seed="")
+        queries_text = " ".join(t["query"].lower() for t in templates)
+        self.assertIn("tender", queries_text)
+
+    def test_government_site_fragment_matches_selected_region_not_only_kenya(self):
+        """
+        Regression test for F6: the government-tender template used to hardcode
+        site:.go.ke regardless of the selected region. It must now resolve to the
+        requested country's own government TLD.
+        """
+        self.assertEqual(_government_site_fragment("Uganda"), "site:.go.ug")
+        self.assertEqual(_government_site_fragment("Kenya"), "site:.go.ke")
+        self.assertEqual(_government_site_fragment("Rwanda"), "site:.gov.rw")
+        # No specific country mentioned -> falls back to all East Africa gov TLDs.
+        fallback = _government_site_fragment("East Africa")
+        self.assertIn("site:.go.ke", fallback)
+        self.assertIn("site:.go.ug", fallback)
+
+    def test_company_first_templates_use_region_specific_government_site(self):
+        templates = company_first_query_templates(region="Uganda", seed="")
+        gov_template = next(t for t in templates if t["expected_prospect_type"] == "government" and "site:" in t["query"])
+        self.assertIn("site:.go.ug", gov_template["query"])
+        self.assertNotIn("site:.go.ke", gov_template["query"])
+
+
+class AutoDeriveCompetitorSignalsTests(TestCase):
+    """
+    Regression test for F9 (DISCOVERY_QUALITY_ANALYSIS.md): derive_competitor_signals()
+    computes prospect_org_types/prospect_signals (what a good prospect looks like for
+    this query) alongside competitor_keywords/competitor_org_types, but the post_save
+    signal only ever persisted the competitor half — the prospect half was silently
+    discarded on every new CrawlSource.
+    """
+
+    @patch("crawler.services.competitor_deriver.derive_competitor_signals")
+    @override_settings(GEMINI_API_KEY="test-key", CRAWLER_AUTO_DERIVE_COMPETITOR_SIGNALS=True)
+    def test_prospect_signals_are_persisted_alongside_competitor_signals(self, mock_derive):
+        from crawler.models import CrawlSource
+
+        mock_derive.return_value = {
+            "competitor_keywords": ["translation agency"],
+            "competitor_org_types": ["lsp"],
+            "prospect_org_types": ["law_firm", "hospital"],
+            "prospect_signals": ["multilingual patient information"],
+            "reasoning": "test",
+        }
+        source = CrawlSource.objects.create(
+            name="Test source",
+            discovery_query="hospital multilingual patient information",
+            source_type="search",
+        )
+        source.refresh_from_db()
+        self.assertEqual(source.competitor_org_types, ["lsp"])
+        self.assertEqual(source.prospect_org_types, ["law_firm", "hospital"])
+        self.assertEqual(source.prospect_signals, ["multilingual patient information"])
 
 
 class DiscoveryQualifyTests(TestCase):
@@ -873,6 +1118,121 @@ class CreateOrUpdateProspectOwnerScopingTests(TestCase):
         self.assertEqual(first.id, second.id)
 
 
+class CreateOrUpdateProspectAiSearchGuardTests(TestCase):
+    """
+    Regression test for DISCOVERY_QUALITY_ANALYSIS.md finding F4: create_or_update_prospect
+    used to unconditionally overwrite source_name/raw_payload on any matching existing
+    Prospect, including one already created via AI Search promotion — silently stripping
+    its reviewed evidence (why_needs_translation/evidence_snippet) the moment a much
+    weaker web-crawler-derived profile happened to match it by email/website/payload hash.
+    """
+
+    def test_does_not_overwrite_existing_ai_search_prospect(self):
+        user = User.objects.create_user(username="pp-aisearch", password="x")
+        ai_prospect = Prospect.objects.create(
+            owner=user,
+            source_name="ai_search",
+            email="buyer@example.org",
+            website="https://example.org",
+            company="Original AI Search Find",
+            event_name="Live tender: conference interpretation",
+            raw_payload={"why_needs_translation": "Live RFP for simultaneous interpretation"},
+        )
+        discovered = DiscoveredDomain.objects.create(domain="example.org")
+        profile = WebsiteProfile.objects.create(
+            domain=discovered,
+            org_name="Generic Rescore",
+            contact_emails=["buyer@example.org"],
+        )
+
+        prospect, created = create_or_update_prospect(profile, score=91, owner_id=user.id)
+
+        self.assertFalse(created)
+        self.assertEqual(prospect.id, ai_prospect.id)
+        prospect.refresh_from_db()
+        self.assertEqual(prospect.source_name, "ai_search")
+        self.assertEqual(prospect.company, "Original AI Search Find")
+        self.assertEqual(
+            prospect.raw_payload.get("why_needs_translation"),
+            "Live RFP for simultaneous interpretation",
+        )
+
+    def test_still_backfills_missing_contact_fields_on_ai_search_prospect(self):
+        user = User.objects.create_user(username="pp-aisearch2", password="x")
+        ai_prospect = Prospect.objects.create(
+            owner=user,
+            source_name="ai_search",
+            website="https://backfill.example.org",
+            company="AI Search Find",
+        )
+        discovered = DiscoveredDomain.objects.create(domain="backfill.example.org")
+        profile = WebsiteProfile.objects.create(
+            domain=discovered,
+            org_name="Generic Rescore",
+            contact_phones=["+254700000000"],
+        )
+
+        prospect, created = create_or_update_prospect(profile, score=91, owner_id=user.id)
+
+        self.assertFalse(created)
+        self.assertEqual(prospect.id, ai_prospect.id)
+        prospect.refresh_from_db()
+        self.assertEqual(prospect.source_name, "ai_search")
+        self.assertEqual(prospect.phone_e164, "+254700000000")
+
+
+class ScoreAndCreateProspectSkipsAiSearchDomainsTests(TestCase):
+    """
+    Regression tests for DISCOVERY_QUALITY_ANALYSIS.md finding F4: score_and_create_prospect_task
+    used to auto-create a Prospect for ANY domain scoring above threshold via the generic
+    crawler rubric — including domains AI Search had already discovered and evidence-reviewed —
+    producing an unowned, evidence-stripped duplicate. The general crawl still refreshes
+    WebsiteProfile/CrawlRunDomainResult for these domains (D3 option b); only the
+    auto-promote-to-Prospect step is skipped.
+    """
+
+    def _profile(self, domain_name: str, score: int = 90) -> WebsiteProfile:
+        discovered = DiscoveredDomain.objects.create(domain=domain_name)
+        return WebsiteProfile.objects.create(
+            domain=discovered,
+            org_name="Acme Org",
+            gemini_translation_need_score=score,
+        )
+
+    def test_skips_auto_create_when_domain_has_ai_search_result(self):
+        from crawler.tasks import score_and_create_prospect_task
+
+        profile = self._profile("ai-touched.example.org")
+        job = AISearchJob.objects.create(
+            owner=User.objects.create_user(username="aiuser", password="x"),
+            seed_topic="translation buyers",
+        )
+        AISearchResult.objects.create(
+            job=job, domain=profile.domain.domain, queued_domain=profile.domain
+        )
+        run = CrawlRun.objects.create(status=CrawlRunStatus.RUNNING, domains_queued=1)
+
+        result = score_and_create_prospect_task.apply(
+            kwargs={"domain_id": profile.domain.id, "run_id": run.id, "owner_id": None}
+        ).get()
+
+        self.assertFalse(result["created"])
+        self.assertEqual(Prospect.objects.count(), 0)
+
+    def test_still_auto_creates_for_domains_without_ai_search_result(self):
+        from crawler.tasks import score_and_create_prospect_task
+
+        profile = self._profile("never-touched.example.org")
+        run = CrawlRun.objects.create(status=CrawlRunStatus.RUNNING, domains_queued=1)
+
+        result = score_and_create_prospect_task.apply(
+            kwargs={"domain_id": profile.domain.id, "run_id": run.id, "owner_id": None}
+        ).get()
+
+        self.assertTrue(result["created"])
+        self.assertEqual(Prospect.objects.filter(source_name="web_crawler").count(), 1)
+
+
 class CrawlDomainFailureAndRetryTests(TestCase):
     """
     Regression tests for two related bugs in crawl_domain_task:
@@ -1025,6 +1385,34 @@ class CrawlDomainRateLimitConfigTests(TestCase):
         crawl_domain(self._domain(), max_pages=1, max_depth=0)
 
         mock_limiter_cls.assert_called_once_with(seconds=DEFAULT_DELAY_BETWEEN_REQUESTS_SECONDS)
+
+    @patch("crawler.crawler.extract_internal_links")
+    @patch("crawler.crawler._discover_seed_urls")
+    @patch("crawler.crawler.is_allowed_by_robots", return_value=True)
+    @patch("crawler.crawler.fetch_page")
+    def test_priority_paths_are_crawled_before_other_discovered_links(
+        self, mock_fetch, mock_robots, mock_seed_urls, mock_links
+    ):
+        """
+        Regression test for F9 (DISCOVERY_QUALITY_ANALYSIS.md): PRIORITY_PATHS was
+        defined but never referenced anywhere in the BFS, so within a limited
+        max_pages budget a large site could exhaust the budget on low-signal pages
+        before ever reaching a high-signal page like /services. Priority-path links
+        must now be explored before other discovered links.
+        """
+        mock_seed_urls.return_value = ["https://priority-test.example.com/"]
+        mock_fetch.return_value = ("<html><body>hi</body></html>", "hi")
+        mock_links.return_value = [
+            "https://priority-test.example.com/random-page-a",
+            "https://priority-test.example.com/random-page-b",
+            "https://priority-test.example.com/services",
+        ]
+
+        result = crawl_domain(self._domain(), max_pages=2, max_depth=1)
+
+        urls_crawled = [p["url"] for p in result["pages"]]
+        self.assertEqual(urls_crawled[0], "https://priority-test.example.com/")
+        self.assertEqual(urls_crawled[1], "https://priority-test.example.com/services")
 
     def test_get_crawler_config_reads_rate_and_page_limits_from_env(self):
         from crawler.tasks import _get_crawler_config

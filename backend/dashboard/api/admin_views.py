@@ -843,11 +843,13 @@ def admin_ai_search_jobs(request: Request) -> Response:
             )
         industry = (request.data.get("industry") or "").strip()[:200]
         region = (request.data.get("region") or "").strip()[:200]
+        require_active_buyer = bool(request.data.get("require_active_buyer", False))
         job = AISearchJob.objects.create(
             owner=owner,
             seed_topic=seed_topic[:500],
             industry=industry,
             region=region,
+            require_active_buyer=require_active_buyer,
             status="pending",
         )
         run_ai_search_job.delay(job.id)

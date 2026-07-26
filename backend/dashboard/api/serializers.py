@@ -96,6 +96,7 @@ class CrawlSourceSerializer(serializers.ModelSerializer):
             "source_type",
             "enabled",
             "priority",
+            "active_opportunities_only",
             "created_at",
         ]
 
@@ -266,6 +267,7 @@ class AISearchJobSerializer(serializers.ModelSerializer):
             "seed_topic",
             "industry",
             "region",
+            "require_active_buyer",
             "status",
             "error_text",
             "queries_generated",

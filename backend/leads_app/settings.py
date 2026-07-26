@@ -190,15 +190,30 @@ GEMINI_GROUNDED_MODEL = (
     _get_env("GEMINI_GROUNDED_MODEL", "gemini-2.5-flash") or "gemini-2.5-flash"
 ).strip()
 GEMINI_GROUNDED_MAX_REMOTE_CALLS = int(_get_env("GEMINI_GROUNDED_MAX_REMOTE_CALLS", "5") or "5")
+# Thresholds used in active-buyer (narrow, live-opportunity) mode — binary-ish scoring.
 AI_SEARCH_MIN_SCORE = int(_get_env("AI_SEARCH_MIN_SCORE", "80") or "80")
 AI_SEARCH_PROMOTE_MIN_SCORE = int(_get_env("AI_SEARCH_PROMOTE_MIN_SCORE", "80") or "80")
+# Thresholds used in general-prospect (default, broad) mode — graded 0-100 scoring, so a
+# lower bar is appropriate: these surface "plausibly a good fit" prospects, not just
+# candidates with a live tender/RFP right now.
+AI_SEARCH_GENERAL_MIN_SCORE = int(_get_env("AI_SEARCH_GENERAL_MIN_SCORE", "50") or "50")
+AI_SEARCH_GENERAL_PROMOTE_MIN_SCORE = int(_get_env("AI_SEARCH_GENERAL_PROMOTE_MIN_SCORE", "50") or "50")
 # When true (default), AI search jobs require GEMINI_API_KEY for page extraction.
 AI_SEARCH_REQUIRE_GEMINI = _get_bool("AI_SEARCH_REQUIRE_GEMINI", default=True)
-# Require active tender/RFP/event hiring on page (not institutional homepages).
-AI_SEARCH_REQUIRE_ACTIVE_BUYER = _get_bool("AI_SEARCH_REQUIRE_ACTIVE_BUYER", default=True)
-# Require active tender/RFP on crawled discovery hits (same rules as AI search).
-CRAWLER_REQUIRE_ACTIVE_BUYER = _get_bool("CRAWLER_REQUIRE_ACTIVE_BUYER", default=True)
+# Fallback default when a job/source doesn't specify its own mode (AISearchJob.require_active_buyer /
+# CrawlSource.active_opportunities_only). False = general prospecting (D1: default mode) — surface
+# organizations that plausibly need our services, not just ones with a live tender/RFP/hiring signal.
+AI_SEARCH_REQUIRE_ACTIVE_BUYER = _get_bool("AI_SEARCH_REQUIRE_ACTIVE_BUYER", default=False)
+CRAWLER_REQUIRE_ACTIVE_BUYER = _get_bool("CRAWLER_REQUIRE_ACTIVE_BUYER", default=False)
 AI_SEARCH_MAX_GEMINI_EXTRACTS = int(_get_env("AI_SEARCH_MAX_GEMINI_EXTRACTS", "12") or "12")
+# Per-user AI search job throttling — a single job triggers ~40+ real Gemini/Serper API
+# calls, so these bound concurrent and total daily spend per user (see _ai_search_rate_limit_error).
+AI_SEARCH_MAX_CONCURRENT_JOBS_PER_USER = int(
+    _get_env("AI_SEARCH_MAX_CONCURRENT_JOBS_PER_USER", "1") or "1"
+)
+AI_SEARCH_MAX_JOBS_PER_DAY_PER_USER = int(
+    _get_env("AI_SEARCH_MAX_JOBS_PER_DAY_PER_USER", "20") or "20"
+)
 
 
 # Application definition

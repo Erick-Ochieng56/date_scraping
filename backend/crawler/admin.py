@@ -61,8 +61,9 @@ class CrawlSourceAdmin(admin.ModelAdmin):
         "source_type",
         "enabled",
         "priority",
+        "active_opportunities_only",
     ]
-    list_filter = ["enabled", "source_type"]
+    list_filter = ["enabled", "source_type", "active_opportunities_only"]
     search_fields = ["name", "discovery_query"]
     fields = [
         "name",
@@ -71,8 +72,11 @@ class CrawlSourceAdmin(admin.ModelAdmin):
         "source_type",
         "enabled",
         "priority",
+        "active_opportunities_only",
         "competitor_keywords",
         "competitor_org_types",
+        "prospect_org_types",
+        "prospect_signals",
     ]
     actions = ["rederive_competitor_signals"]
 
@@ -84,8 +88,15 @@ class CrawlSourceAdmin(admin.ModelAdmin):
             signals = derive_competitor_signals(source.discovery_query)
             source.competitor_keywords = signals.get("competitor_keywords", [])
             source.competitor_org_types = signals.get("competitor_org_types", [])
+            source.prospect_org_types = signals.get("prospect_org_types", [])
+            source.prospect_signals = signals.get("prospect_signals", [])
             source.save(
-                update_fields=["competitor_keywords", "competitor_org_types"]
+                update_fields=[
+                    "competitor_keywords",
+                    "competitor_org_types",
+                    "prospect_org_types",
+                    "prospect_signals",
+                ]
             )
         self.message_user(
             request, f"Re-derived signals for {queryset.count()} sources."

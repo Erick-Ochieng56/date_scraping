@@ -10,7 +10,12 @@ from django.conf import settings
 from google.genai import types
 
 from crawler.services.gemini_client import generate_text
-from crawler.services.company_discovery import COMPANY_FIRST_GROUNDED_RULES, company_first_query_templates
+from crawler.services.company_discovery import (
+    COMPANY_FIRST_GROUNDED_RULES,
+    GENERAL_PROSPECT_GROUNDED_RULES,
+    company_first_query_templates,
+    general_prospect_query_templates,
+)
 from crawler.services.geo_filter import ai_geo_rules_block, resolve_region
 
 logger = logging.getLogger(__name__)
@@ -123,17 +128,39 @@ def _boost_queries_for_lsp(
     region: str,
     parsed: list[dict],
     count: int,
+    *,
+    require_active_buyer: bool = True,
 ) -> list[dict]:
     """
     Broad event-style seeds produce SERPs with directories and news, not buyer intent.
     Inject high-intent procurement / multilingual-event queries and ensure buyer signals.
+
+    In general-prospect mode (require_active_buyer=False), inject organizational-fit
+    queries instead (no tender/RFP requirement) and don't force a tender-hunting suffix
+    onto every query — that suffix actively works against finding general prospects.
     """
     seed = (seed_topic or "").strip()
     geo = resolve_region(region)
     ind = (industry or "").strip()
     ind_bit = f"{ind} " if ind else ""
 
-    inject: list[dict] = list(
+    if not require_active_buyer:
+        inject: list[dict] = list(
+            general_prospect_query_templates(region=geo, industry=industry, seed=seed)
+        )
+        merged = _dedupe_queries(inject + _normalize_query_items(parsed))
+        merged = _dedupe_queries(merged)
+        if not merged and seed:
+            merged = [
+                {
+                    "query": f"{geo} {seed}",
+                    "intent": "fallback general-prospect query",
+                    "expected_prospect_type": "unknown",
+                }
+            ]
+        return merged[:count]
+
+    inject = list(
         company_first_query_templates(region=geo, industry=industry, seed=seed)
     )
     if _is_broad_event_only_seed(seed):
@@ -216,25 +243,16 @@ def generate_search_queries(
     industry: str = "",
     region: str = "",
     count: int = 10,
+    *,
+    require_active_buyer: bool = True,
 ) -> list[dict]:
     model_name = getattr(settings, "GEMINI_ANALYSIS_MODEL", "gemini-2.5-flash")
     region = resolve_region(region)
     industry_line = f"Industry / sector focus: {industry}" if industry else ""
-    region_line = ai_geo_rules_block(region)
+    region_line = ai_geo_rules_block(region, seed_topic=seed_topic)
 
-    prompt = f"""
-{_LSP_SERVICE_CONTEXT}
-
-You generate Google search QUERY STRINGS for lead discovery.
-
-Seed topic or event phrase from the user: "{seed_topic}"
-{industry_line}
-{region_line}
-
-Generate {count} DISTINCT queries. Each query must help find BUYERS of language services,
-not directories of translation companies and not generic event calendars with no
-procurement angle.
-
+    if require_active_buyer:
+        mode_rules = """
 Critical rules:
 - NEVER output queries that only mention a year + "conference" / "summit" without also
   mentioning interpretation, translation, tender, RFP, procurement, multilingual,
@@ -247,13 +265,50 @@ Critical rules:
   universities, associations, chambers of commerce, corporates.
 - Target NAMED individual organizations — not event directories (Eventbrite, 10times, Cvent).
 - Add -eventbrite -10times -directory to queries when searching for company buyers.
+"""
+        goal_line = (
+            "Each query must help find BUYERS of language services with an ACTIVE, LIVE "
+            "opportunity (tender/RFP/hiring) — not directories of translation companies "
+            "and not generic event calendars with no procurement angle."
+        )
+    else:
+        mode_rules = """
+Critical rules:
+- Find organizations that PLAUSIBLY NEED translation/interpretation/localization on an
+  ongoing basis — international operations, multilingual staff or clients, cross-border
+  activity — even with no live tender, RFP, or hiring notice posted right now.
+- EXCLUDE queries optimized to find translation agencies (e.g. "top translation companies").
+- Mix a WIDE variety of organization types and industries: NGOs, law firms, hospitals/
+  healthcare, universities, multinational corporations, financial institutions, government
+  ministries, embassies/diplomatic missions, manufacturers/import-export/trade companies,
+  media organizations, faith-based/religious organizations, sports federations, conference
+  organizers and associations. Do not over-weight NGOs — they are one category among many.
+- Target NAMED individual organizations — not event directories (Eventbrite, 10times, Cvent).
+- Add -eventbrite -10times -directory to queries when searching for company prospects.
+"""
+        goal_line = (
+            "Each query must help find organizations that are a good FIT for our services "
+            "(by org type, international/multilingual operations) — not directories of "
+            "translation companies and not generic event calendars."
+        )
 
+    prompt = f"""
+{_LSP_SERVICE_CONTEXT}
+
+You generate Google search QUERY STRINGS for lead discovery.
+
+Seed topic or event phrase from the user: "{seed_topic}"
+{industry_line}
+{region_line}
+
+Generate {count} DISTINCT queries. {goal_line}
+{mode_rules}
 Return ONLY valid JSON array:
 [
     {{
         "query": "exact string for Google",
-        "intent": "why a real buyer might appear in results",
-        "expected_prospect_type": "short label e.g. event_organizer, ngo, ministry"
+        "intent": "why a real prospect might appear in results",
+        "expected_prospect_type": "short label e.g. event_organizer, ngo, law_firm, hospital"
     }}
 ]
 """
@@ -270,7 +325,9 @@ Return ONLY valid JSON array:
     except json.JSONDecodeError:
         data = []
 
-    boosted = _boost_queries_for_lsp(seed_topic, industry, region, data, count)
+    boosted = _boost_queries_for_lsp(
+        seed_topic, industry, region, data, count, require_active_buyer=require_active_buyer
+    )
     if not boosted:
         boosted = [
             {
@@ -286,6 +343,8 @@ def grounded_prospect_search(
     topic: str,
     region: str = "",
     max_results: int = 20,
+    *,
+    require_active_buyer: bool = True,
 ) -> list[dict]:
     """
     Gemini with Google Search grounding via ``google-genai`` (``GoogleSearch`` tool).
@@ -298,24 +357,43 @@ def grounded_prospect_search(
 
     today = date.today().isoformat()
     region = resolve_region(region)
-    region_line = ai_geo_rules_block(region)
+    region_line = ai_geo_rules_block(region, seed_topic=topic)
+    grounded_rules = COMPANY_FIRST_GROUNDED_RULES if require_active_buyer else GENERAL_PROSPECT_GROUNDED_RULES
+    recency_rules = (
+        f"""
+EXCLUDE past events (before {today}), event directories with no buyer signal, and
+organizations you cannot verify from search results.
+When the topic is event-related, only include events on or after {today} with evidence
+from a real page URL.
+"""
+        if require_active_buyer
+        else ""
+    )
+    prospect_bar = (
+        "likely BUYERS with an active, live need right now"
+        if require_active_buyer
+        else "a good FIT for our services (international/multilingual operations), "
+        "even with no live opportunity posted right now"
+    )
     prompt = f"""
 {_LSP_SERVICE_CONTEXT}
 
 Use web search to identify up to {max_results} REAL organizations (with real domains)
-that are likely BUYERS of translation, localization, conference interpretation,
+that are {prospect_bar} for translation, localization, conference interpretation,
 sign language interpreting, rapporteuring, copy-editing/publishing, or conference
 equipment — not language agencies.
 
 Topic / hook from the user: "{topic}"
 {region_line}
 
-{COMPANY_FIRST_GROUNDED_RULES}
+{grounded_rules}
 
-Prefer:
-- Conference organizers or venues publishing RFPs for interpretation or AV
-- NGOs and multilaterals with multilingual programmes or tender pages
-- Law firms, hospitals, government sites with cross-language needs
+Prefer a WIDE variety of organization types — not just NGOs:
+- Conference organizers or venues, NGOs and multilaterals with multilingual programmes
+- Law firms, hospitals, universities, government sites with cross-language needs
+- Multinational corporations, financial institutions, embassies/diplomatic missions
+- Manufacturers/importers/exporters, media organizations, faith-based organizations,
+  sports federations
 
 For each prospect return:
 - domain (root host only, e.g. example.com)
@@ -329,11 +407,7 @@ For each prospect return:
 - contact_email (if found, else "")
 
 EXCLUDE translation agencies, LSPs, freelance marketplaces for linguists only.
-EXCLUDE past events (before {today}), event directories with no buyer signal, and
-organizations you cannot verify from search results.
-When the topic is event-related, only include events on or after {today} with evidence
-from a real page URL.
-
+{recency_rules}
 Return ONLY a JSON array of objects.
 """
 

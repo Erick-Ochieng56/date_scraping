@@ -416,9 +416,10 @@ def crawler_discover_preview(request: Request) -> Response:
             status=status.HTTP_400_BAD_REQUEST,
         )
     max_results = _parse_discover_max_results(request.data.get("max_results"))
+    strict_active_buyer = bool(request.data.get("strict_active_buyer", False))
 
     hits = discover_websites(query, max_results=max_results)
-    kept, dropped = filter_discovery_hits(hits)
+    kept, dropped = filter_discovery_hits(hits, strict_active_buyer=strict_active_buyer)
 
     return Response(
         {
@@ -446,6 +447,7 @@ def crawler_discover_queue(request: Request) -> Response:
     query = (request.data.get("query") or "").strip()
     raw_urls = request.data.get("urls") or []
     auto_crawl = bool(request.data.get("auto_crawl"))
+    strict_active_buyer = bool(request.data.get("strict_active_buyer", False))
 
     if not isinstance(raw_urls, list):
         return Response(
@@ -458,7 +460,7 @@ def crawler_discover_queue(request: Request) -> Response:
     elif query:
         max_results = _parse_discover_max_results(request.data.get("max_results"))
         found = discover_websites(query, max_results=max_results)
-        hits, _dropped = filter_discovery_hits(found)
+        hits, _dropped = filter_discovery_hits(found, strict_active_buyer=strict_active_buyer)
     else:
         return Response(
             {"success": False, "error": "Provide urls or a query."},
@@ -959,11 +961,13 @@ def ai_search_jobs(request: Request) -> Response:
             )
         industry = (request.data.get("industry") or "").strip()[:200]
         region = (request.data.get("region") or "").strip()[:200]
+        require_active_buyer = bool(request.data.get("require_active_buyer", False))
         job = AISearchJob.objects.create(
             owner=request.user,
             seed_topic=seed_topic[:500],
             industry=industry,
             region=region,
+            require_active_buyer=require_active_buyer,
             status="pending",
         )
         run_ai_search_job.delay(job.id)

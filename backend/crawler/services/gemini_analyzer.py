@@ -126,22 +126,3 @@ def analyze_domain_safe(domain: str, page_texts: list[str], retries: int = 3) ->
                 }
             time.sleep(1)
     return {"translation_need_score": 0, "is_competitor": False}
-
-
-def score_label(score: int) -> str:
-    if score >= 80:
-        return "hot"
-    if score >= 60:
-        return "warm"
-    if score >= 40:
-        return "lukewarm"
-    return "cold"
-
-
-def gemini_label_to_bucket(label: str) -> str:
-    """Map warmth labels to CrawlRunDomainResult / prospect buckets."""
-    if label in ("hot", "warm"):
-        return "high"
-    if label == "lukewarm":
-        return "medium"
-    return "low"

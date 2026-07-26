@@ -7,7 +7,7 @@ def score_website(profile: WebsiteProfile) -> int:
     """
     Calculate translation lead score from WebsiteProfile.
     Returns integer 0-100.
-    Only call prospect_pipeline if score > 40.
+    Only call prospect_pipeline if score >= CRAWLER_MIN_SCORE_THRESHOLD (default 40).
     """
     score = 0
 

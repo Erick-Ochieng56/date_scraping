@@ -44,6 +44,7 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
       industry: '',
       region: 'Kenya Uganda Tanzania Rwanda Burundi South Sudan Ethiopia East Africa',
       delegateOwnerId: '',
+      requireActiveBuyer: false,
     },
   })
 
@@ -136,6 +137,7 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
           seed_topic: values.seedTopic.trim(),
           industry: values.industry?.trim() || undefined,
           region: values.region?.trim() || undefined,
+          require_active_buyer: values.requireActiveBuyer,
           ...(ownerId ? { owner_id: ownerId } : {}),
         })
       }
@@ -143,6 +145,7 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
         seed_topic: values.seedTopic.trim(),
         industry: values.industry?.trim() || undefined,
         region: values.region?.trim() || undefined,
+        require_active_buyer: values.requireActiveBuyer,
       })
     },
     onSuccess: (res) => {
@@ -248,7 +251,16 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
         header: 'Score',
         cell: ({ row }) => {
           const score = row.original.translation_need_score
-          if (score == null) return <span className="text-muted-foreground">—</span>
+          if (score == null) {
+            return (
+              <span
+                className="text-xs text-muted-foreground"
+                title="Not yet scored — the per-search Gemini scoring budget was reached before this result was reviewed. Re-run the search to score it, or check back after the run finishes."
+              >
+                Not scored
+              </span>
+            )
+          }
           const warm = score >= 80 ? 'text-green-700 dark:text-green-400' : score >= 60 ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'
           return <span className={`font-mono text-sm font-medium ${warm}`}>{score}</span>
         },
@@ -294,6 +306,12 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
           const url = row.original.source_url || `https://${row.original.domain}`
           const prospectId = row.original.promoted_prospect_id
           const canPromote = row.original.promotable !== false
+          const notScoredYet = row.original.translation_need_score == null
+          const promoteTitle = canPromote
+            ? 'Create prospect from this result'
+            : notScoredYet
+              ? 'Not yet scored — re-run the search to score this result before promoting'
+              : 'Score below the minimum for promotion'
           return (
             <div className="flex items-center gap-1">
               <Button variant="ghost" size="sm" asChild>
@@ -313,11 +331,7 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
                   size="sm"
                   disabled={promoteM.isPending || !canPromote}
                   onClick={() => promoteM.mutate(row.original.id)}
-                  title={
-                    canPromote
-                      ? 'Create prospect from this result'
-                      : 'Score below minimum for promotion (see server AI_SEARCH_PROMOTE_MIN_SCORE)'
-                  }
+                  title={promoteTitle}
                 >
                   <UserPlus className="mr-1 h-4 w-4" />
                   Promote
@@ -337,8 +351,8 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
         title="Find new leads"
         description={
           isAdmin
-            ? 'Describe the kind of organization you want; we search the web and score each result for lead quality (score ≥ 60) before saving it.'
-            : "Describe the kind of organization you're looking for — we search the web and keep only strong matches."
+            ? 'Describe the kind of organization you want; we search the web and score each result for fit before saving it.'
+            : "Describe the kind of organization you're looking for — we search the web and keep only good matches."
         }
         actions={
           <>
@@ -413,6 +427,21 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
                 />
               </FormField>
             </div>
+            <label htmlFor="require-active-buyer" className="flex items-start gap-2 text-sm text-foreground">
+              <input
+                id="require-active-buyer"
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 rounded border-border"
+                {...form.register('requireActiveBuyer')}
+              />
+              <span>
+                Only show active opportunities (live tender/RFP/hiring) right now
+                <span className="block text-xs text-muted-foreground">
+                  Off (default) surfaces any organization that's a good fit for our services, even with no live
+                  opportunity posted today.
+                </span>
+              </span>
+            </label>
             <Button type="submit" disabled={createM.isPending || !!jobInProgress}>
               {createM.isPending
                 ? 'Starting…'
@@ -473,6 +502,10 @@ export function AiSearchPage({ variant }: { variant: Variant }) {
               {selectedJob.error_text ? <p className="text-destructive">{selectedJob.error_text}</p> : null}
               <p>
                 <span className="text-muted-foreground">Domains discovered:</span> {selectedJob.domains_discovered}
+              </p>
+              <p>
+                <span className="text-muted-foreground">Mode:</span>{' '}
+                {selectedJob.require_active_buyer ? 'Active opportunities only' : 'General prospecting'}
               </p>
               {Array.isArray(selectedJob.queries_generated) && selectedJob.queries_generated.length > 0 ? (
                 <details className="mt-2">

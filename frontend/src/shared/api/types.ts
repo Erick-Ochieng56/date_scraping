@@ -53,6 +53,7 @@ export type AISearchJob = {
   seed_topic: string
   industry: string
   region: string
+  require_active_buyer: boolean
   status: string
   error_text: string
   queries_generated: unknown[]
@@ -114,6 +115,7 @@ export type CrawlSource = {
   source_type: string
   enabled: boolean
   priority: number
+  active_opportunities_only: boolean
   created_at: string
   owner_id?: number | null
 }

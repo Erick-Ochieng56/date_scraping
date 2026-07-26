@@ -18,6 +18,7 @@ from crawler.constants import (
     DEFAULT_MAX_CRAWL_DEPTH,
     DEFAULT_MAX_PAGES_PER_DOMAIN,
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    PRIORITY_PATHS,
 )
 from crawler.models import DiscoveredDomain
 from crawler.utils import RateLimiter, clean_text, make_soup, normalize_domain_url, normalize_url
@@ -215,6 +216,13 @@ def _discover_seed_urls(domain: str) -> list[str]:
     return out
 
 
+def _path_is_priority(url: str) -> bool:
+    """True when url's path matches one of PRIORITY_PATHS (about/services/events/etc.) —
+    used to explore these before other discovered links within the max_pages budget."""
+    path = urlparse(url).path.rstrip("/").lower() or "/"
+    return any(path == p or path.endswith(p) for p in PRIORITY_PATHS)
+
+
 def _looks_js_heavy(text: str, html: str) -> bool:
     # If we get almost no text but lots of scripts, assume JS rendering.
     if len((text or "").strip()) >= 250:
@@ -317,12 +325,20 @@ def crawl_domain(
         if depth >= max_depth:
             continue
 
-        # Extract more internal links; we will prioritize "priority paths" via seed URLs,
-        # but still explore additional discovered links.
+        # Explore newly discovered links, but jump PRIORITY_PATHS (about/services/events/
+        # contact/programmes) to the front of the queue so they're reached within the
+        # max_pages budget even on a large site, instead of being crowded out by whatever
+        # order links happen to appear on the page.
         try:
-            for link in extract_internal_links(base_url=url, html=html):
-                if link not in visited:
-                    queue.append((link, depth + 1))
+            new_links = [
+                link for link in extract_internal_links(base_url=url, html=html) if link not in visited
+            ]
+            priority_links = [link for link in new_links if _path_is_priority(link)]
+            normal_links = [link for link in new_links if not _path_is_priority(link)]
+            for link in reversed(priority_links):
+                queue.appendleft((link, depth + 1))
+            for link in normal_links:
+                queue.append((link, depth + 1))
         except Exception:
             continue
 

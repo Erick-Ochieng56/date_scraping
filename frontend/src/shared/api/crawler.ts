@@ -84,10 +84,15 @@ export async function triggerCrawlDomain(domainId: number) {
   return data
 }
 
-export async function crawlerPreview(query: string, max_results = 20): Promise<CrawlerPreviewResponse> {
+export async function crawlerPreview(
+  query: string,
+  max_results = 20,
+  strict_active_buyer = false
+): Promise<CrawlerPreviewResponse> {
   const { data } = await apiClient.post<CrawlerPreviewResponse>('/dashboard/api/v1/crawler/preview/', {
     query,
     max_results,
+    strict_active_buyer,
   })
   return data
 }
@@ -97,6 +102,7 @@ export async function crawlerQueue(payload: {
   max_results?: number
   auto_crawl?: boolean
   urls?: string[]
+  strict_active_buyer?: boolean
 }) {
   const { data } = await apiClient.post<{
     success: boolean
@@ -116,7 +122,12 @@ export async function listAiSearchJobs(params?: { page?: number; page_size?: num
   return data.data
 }
 
-export async function createAiSearchJob(payload: { seed_topic: string; industry?: string; region?: string }) {
+export async function createAiSearchJob(payload: {
+  seed_topic: string
+  industry?: string
+  region?: string
+  require_active_buyer?: boolean
+}) {
   const { data } = await apiClient.post<{ success: boolean; data: AISearchJob; error?: string }>(
     '/dashboard/api/v1/ai-search/jobs/',
     payload

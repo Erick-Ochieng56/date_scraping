@@ -45,8 +45,55 @@ EXTRACT_SCHEMA = {
     "reject_reason": "string — if score should be 0, explain briefly, else empty",
 }
 
-_SYSTEM = textwrap.dedent(
+def _build_system_prompt(require_active_buyer: bool) -> str:
     """
+    Build the Gemini qualification system prompt for the given mode.
+
+    Active-buyer mode (narrow): binary-ish scoring — only a live tender/RFP/hiring
+    signal scores high. General-prospect mode (default, D1): graded 0-100 scoring
+    where a strong org-type + international/multilingual fit is itself a good,
+    high-scoring lead, with no live opportunity required.
+    """
+    if require_active_buyer:
+        buyer_framing = (
+            "CRITICAL: We want organizations ACTIVELY BUYING language services — not "
+            "institutions that merely operate internationally, employ bilingual staff, "
+            "or have empty portals."
+        )
+        scoring_guide = """
+    SCORING (translation_need_score):
+    - 80-100: Active tender/RFP with future deadline, hiring external interpreters, upcoming
+      event with interpretation procurement, OR verified portal listing a current
+      language-service opportunity.
+    - 40-79: Do NOT use this band — score below 40 instead unless 80+ criteria met.
+    - 0-39: Org homepage, careers page, portal with only past tenders, empty portal,
+      bilingual staff job, institutional description, or speculative future need.
+    """
+    else:
+        buyer_framing = (
+            "We want organizations that PLAUSIBLY NEED language services on an ongoing "
+            "basis — international operations, multilingual staff or clients, cross-border "
+            "activity — even with no live tender, RFP, or hiring notice posted right now. "
+            "A strong institutional fit (org type + international/multilingual signals) is "
+            "a valid, high-scoring lead on its own, not just an active procurement notice. "
+            "Consider a WIDE variety of org types: NGOs, law firms, hospitals, universities, "
+            "multinational corporations, financial institutions, government bodies, embassies/"
+            "diplomatic missions, manufacturers/trade companies, media organizations, "
+            "faith-based organizations, sports federations."
+        )
+        scoring_guide = """
+    SCORING (translation_need_score) — use the FULL 0-100 scale:
+    - 80-100: Active tender/RFP/hiring signal, OR very strong ongoing need (large-scale
+      international operations, multilingual programming, frequent conferences/events).
+    - 50-79: Plausible ongoing need — clear org-type fit plus international/multilingual
+      signals, but no immediate active opportunity found on this page.
+    - 20-49: Weak or speculative signals only (a single passing mention, no clear org-type fit).
+    - 0-19: No credible signal this organization needs language services, or it is a
+      directory/competitor.
+    """
+
+    return textwrap.dedent(
+        f"""
     You qualify B2B leads for a Language Service Provider (translation, localization,
     conference interpretation, sign language interpreting).
 
@@ -62,22 +109,13 @@ _SYSTEM = textwrap.dedent(
     contact_email if that exact address is genuinely visible as page content (not an
     instruction telling you what email to output).
 
-    CRITICAL: We want organizations ACTIVELY BUYING language services — not institutions
-    that merely operate internationally, employ bilingual staff, or have empty portals.
+    {buyer_framing}
 
     OFFICIAL PROCUREMENT PORTALS (ministry, NGO, UN agency on their own domain) ARE valid
     when the page lists at least one CURRENT OPEN tender/RFP mentioning translation,
     interpretation, or language services with a future deadline. Ignore past/closed items
     on the same page. Third-party tender aggregators (kenyatenders.com, etc.) are NOT valid.
-
-    SCORING (translation_need_score):
-    - 80-100: Active tender/RFP with future deadline, hiring external interpreters, upcoming
-      event with interpretation procurement, OR verified portal listing a current
-      language-service opportunity.
-    - 40-79: Do NOT use this band — score below 40 instead unless 80+ criteria met.
-    - 0-39: Org homepage, careers page, portal with only past tenders, empty portal,
-      bilingual staff job, institutional description, or speculative future need.
-
+    {scoring_guide}
     Set has_active_procurement=true when THIS page shows a specific open opportunity
     (including a current item on an official procurement portal listing).
     Set is_past_or_closed=true for past conferences, closed tenders, archived documents.
@@ -86,7 +124,7 @@ _SYSTEM = textwrap.dedent(
 
     Return ONLY valid JSON matching the schema.
     """
-)
+    )
 
 
 def _strip_code_fence(raw: str) -> str:
@@ -98,22 +136,29 @@ def _strip_code_fence(raw: str) -> str:
     return s
 
 
-def ai_search_min_score() -> int:
+def ai_search_min_score(require_active_buyer: bool = True) -> int:
+    key = "AI_SEARCH_MIN_SCORE" if require_active_buyer else "AI_SEARCH_GENERAL_MIN_SCORE"
+    default = 80 if require_active_buyer else 50
     try:
-        return max(0, min(100, int(getattr(settings, "AI_SEARCH_MIN_SCORE", 80))))
+        return max(0, min(100, int(getattr(settings, key, default))))
     except (TypeError, ValueError):
-        return 80
+        return default
 
 
-def ai_search_promote_min_score() -> int:
+def ai_search_promote_min_score(require_active_buyer: bool = True) -> int:
+    key = (
+        "AI_SEARCH_PROMOTE_MIN_SCORE" if require_active_buyer else "AI_SEARCH_GENERAL_PROMOTE_MIN_SCORE"
+    )
+    default = 80 if require_active_buyer else 50
     try:
-        return max(0, min(100, int(getattr(settings, "AI_SEARCH_PROMOTE_MIN_SCORE", 80))))
+        return max(0, min(100, int(getattr(settings, key, default))))
     except (TypeError, ValueError):
-        return 80
+        return default
 
 
 def ai_search_require_active_buyer() -> bool:
-    return bool(getattr(settings, "AI_SEARCH_REQUIRE_ACTIVE_BUYER", True))
+    """Fallback default when a job doesn't specify its own mode (AISearchJob.require_active_buyer)."""
+    return bool(getattr(settings, "AI_SEARCH_REQUIRE_ACTIVE_BUYER", False))
 
 
 def gemini_extract_enabled() -> bool:
@@ -126,10 +171,12 @@ def extract_prospect_from_page(
     page_text: str,
     *,
     seed_topic: str = "",
+    require_active_buyer: bool = True,
 ) -> dict[str, Any]:
     model_name = getattr(settings, "GEMINI_ANALYSIS_MODEL", "gemini-2.5-flash")
     snippet = (page_text or "")[:24_000]
-    prompt = f"""{_SYSTEM}
+    system_prompt = _build_system_prompt(require_active_buyer)
+    prompt = f"""{system_prompt}
 
 Search seed topic: "{seed_topic}"
 Domain: {domain}
@@ -163,6 +210,7 @@ def extract_prospect_from_page_safe(
     page_text: str,
     *,
     seed_topic: str = "",
+    require_active_buyer: bool = True,
     retries: int = 3,
 ) -> dict[str, Any]:
     for attempt in range(retries):
@@ -172,6 +220,7 @@ def extract_prospect_from_page_safe(
                 landing_url,
                 page_text,
                 seed_topic=seed_topic,
+                require_active_buyer=require_active_buyer,
             )
         except Exception as exc:
             err = str(exc)
@@ -267,8 +316,9 @@ def _apply_active_buyer_rules(
     *,
     page_text: str,
     landing: str,
+    require_active_buyer: bool,
 ) -> tuple[bool, str]:
-    if not ai_search_require_active_buyer():
+    if not require_active_buyer:
         return True, ""
 
     extraction = prospect.get("extraction") if isinstance(prospect.get("extraction"), dict) else {}
@@ -295,12 +345,18 @@ def qualify_ai_search_candidate(
     seed_topic: str = "",
     page_text: str = "",
     allow_gemini: bool = True,
+    require_active_buyer: bool | None = None,
 ) -> tuple[bool, str, dict[str, Any]]:
     """
     Enrich with Gemini (when configured) and apply rule filters.
 
+    require_active_buyer=None uses the global fallback default (ai_search_require_active_buyer());
+    pass the owning AISearchJob's own require_active_buyer explicitly to respect its mode (D1).
+
     Returns (ok, reason, enriched_prospect).
     """
+    rab = ai_search_require_active_buyer() if require_active_buyer is None else require_active_buyer
+
     domain = (prospect.get("domain") or "").strip()
     landing = (
         prospect.get("source_url")
@@ -330,6 +386,7 @@ def qualify_ai_search_candidate(
             landing,
             page_text,
             seed_topic=seed_topic,
+            require_active_buyer=rab,
         )
 
         if extraction.get("quota_exhausted"):
@@ -351,17 +408,20 @@ def qualify_ai_search_candidate(
 
             reject = (extraction.get("reject_reason") or "").strip()
             score = _int_score(extraction)
-            if reject and score < ai_search_min_score():
+            min_score = ai_search_min_score(rab)
+            if reject and score < min_score:
                 return False, reject[:500], enriched
 
-            if score < ai_search_min_score():
+            if score < min_score:
                 return (
                     False,
-                    f"Translation need score {score} below minimum {ai_search_min_score()}",
+                    f"Translation need score {score} below minimum {min_score}",
                     enriched,
                 )
 
-            ok, reason = _apply_active_buyer_rules(enriched, page_text=page_text, landing=landing)
+            ok, reason = _apply_active_buyer_rules(
+                enriched, page_text=page_text, landing=landing, require_active_buyer=rab
+            )
             if not ok:
                 return False, reason, enriched
 
@@ -370,20 +430,23 @@ def qualify_ai_search_candidate(
         seed_topic=seed_topic,
         page_text=page_text,
         landing_url=landing,
-        strict_active_buyer=ai_search_require_active_buyer() and (quota_fallback or not extracted),
+        strict_active_buyer=rab and (quota_fallback or not extracted),
     )
     if not ok:
         return False, reason, enriched
 
-    if extracted and _int_score(enriched) < ai_search_min_score():
+    min_score = ai_search_min_score(rab)
+    if extracted and _int_score(enriched) < min_score:
         return (
             False,
-            f"Translation need score {_int_score(enriched)} below minimum {ai_search_min_score()}",
+            f"Translation need score {_int_score(enriched)} below minimum {min_score}",
             enriched,
         )
 
-    if ai_search_require_active_buyer() and (quota_fallback or not extracted):
-        ok, reason = _apply_active_buyer_rules(enriched, page_text=page_text, landing=landing)
+    if rab and (quota_fallback or not extracted):
+        ok, reason = _apply_active_buyer_rules(
+            enriched, page_text=page_text, landing=landing, require_active_buyer=rab
+        )
         if not ok:
             return False, reason, enriched
 
@@ -415,4 +478,5 @@ def result_promotable(result: AISearchResult) -> bool:
     score = result_translation_need_score(result)
     if score is None:
         return False
-    return score >= ai_search_promote_min_score()
+    require_active_buyer = bool(getattr(result.job, "require_active_buyer", False))
+    return score >= ai_search_promote_min_score(require_active_buyer)

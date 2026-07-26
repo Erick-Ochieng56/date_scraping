@@ -123,7 +123,7 @@ def discover_websites_serper(query: str, max_results: int = 20) -> list[Discover
         logger.debug("SERPER_API_KEY not set; skipping Serper discovery")
         return []
 
-    payload = {"q": q, "num": min(max_results, 100), **serper_geo_payload()}
+    payload = {"q": q, "num": min(max_results, 100), **serper_geo_payload(query=q)}
     headers = {
         "X-API-KEY": api_key,
         "Content-Type": "application/json",

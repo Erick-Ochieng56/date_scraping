@@ -164,6 +164,7 @@ def discover_websites_task(self, initiated_by_id: int | None = None) -> dict[str
                     hit,
                     source,
                     seed_topic=(source.discovery_query or ""),
+                    strict_active_buyer=bool(source.active_opportunities_only),
                 )
                 if not ok:
                     logger.info(
@@ -502,7 +503,18 @@ def score_and_create_prospect_task(
         updated = False
         services_counter = Counter(profile.detected_services or [])
 
-        if score > min_score:
+        # Domains AI Search already touched went through a separate, more rigorous
+        # review (active-buyer/date-aware Gemini scoring + evidence capture, then a
+        # human promote decision). This generic crawler rubric has none of that
+        # awareness, so letting it auto-create a Prospect here would silently
+        # produce an unowned, evidence-stripped duplicate — or, if a Prospect was
+        # already promoted from the AI Search side, race to downgrade it (see the
+        # matching guard in prospect_pipeline.create_or_update_prospect). The crawl
+        # itself still ran and WebsiteProfile/CrawlRunDomainResult above are already
+        # updated with fresh data; only the auto-promote step is skipped here.
+        has_ai_search_result = profile.domain.ai_search_results.exists()
+
+        if score >= min_score and not has_ai_search_result:
             prospect, is_created = create_or_update_prospect(profile, score, owner_id=owner_id)
             created = bool(is_created)
             updated = not created
@@ -512,6 +524,14 @@ def score_and_create_prospect_task(
                 profile.domain.domain,
                 label,
                 score,
+            )
+        elif score >= min_score and has_ai_search_result:
+            logger.info(
+                "Skipping auto-Prospect creation for %s (score=%s, %s): domain already has an "
+                "AI Search result — promote it from the AI Search review queue instead.",
+                profile.domain.domain,
+                score,
+                label,
             )
         else:
             created = False
@@ -658,10 +678,12 @@ def run_ai_search_job(job_id: int) -> dict[str, Any]:
             job.save(update_fields=["status", "error_text", "updated_at"])
             return {"job_id": job_id, "error": job.error_text}
 
+        require_active_buyer = bool(job.require_active_buyer)
         queries = generate_search_queries(
             seed_topic=job.seed_topic,
             industry=job.industry,
             region=job.region,
+            require_active_buyer=require_active_buyer,
         )
         job.queries_generated = queries
         job.status = "searching"
@@ -677,6 +699,7 @@ def run_ai_search_job(job_id: int) -> dict[str, Any]:
             prospects = grounded_prospect_search(
                 topic=job.seed_topic,
                 region=job.region,
+                require_active_buyer=require_active_buyer,
             )
 
         if not prospects and not use_serp_first:
@@ -720,6 +743,7 @@ def run_ai_search_job(job_id: int) -> dict[str, Any]:
                 seed_topic=job.seed_topic,
                 page_text=page_text,
                 allow_gemini=gemini_extracts_left > 0,
+                require_active_buyer=require_active_buyer,
             )
             if gemini_extracts_left > 0 and enriched.get("extraction"):
                 gemini_extracts_left -= 1

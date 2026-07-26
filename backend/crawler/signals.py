@@ -45,6 +45,8 @@ def auto_derive_competitor_signals(sender, instance: CrawlSource, created, **kwa
     CrawlSource.objects.filter(pk=instance.pk).update(
         competitor_keywords=signals.get("competitor_keywords", []),
         competitor_org_types=signals.get("competitor_org_types", []),
+        prospect_org_types=signals.get("prospect_org_types", []),
+        prospect_signals=signals.get("prospect_signals", []),
     )
 
 

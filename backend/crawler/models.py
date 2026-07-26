@@ -82,6 +82,24 @@ class CrawlSource(models.Model):
         blank=True,
         help_text="Org types to exclude e.g. ['translation_agency', 'lsp', 'localization_vendor']",
     )
+    prospect_org_types = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Auto-derived org types that look like a good prospect for this query e.g. ['law_firm', 'ngo', 'hospital']",
+    )
+    prospect_signals = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Auto-derived phrases indicating a site needs translation without being a translation company itself",
+    )
+    active_opportunities_only = models.BooleanField(
+        default=False,
+        help_text=(
+            "When true, only keep discovery hits with a live tender/RFP/hiring signal "
+            "(narrow). When false (default), general LSP-fit prospects are kept even "
+            "with no active opportunity posted right now."
+        ),
+    )
 
     class Meta:
         indexes = [
@@ -283,6 +301,14 @@ class AISearchJob(models.Model):
     seed_topic = models.CharField(max_length=500)
     industry = models.CharField(max_length=200, blank=True, default="")
     region = models.CharField(max_length=200, blank=True, default="")
+    require_active_buyer = models.BooleanField(
+        default=False,
+        help_text=(
+            "When true, only surface organizations with a live tender/RFP/hiring signal "
+            "(narrow, immediately-actionable). When false (default), general LSP-fit "
+            "prospects are surfaced even with no active opportunity right now."
+        ),
+    )
 
     status = models.CharField(
         max_length=20, choices=STATUS_CHOICES, default="pending"

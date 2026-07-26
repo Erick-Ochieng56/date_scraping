@@ -123,13 +123,23 @@ def text_mentions_foreign_primary(text: str) -> bool:
 
 def passes_geo_gate(*texts: str, domain: str = "") -> tuple[bool, str]:
     """
-    When strict East Africa mode is on, require an EA geographic signal.
+    When strict East Africa mode is on, require an EA geographic signal — unless the
+    candidate clearly signals a location-agnostic service need (D2: virtual
+    interpretation, document translation, localization, rapporteuring), which passes
+    globally since geography doesn't gate it. Physical-presence needs (simultaneous/
+    conference/liaison interpretation, sight translation, equipment) and candidates
+    with no clear service signal either way keep the existing strict East-Africa gate.
     """
     if not geo_strict_enabled():
         return True, ""
 
     combined = " ".join(t for t in texts if t).strip()
     dom = (domain or "").strip()
+
+    from crawler.services.service_scope import classify_service_scope, requires_strict_geo
+
+    if not requires_strict_geo(classify_service_scope(combined)):
+        return True, ""
 
     if domain_has_ea_tld(dom):
         return True, ""
@@ -146,15 +156,29 @@ def passes_geo_gate(*texts: str, domain: str = "") -> tuple[bool, str]:
     return False, "No East Africa geographic signal found."
 
 
-def serper_geo_payload() -> dict[str, str]:
-    """Serper location bias when strict geo mode is enabled."""
+def serper_geo_payload(query: str = "") -> dict[str, str]:
+    """
+    Serper location bias when strict geo mode is enabled — unless the query clearly
+    signals a virtual/location-agnostic service need (D2), in which case it searches
+    globally instead of being biased toward Kenya/East Africa.
+    """
     if not geo_strict_enabled():
         return {}
+    if query:
+        from crawler.services.service_scope import classify_service_scope, requires_strict_geo
+
+        if not requires_strict_geo(classify_service_scope(query)):
+            return {}
     return {"gl": "ke", "location": "East Africa,Kenya"}
 
 
-def ai_geo_rules_block(region: str) -> str:
-    """Prompt fragment for Gemini search generation / grounding."""
+def ai_geo_rules_block(region: str, *, seed_topic: str = "") -> str:
+    """
+    Prompt fragment for Gemini search generation / grounding. When the seed topic
+    clearly signals a virtual/location-agnostic service need (D2), the strict
+    East-Africa-only rule is relaxed to a priority (not exclusive) focus, since those
+    services are just as usable from anywhere in the world.
+    """
     focus = region or default_region()
     if not geo_strict_enabled():
         if focus:
@@ -164,7 +188,14 @@ def ai_geo_rules_block(region: str) -> str:
             "and multilateral institutions when relevant."
         )
 
-    return f"""Geographic focus (STRICT — East Africa only): {focus}
+    from crawler.services.service_scope import classify_service_scope, requires_strict_geo
+
+    if seed_topic and not requires_strict_geo(classify_service_scope(seed_topic)):
+        return f"""Geographic focus: {focus} is the priority market, but this need doesn't require
+physical presence (e.g. virtual interpretation, document translation, localization) —
+results from anywhere in the world are welcome, not just East Africa."""
+
+    return f"""Geographic focus (STRICT — East Africa only, especially Kenya): {focus}
 ONLY include organizations, events, and tenders with a clear location in East Africa
 (Kenya, Uganda, Tanzania, Rwanda, Burundi, South Sudan, Ethiopia, Eritrea, DRC when
 relevant to East Africa, and the East African Community).
@@ -174,9 +205,17 @@ tender or event location stated on the page is in East Africa."""
 
 
 def ensure_query_has_geo(query: str, region: str) -> str:
-    """Prepend regional tokens to discovery queries when missing in strict mode."""
+    """
+    Prepend regional tokens to discovery queries when missing in strict mode — unless
+    the query itself clearly signals a virtual/location-agnostic service need (D2), in
+    which case it's left unmodified so it can search globally, not just East Africa.
+    """
     q = (query or "").strip()
     if not q or not geo_strict_enabled():
+        return q
+    from crawler.services.service_scope import classify_service_scope, requires_strict_geo
+
+    if not requires_strict_geo(classify_service_scope(q)):
         return q
     if text_mentions_east_africa(q):
         return q

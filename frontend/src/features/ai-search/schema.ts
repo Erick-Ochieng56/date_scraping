@@ -5,6 +5,7 @@ export const aiSearchFormSchema = z.object({
   industry: z.string().optional(),
   region: z.string().optional(),
   delegateOwnerId: z.string().optional(),
+  requireActiveBuyer: z.boolean().optional(),
 })
 
 export type AiSearchFormValues = z.infer<typeof aiSearchFormSchema>

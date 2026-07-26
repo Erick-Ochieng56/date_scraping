@@ -216,6 +216,7 @@ export async function createAdminAiSearchJob(payload: {
   industry?: string
   region?: string
   owner_id?: number
+  require_active_buyer?: boolean
 }) {
   const { data } = await apiClient.post<{ success: boolean; data: AISearchJob; error?: string }>(
     '/dashboard/api/admin/v1/ai-search/jobs/',

@@ -67,6 +67,22 @@ def create_or_update_prospect(profile: WebsiteProfile, score: int, owner_id: int
         ).first()
 
         if existing:
+            if existing.source_name == "ai_search":
+                # This Prospect was reviewed and promoted through the AI Search
+                # pipeline, which carries evidence (why_needs_translation,
+                # evidence_snippet, buyer_signal_type) this rule/keyword-based
+                # rescoring can't reproduce. Never let a coincidental email/website/
+                # payload-hash match here overwrite that source_name or raw_payload
+                # — only backfill contact fields the AI Search payload didn't have.
+                if email and not existing.email:
+                    existing.email = email
+                if phone_e164 and not existing.phone_e164:
+                    existing.phone_e164 = phone_e164
+                    existing.phone_raw = existing.phone_raw or phone_e164
+                if email or phone_e164:
+                    existing.save()
+                return existing, False
+
             existing.source_name = "web_crawler"
             existing.source_url = website
             existing.company = profile.org_name or website
