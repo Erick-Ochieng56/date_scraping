@@ -4,18 +4,18 @@ import { useCallback, useMemo, useState } from 'react'
 import type { Paginated } from '@/shared/api/types'
 import { useDebouncedValue } from '@/shared/hooks/useDebouncedValue'
 
-type UseServerListOptions<T, F extends Record<string, unknown>> = {
+type UseServerListOptions<T, F extends Record<string, unknown>, R extends Paginated<T>> = {
   queryKey: readonly unknown[]
-  queryFn: (params: F & { page: number; page_size: number }) => Promise<Paginated<T>>
+  queryFn: (params: F & { page: number; page_size: number }) => Promise<R>
   pageSize?: number
   filters?: F
   search?: string
   searchDebounceMs?: number
   enabled?: boolean
-  refetchInterval?: number | false | ((query: Query<Paginated<T>, Error>) => number | false)
+  refetchInterval?: number | false | ((query: Query<R, Error>) => number | false)
 }
 
-export function useServerList<T, F extends Record<string, unknown> = Record<string, never>>({
+export function useServerList<T, F extends Record<string, unknown> = Record<string, never>, R extends Paginated<T> = Paginated<T>>({
   queryKey,
   queryFn,
   pageSize = 25,
@@ -24,7 +24,7 @@ export function useServerList<T, F extends Record<string, unknown> = Record<stri
   searchDebounceMs = 300,
   enabled = true,
   refetchInterval,
-}: UseServerListOptions<T, F>) {
+}: UseServerListOptions<T, F, R>) {
   const [page, setPage] = useState(1)
   const debouncedSearch = useDebouncedValue(search, searchDebounceMs)
 

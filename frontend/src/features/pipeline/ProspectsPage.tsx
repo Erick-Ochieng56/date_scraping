@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
+import { classifyProspectSource, SOURCE_META } from '@/features/pipeline/evidence'
 import { ProspectReviewFocus } from '@/features/pipeline/ProspectReviewFocus'
+import { cn } from '@/lib/utils'
 import { AlertBanner } from '@/shared/components/AlertBanner'
 import { DataTable } from '@/shared/components/DataTable'
 import { Input } from '@/shared/components/Input'
@@ -24,7 +26,7 @@ import {
   prospectsBulkReject,
   prospectsExportUrl,
 } from '@/shared/api/pipeline'
-import type { Prospect } from '@/shared/api/types'
+import type { PaginatedProspects, Prospect, ProspectSource } from '@/shared/api/types'
 import { useRowSelection } from '@/shared/hooks/useRowSelection'
 import { useServerList } from '@/shared/hooks/useServerList'
 
@@ -33,11 +35,19 @@ function fmtEventDate(v: string | null) {
   return new Date(v).toLocaleDateString()
 }
 
+const SOURCE_FILTERS: { value: ProspectSource | ''; label: string }[] = [
+  { value: '', label: 'All' },
+  { value: 'ai_search', label: 'AI search' },
+  { value: 'web_crawler', label: 'Web crawler' },
+  { value: 'site_check', label: 'Site checks' },
+]
+
 export function ProspectsPage() {
   const qc = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const [search, setSearch] = useState(searchParams.get('search') ?? '')
   const [status, setStatus] = useState(searchParams.get('status') ?? '')
+  const [source, setSource] = useState<ProspectSource | ''>((searchParams.get('source') as ProspectSource) || '')
   const [banner, setBanner] = useState<{ message?: string; error?: string }>({})
   const [focusOpen, setFocusOpen] = useState(false)
 
@@ -45,22 +55,27 @@ export function ProspectsPage() {
 
   const { items, total, page, pageSize, hasNext, goNext, goPrev, resetPage, query } = useServerList<
     Prospect,
-    { status?: string }
+    { status?: string; source?: ProspectSource },
+    PaginatedProspects
   >({
     queryKey: ['prospects'],
     queryFn: listProspects,
     pageSize: 25,
-    filters: status ? { status } : {},
+    filters: { ...(status ? { status } : {}), ...(source ? { source } : {}) },
     search,
   })
+
+  const sourceCounts = query.data?.source_counts
+  const sourceTotal = sourceCounts ? sourceCounts.ai_search + sourceCounts.web_crawler + sourceCounts.site_check : 0
 
   useEffect(() => {
     const params = new URLSearchParams()
     if (status) params.set('status', status)
+    if (source) params.set('source', source)
     if (search.trim()) params.set('search', search.trim())
     setSearchParams(params, { replace: true })
     resetPage()
-  }, [status, search, setSearchParams, resetPage])
+  }, [status, source, search, setSearchParams, resetPage])
 
   const refresh = () => {
     selection.clear()
@@ -158,6 +173,21 @@ export function ProspectsPage() {
         cell: ({ row }) => <StatusBadge status={row.original.status} kind="prospect" />,
       },
       {
+        id: 'source',
+        header: 'Found by',
+        cell: ({ row }) => {
+          const src = classifyProspectSource(row.original.source_name)
+          const meta = SOURCE_META[src]
+          return (
+            <span
+              className={cn('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold', meta.softClass, meta.textClass)}
+            >
+              {meta.label}
+            </span>
+          )
+        },
+      },
+      {
         id: 'actions',
         header: '',
         cell: ({ row }) => {
@@ -212,6 +242,30 @@ export function ProspectsPage() {
       />
 
       <AlertBanner message={banner.message} error={banner.error} />
+
+      <div className="flex flex-wrap gap-2">
+        {SOURCE_FILTERS.map((f) => {
+          const count = f.value === '' ? sourceTotal : (sourceCounts?.[f.value] ?? 0)
+          const isActive = source === f.value
+          return (
+            <button
+              key={f.value || 'all'}
+              type="button"
+              onClick={() => setSource(f.value)}
+              aria-pressed={isActive}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-semibold transition-colors',
+                isActive
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border bg-card text-muted-foreground hover:border-primary hover:text-primary'
+              )}
+            >
+              {f.label}
+              <span className={cn('tabular-nums', isActive ? 'opacity-80' : 'opacity-60')}>{count}</span>
+            </button>
+          )
+        })}
+      </div>
 
       <div className="flex flex-wrap gap-2">
         <Input

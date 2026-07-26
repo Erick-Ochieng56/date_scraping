@@ -25,7 +25,12 @@ class DashboardV1ApiTests(TestCase):
         group, _ = Group.objects.get_or_create(name=scraper_group_name())
         self.user.groups.add(group)
         self.client = APIClient()
-        self.client.force_authenticate(user=self.user)
+        # force_login (real session, via AuthenticationMiddleware) rather than
+        # force_authenticate: some endpoints in this class (wizard_views.py) are
+        # plain Django views, not DRF api_view-wrapped, and force_authenticate
+        # only patches DRF's request wrapper — it has no effect on those, so
+        # they'd see AnonymousUser and 401 instead of the real 403/200 checks.
+        self.client.force_login(self.user)
 
     def test_targets_list_requires_portal_access(self):
         ScrapeTarget.objects.create(name="T1", start_url="https://example.com", owner=self.user)
@@ -122,6 +127,7 @@ class DashboardV1ApiTests(TestCase):
             company="Acme",
             email="a@example.com",
             status=ProspectStatus.NEW,
+            owner=self.user,
         )
         resp = self.client.post(
             "/dashboard/api/v1/prospects/bulk/convert/",
@@ -135,7 +141,7 @@ class DashboardV1ApiTests(TestCase):
         self.assertTrue(Lead.objects.filter(prospect=prospect).exists())
 
     def test_lead_bulk_interested_transition(self):
-        lead = Lead.objects.create(company="B", status=LeadStatus.CONTACTED)
+        lead = Lead.objects.create(company="B", status=LeadStatus.CONTACTED, owner=self.user)
         resp = self.client.post(
             "/dashboard/api/v1/leads/bulk/interested/",
             {"lead_ids": [lead.id]},
@@ -174,6 +180,11 @@ class DashboardV1ApiTests(TestCase):
         self.assertFalse(data["success"])
 
     def test_wizard_create_target_name_conflict(self):
+        # The wizard is admin-only (staff_json_api_user checks is_staff, not the
+        # scraper group) — unlike self.user, which is a portal user by design
+        # (see test_wizard_create_target_rejects_portal_user above).
+        admin = get_user_model().objects.create_user(username="admin1", password="pass12345", is_staff=True)
+        self.client.force_login(admin)
         ScrapeTarget.objects.create(name="Taken", start_url="https://example.com/a", owner=self.user)
         resp = self.client.post(
             "/dashboard/wizard/create-target/",
@@ -204,6 +215,30 @@ class DashboardV1ApiTests(TestCase):
         detail_data = detail_resp.json()["data"]
         self.assertIn("raw_payload", detail_data)
         self.assertEqual(detail_data["raw_payload"]["translation_need_score"], 82)
+
+    def test_prospects_list_filters_by_source_and_reports_counts(self):
+        Prospect.objects.create(company="AI hit", source_name="ai_search", status="new", owner=self.user)
+        Prospect.objects.create(company="Crawler hit", source_name="web_crawler", status="new", owner=self.user)
+        Prospect.objects.create(company="Site check 1", source_name="Eventbrite Nairobi", status="new", owner=self.user)
+        Prospect.objects.create(company="Site check 2", source_name="Meetup Kampala", status="new", owner=self.user)
+
+        all_resp = self.client.get("/dashboard/api/v1/prospects/")
+        self.assertEqual(all_resp.status_code, 200)
+        all_data = all_resp.json()["data"]
+        self.assertEqual(all_data["total"], 4)
+        self.assertEqual(all_data["source_counts"], {"ai_search": 1, "web_crawler": 1, "site_check": 2})
+
+        site_resp = self.client.get("/dashboard/api/v1/prospects/?source=site_check")
+        self.assertEqual(site_resp.status_code, 200)
+        site_data = site_resp.json()["data"]
+        self.assertEqual(site_data["total"], 2)
+        self.assertEqual({item["company"] for item in site_data["items"]}, {"Site check 1", "Site check 2"})
+        # Counts stay keyed to the status/search filters, not the source pill itself.
+        self.assertEqual(site_data["source_counts"], {"ai_search": 1, "web_crawler": 1, "site_check": 2})
+
+        invalid_resp = self.client.get("/dashboard/api/v1/prospects/?source=not-a-real-source")
+        self.assertEqual(invalid_resp.status_code, 200)
+        self.assertEqual(invalid_resp.json()["data"]["total"], 4)
 
     def test_metrics_summary_reports_recent_contacted_count(self):
         now = timezone.now()

@@ -1,6 +1,6 @@
-import type { ProspectDetail } from '@/shared/api/types'
+import type { ProspectDetail, ProspectSource } from '@/shared/api/types'
 
-export type ProspectSource = 'ai_search' | 'web_crawler' | 'site_check'
+export type { ProspectSource }
 
 export function classifyProspectSource(sourceName: string): ProspectSource {
   if (sourceName === 'ai_search') return 'ai_search'

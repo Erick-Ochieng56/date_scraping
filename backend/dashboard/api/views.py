@@ -536,6 +536,9 @@ def _apply_search(qs, request: Request, fields: list[str]):
     return qs.filter(q)
 
 
+_PROSPECT_SOURCE_VALUES = {"ai_search", "web_crawler", "site_check"}
+
+
 @dashboard_api_view(["GET"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated, IsDashboardPortalUser])
@@ -545,7 +548,24 @@ def prospects_list(request: Request) -> Response:
     if status_filter:
         qs = qs.filter(status=status_filter)
     qs = _apply_search(qs, request, ["company", "event_name", "email", "website"])
-    return Response({"success": True, "data": _pagination(request, qs, ProspectSerializer)})
+
+    # Counts reflect the status/search filters above but not the source filter
+    # itself, so the filter pills can show "how many are in each source" for
+    # the current view rather than resetting every time you pick a pill.
+    # .order_by() clears the inherited "-created_at" ordering — otherwise
+    # Django folds it into the GROUP BY too and every group collapses to
+    # count=1 (one row per distinct timestamp) instead of per source.
+    source_counts = {"ai_search": 0, "web_crawler": 0, "site_check": 0}
+    for row in qs.order_by().annotate(src=_PROSPECT_SOURCE_BUCKET).values("src").annotate(count=Count("id")):
+        source_counts[row["src"]] = row["count"]
+
+    source_filter = request.query_params.get("source")
+    if source_filter in _PROSPECT_SOURCE_VALUES:
+        qs = qs.annotate(src=_PROSPECT_SOURCE_BUCKET).filter(src=source_filter)
+
+    data = _pagination(request, qs, ProspectSerializer)
+    data["source_counts"] = source_counts
+    return Response({"success": True, "data": data})
 
 
 @dashboard_api_view(["POST"])

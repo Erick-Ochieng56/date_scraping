@@ -192,8 +192,15 @@ export type ProspectDetail = Prospect & {
   raw_payload: Record<string, unknown>
 }
 
+export type ProspectSource = 'ai_search' | 'web_crawler' | 'site_check'
+
+export type PaginatedProspects = Paginated<Prospect> & {
+  source_counts: ProspectSourceBreakdown
+}
+
 export type Lead = {
   id: number
+  prospect_id: number | null
   full_name: string
   company: string
   email: string | null
@@ -201,7 +208,12 @@ export type Lead = {
   website: string
   event_name: string
   status: string
+  source_name: string
+  notes: string
   created_at: string
+  updated_at: string
+  contacted_at: string | null
+  rejected_at: string | null
 }
 
 export type MetricsSummary = {

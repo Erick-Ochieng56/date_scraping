@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
@@ -87,6 +87,45 @@ const RANGE_CAPTION: Record<MetricsGranularity, string> = {
   month: 'last 6 months',
 }
 
+const reducedMotion =
+  typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+/** Animates a stat tile's number counting up to `target` whenever it changes. */
+function useCountUp(target: number, durationMs = 600) {
+  const [value, setValue] = useState(target)
+  const prevTarget = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (reducedMotion || prevTarget.current === target) {
+      setValue(target)
+      prevTarget.current = target
+      return
+    }
+    const from = prevTarget.current ?? 0
+    prevTarget.current = target
+    const start = performance.now()
+    let frame: number
+    const tick = (now: number) => {
+      const progress = Math.min(1, (now - start) / durationMs)
+      const eased = 1 - Math.pow(1 - progress, 3)
+      setValue(Math.round(from + (target - from) * eased))
+      if (progress < 1) frame = requestAnimationFrame(tick)
+    }
+    frame = requestAnimationFrame(tick)
+    // Backgrounded/inactive tabs throttle or suspend rAF entirely — this
+    // guarantees the tile still lands on the correct value rather than
+    // appearing stuck mid-count if that happens.
+    const fallback = window.setTimeout(() => setValue(target), durationMs + 200)
+    return () => {
+      cancelAnimationFrame(frame)
+      window.clearTimeout(fallback)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target, durationMs])
+
+  return value
+}
+
 function Sparkline({ values, color }: { values: number[]; color: string }) {
   const width = 96
   const height = 30
@@ -148,6 +187,12 @@ export function StaffHomePage() {
   const weekBuckets = weeklyQ.data?.buckets ?? []
   const prospectsThisWeek = weekBuckets.reduce((sum, b) => sum + b.prospects_total, 0)
   const prospectsSparkline = weekBuckets.map((b) => b.prospects_total)
+  const contactedThisWeek = m?.prospects_contacted_recent ?? 0
+  const interestedLeads = m?.leads_interested ?? 0
+
+  const prospectsThisWeekAnimated = useCountUp(prospectsThisWeek)
+  const contactedThisWeekAnimated = useCountUp(contactedThisWeek)
+  const interestedLeadsAnimated = useCountUp(interestedLeads)
 
   const buckets = timeseriesQ.data?.buckets ?? []
 
@@ -205,22 +250,27 @@ export function StaffHomePage() {
       ) : null}
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <div className="flex items-end justify-between gap-3 rounded-xl border border-border bg-card p-4">
+        <div
+          className="review-card-enter flex items-end justify-between gap-3 rounded-xl border border-border bg-card p-4"
+          style={{ animationDelay: '0ms' }}
+        >
           <div>
             <p className="text-sm text-muted-foreground">New prospects this week</p>
-            <p className="text-[28px] font-semibold leading-tight tabular-nums text-foreground">{prospectsThisWeek}</p>
+            <p className="text-[28px] font-semibold leading-tight tabular-nums text-foreground">
+              {prospectsThisWeekAnimated}
+            </p>
           </div>
           {prospectsSparkline.some((v) => v > 0) ? <Sparkline values={prospectsSparkline} color="var(--chart-1)" /> : null}
         </div>
-        <div className="rounded-xl border border-border bg-card p-4">
+        <div className="review-card-enter rounded-xl border border-border bg-card p-4" style={{ animationDelay: '60ms' }}>
           <p className="text-sm text-muted-foreground">Contacted this week</p>
           <p className="text-[28px] font-semibold leading-tight tabular-nums text-foreground">
-            {m?.prospects_contacted_recent ?? 0}
+            {contactedThisWeekAnimated}
           </p>
         </div>
-        <div className="rounded-xl border border-border bg-card p-4">
+        <div className="review-card-enter rounded-xl border border-border bg-card p-4" style={{ animationDelay: '120ms' }}>
           <p className="text-sm text-muted-foreground">Interested leads</p>
-          <p className="text-[28px] font-semibold leading-tight tabular-nums text-foreground">{m?.leads_interested ?? 0}</p>
+          <p className="text-[28px] font-semibold leading-tight tabular-nums text-foreground">{interestedLeadsAnimated}</p>
         </div>
       </div>
 
