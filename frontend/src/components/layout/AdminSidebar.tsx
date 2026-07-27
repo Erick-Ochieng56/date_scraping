@@ -1,4 +1,4 @@
-import { LogOut } from 'lucide-react'
+import { LogOut, User } from 'lucide-react'
 import { NavLink, useNavigate } from 'react-router-dom'
 
 import { ADMIN_NAV_SECTIONS } from '@/app/adminNavigation'
@@ -61,15 +61,25 @@ export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
 
       <div className="space-y-0.5 border-t border-sidebar-border pt-3">
         {me && me.authenticated ? (
-          <NavLink
-            to="/admin/profile"
-            onClick={onNavigate}
-            className="mb-2 block truncate rounded-md px-2 py-1 text-xs text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            title={me.username}
-          >
+          <p className="mb-2 truncate px-2 text-xs text-sidebar-foreground/80" title={me.username}>
             Signed in as <span className="font-medium">{me.username}</span>
-          </NavLink>
+          </p>
         ) : null}
+        <NavLink
+          to="/admin/profile"
+          onClick={onNavigate}
+          className={({ isActive }) =>
+            cn(
+              'flex items-center gap-2 rounded-md px-2 py-2 text-sm font-medium transition-colors',
+              isActive
+                ? 'bg-sidebar-primary text-sidebar-primary-foreground'
+                : 'text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+            )
+          }
+        >
+          <User className="size-4 shrink-0 opacity-90" aria-hidden />
+          My profile
+        </NavLink>
         <ThemeToggle />
         <Button
           type="button"

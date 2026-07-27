@@ -6,6 +6,7 @@ import { LoginLoadingFallback } from '@/components/LoginLoadingFallback'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/AuthContext'
 import { loginErrorMessage, fetchMe } from '@/lib/api/auth'
+import { ThemeToggle } from '@/shared/components/ThemeToggle'
 
 export function LoginPage() {
   const { me, isLoading, login } = useAuth()
@@ -45,7 +46,10 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
+    <div className="relative flex min-h-screen flex-col items-center justify-center bg-background px-4">
+      <div className="absolute right-4 top-4">
+        <ThemeToggle className="w-auto text-foreground hover:bg-accent hover:text-accent-foreground" />
+      </div>
       <div className="w-full max-w-sm space-y-6 rounded-xl border border-border bg-card p-8 shadow-sm">
         <div className="text-center">
           <h1 className="text-xl font-semibold text-foreground">Ateric Leads</h1>
