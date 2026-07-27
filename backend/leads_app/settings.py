@@ -195,7 +195,10 @@ GEMINI_GROUNDED_MAX_REMOTE_CALLS = int(_get_env("GEMINI_GROUNDED_MAX_REMOTE_CALL
 # with no pacing, which exhausts Gemini's per-minute request quota within the first
 # few candidates and forces the rest onto the weaker rules-only fallback — this
 # happens even with a billed API key, just at a higher (but still finite) RPM.
-GEMINI_MIN_SECONDS_BETWEEN_CALLS = float(_get_env("GEMINI_MIN_SECONDS_BETWEEN_CALLS", "6.5") or "6.5")
+# 0.5s = ~120 calls/min from this app alone, comfortably under Tier 1's ~1,000 RPM
+# for gemini-2.5-flash (still leaves headroom for TPM limits and job concurrency).
+# Lower further if a higher tier is confirmed; raise back toward 6+ if 429s return.
+GEMINI_MIN_SECONDS_BETWEEN_CALLS = float(_get_env("GEMINI_MIN_SECONDS_BETWEEN_CALLS", "0.5") or "0.5")
 # Thresholds used in active-buyer (narrow, live-opportunity) mode — binary-ish scoring.
 AI_SEARCH_MIN_SCORE = int(_get_env("AI_SEARCH_MIN_SCORE", "80") or "80")
 AI_SEARCH_PROMOTE_MIN_SCORE = int(_get_env("AI_SEARCH_PROMOTE_MIN_SCORE", "80") or "80")
@@ -211,7 +214,15 @@ AI_SEARCH_REQUIRE_GEMINI = _get_bool("AI_SEARCH_REQUIRE_GEMINI", default=True)
 # organizations that plausibly need our services, not just ones with a live tender/RFP/hiring signal.
 AI_SEARCH_REQUIRE_ACTIVE_BUYER = _get_bool("AI_SEARCH_REQUIRE_ACTIVE_BUYER", default=False)
 CRAWLER_REQUIRE_ACTIVE_BUYER = _get_bool("CRAWLER_REQUIRE_ACTIVE_BUYER", default=False)
-AI_SEARCH_MAX_GEMINI_EXTRACTS = int(_get_env("AI_SEARCH_MAX_GEMINI_EXTRACTS", "12") or "12")
+# Per-job cap on Gemini page-extraction calls — the single biggest cost lever in the
+# pipeline (each call processes a full page of text, the heaviest token cost of any
+# call type here). A job considers up to 35 candidates (see run_ai_search_job); this
+# cost/quality balance point covers most jobs' candidates while capping worst-case
+# spend well below scoring all 35. Candidates beyond the budget fall back to
+# rules-only qualification — no longer the crude fallback it once was (see the geo/
+# active-buyer/competitor-filter fixes in DISCOVERY_QUALITY_ANALYSIS.md), just less
+# nuanced than full Gemini scoring.
+AI_SEARCH_MAX_GEMINI_EXTRACTS = int(_get_env("AI_SEARCH_MAX_GEMINI_EXTRACTS", "20") or "20")
 # Per-user AI search job throttling — a single job triggers ~40+ real Gemini/Serper API
 # calls, so these bound concurrent and total daily spend per user (see _ai_search_rate_limit_error).
 AI_SEARCH_MAX_CONCURRENT_JOBS_PER_USER = int(
