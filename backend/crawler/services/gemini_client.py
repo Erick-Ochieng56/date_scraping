@@ -7,6 +7,8 @@ Replaces deprecated ``google.generativeai`` / ``google-generativeai``.
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from functools import lru_cache
 from typing import Any
 
@@ -29,6 +31,40 @@ def get_genai_client():
     return _cached_client(key)
 
 
+_throttle_lock = threading.Lock()
+_last_call_at = 0.0
+
+
+def _min_seconds_between_calls() -> float:
+    try:
+        return max(0.0, float(getattr(settings, "GEMINI_MIN_SECONDS_BETWEEN_CALLS", 6.5)))
+    except (TypeError, ValueError):
+        return 6.5
+
+
+def _throttle_gemini_call() -> None:
+    """
+    Enforce a minimum interval between successive Gemini calls, process-wide.
+
+    Gemini's per-minute request quota applies whether the API key is free-tier or
+    billed — a billed key just has a higher (still finite) limit. Without pacing,
+    a job fires one call per candidate as fast as pages are fetched (query
+    generation, grounded search, page extraction, competitor-signal derivation all
+    share this one chokepoint), blowing through that quota within the first few
+    candidates and forcing everything after onto the weaker rules-only fallback.
+    """
+    global _last_call_at
+    interval = _min_seconds_between_calls()
+    if interval <= 0:
+        return
+    with _throttle_lock:
+        now = time.monotonic()
+        wait = _last_call_at + interval - now
+        if wait > 0:
+            time.sleep(wait)
+        _last_call_at = time.monotonic()
+
+
 def generate_text(
     *,
     model: str,
@@ -45,6 +81,7 @@ def generate_text(
     from google.genai import types
 
     client = get_genai_client()
+    _throttle_gemini_call()
     if tools:
         max_calls = maximum_remote_calls
         if max_calls is None:

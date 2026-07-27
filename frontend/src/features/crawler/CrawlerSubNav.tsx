@@ -6,7 +6,6 @@ const ITEMS = [
   { to: '/crawler/discover', label: 'Discover' },
   { to: '/crawler/domains', label: 'Domains' },
   { to: '/crawler/runs', label: 'Runs' },
-  { to: '/find-leads', label: 'Find new leads' },
 ] as const
 
 export function CrawlerSubNav() {

@@ -16,7 +16,10 @@ from django.conf import settings
 
 from crawler.models import AISearchResult
 from crawler.services.active_buyer import (
+    _homepage_shows_lsp_relevance,
+    _mentions_language_opportunity,
     best_portal_opportunity_snippet,
+    is_buyer_procurement_context,
     is_procurement_portal_url,
     passes_active_buyer_gate,
     preflight_candidate_page,
@@ -434,6 +437,36 @@ def qualify_ai_search_candidate(
     )
     if not ok:
         return False, reason, enriched
+
+    if not extracted:
+        # No Gemini score/reasoning exists for this candidate (quota exhausted, API
+        # unavailable, or budget already spent). In active-buyer mode the block below
+        # still requires a language-service tender/RFP signal — but in general-prospect
+        # mode (require_active_buyer=False) that block never runs at all, and the score
+        # check just above is skipped too (extracted=False), leaving NOTHING requiring
+        # any connection to language services. A real false positive: pfizer.com's
+        # hospital-equipment grants page passed through with no score ("Not scored")
+        # purely because it matched a search template's rules-only path. This is a
+        # universal floor, checked regardless of mode:
+        #  - a page presenting itself as a specific procurement/grant/tender opportunity
+        #    must specifically be about language services, not just "some opportunity"
+        #    (mirrors the has_active_buyer_signal fix for the same bug);
+        #  - any other page falls back to the broader general-prospecting org/service/
+        #    international-signal check.
+        if is_buyer_procurement_context(page_text):
+            if not _mentions_language_opportunity(page_text):
+                return (
+                    False,
+                    "Active tender/RFP/procurement found, but it is not about translation, "
+                    "interpretation, or language services.",
+                    enriched,
+                )
+        elif not _homepage_shows_lsp_relevance(page_text):
+            return (
+                False,
+                "No language-service or LSP-relevant signal found on page (Gemini scoring unavailable).",
+                enriched,
+            )
 
     min_score = ai_search_min_score(rab)
     if extracted and _int_score(enriched) < min_score:

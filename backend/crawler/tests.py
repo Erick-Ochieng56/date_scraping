@@ -63,6 +63,46 @@ from leads.models import Prospect
 User = get_user_model()
 
 
+class GeminiThrottleTests(TestCase):
+    """
+    Regression tests for the Gemini call-pacing fix: generate_text() used to fire
+    every call (query generation, grounded search, page extraction, competitor-signal
+    derivation) with zero pacing, exhausting the per-minute request quota within the
+    first few candidates of a job and forcing everything after onto the weaker
+    rules-only fallback — even with a billed API key, since paid tiers still have a
+    (higher, but finite) per-minute limit.
+    """
+
+    def setUp(self):
+        from crawler.services import gemini_client
+
+        self.gemini_client = gemini_client
+        gemini_client._last_call_at = 0.0
+
+    @override_settings(GEMINI_MIN_SECONDS_BETWEEN_CALLS=5.0)
+    def test_first_call_does_not_wait(self):
+        with patch.object(self.gemini_client.time, "sleep") as mock_sleep:
+            self.gemini_client._throttle_gemini_call()
+        mock_sleep.assert_not_called()
+
+    @override_settings(GEMINI_MIN_SECONDS_BETWEEN_CALLS=5.0)
+    def test_second_call_waits_remaining_interval(self):
+        self.gemini_client._throttle_gemini_call()
+        with patch.object(self.gemini_client.time, "sleep") as mock_sleep:
+            self.gemini_client._throttle_gemini_call()
+        mock_sleep.assert_called_once()
+        waited = mock_sleep.call_args[0][0]
+        self.assertGreater(waited, 0)
+        self.assertLessEqual(waited, 5.0)
+
+    @override_settings(GEMINI_MIN_SECONDS_BETWEEN_CALLS=0)
+    def test_throttle_disabled_when_interval_is_zero(self):
+        self.gemini_client._throttle_gemini_call()
+        with patch.object(self.gemini_client.time, "sleep") as mock_sleep:
+            self.gemini_client._throttle_gemini_call()
+        mock_sleep.assert_not_called()
+
+
 class CompetitorFilterTests(TestCase):
     def test_flags_lsp_seller_page(self):
         text = (
@@ -540,6 +580,41 @@ class AiPageExtractTests(TestCase):
             require_active_buyer=False,
         )
         self.assertTrue(ok, reason)
+
+    @override_settings(CRAWLER_GEO_MODE="global")
+    def test_qualify_rejects_unrelated_grant_in_general_mode_without_gemini(self):
+        """
+        Regression test for a real production false positive: pfizer.com's
+        competitive-grants page (about hospital equipment, unrelated to language
+        services) reached the results table with no score at all ("Not scored") in
+        general-prospect mode once Gemini quota was exhausted for that candidate.
+        CRAWLER_GEO_MODE=global isolates this from the (separate, already-passing)
+        geo gate so it exercises only the language-relevance floor being tested here.
+
+        Root cause: when not extracted, the score check is skipped (gated on
+        `extracted`) and the active-buyer language check is skipped too (gated on
+        `rab`, which is False in general mode) — nothing required any language-service
+        connection. qualify_ai_search_candidate must reject this regardless of mode.
+        """
+        page = (
+            "Pfizer Competitive Grants Program: request for proposals for hospital "
+            "equipment upgrades supporting patient care. Closing date: 30 September 2026. "
+            "Submit your grant proposal describing the medical equipment needed."
+        )
+        ok, reason, enriched = qualify_ai_search_candidate(
+            {
+                "domain": "pfizer.com",
+                "source_url": "https://www.pfizer.com/about/programs-policies/grants/competitive-grants",
+                "org_type": "hospital",
+                "why_needs_translation": "Healthcare translation procurement",
+            },
+            seed_topic="hospital patient information translation",
+            page_text=page,
+            allow_gemini=False,
+            require_active_buyer=False,
+        )
+        self.assertFalse(ok, reason)
+        self.assertIsNone(enriched.get("translation_need_score"))
 
     def test_result_promotable_respects_score(self):
         user = User.objects.create_user(username="scoreuser", password="x")

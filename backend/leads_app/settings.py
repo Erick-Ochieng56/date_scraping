@@ -190,6 +190,12 @@ GEMINI_GROUNDED_MODEL = (
     _get_env("GEMINI_GROUNDED_MODEL", "gemini-2.5-flash") or "gemini-2.5-flash"
 ).strip()
 GEMINI_GROUNDED_MAX_REMOTE_CALLS = int(_get_env("GEMINI_GROUNDED_MAX_REMOTE_CALLS", "5") or "5")
+# Minimum seconds between successive Gemini calls, enforced process-wide in
+# gemini_client.py. Without this, a job fires one call per candidate back-to-back
+# with no pacing, which exhausts Gemini's per-minute request quota within the first
+# few candidates and forces the rest onto the weaker rules-only fallback — this
+# happens even with a billed API key, just at a higher (but still finite) RPM.
+GEMINI_MIN_SECONDS_BETWEEN_CALLS = float(_get_env("GEMINI_MIN_SECONDS_BETWEEN_CALLS", "6.5") or "6.5")
 # Thresholds used in active-buyer (narrow, live-opportunity) mode — binary-ish scoring.
 AI_SEARCH_MIN_SCORE = int(_get_env("AI_SEARCH_MIN_SCORE", "80") or "80")
 AI_SEARCH_PROMOTE_MIN_SCORE = int(_get_env("AI_SEARCH_PROMOTE_MIN_SCORE", "80") or "80")
