@@ -29,7 +29,9 @@ def _strip_code_fence(raw: str) -> str:
 
 
 def derive_competitor_signals(discovery_query: str) -> dict:
-    model_name = getattr(settings, "GEMINI_ANALYSIS_MODEL", "gemini-2.5-flash")
+    # Templated keyword derivation from a search query, not subject-matter/date
+    # judgment — the cheaper Lite model is appropriate here (see GEMINI_LITE_MODEL).
+    model_name = getattr(settings, "GEMINI_LITE_MODEL", "gemini-2.5-flash-lite")
     prompt = f"""
 You are helping configure a lead generation crawler for a Language Service Provider (LSP).
 

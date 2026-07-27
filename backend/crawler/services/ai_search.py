@@ -246,7 +246,9 @@ def generate_search_queries(
     *,
     require_active_buyer: bool = True,
 ) -> list[dict]:
-    model_name = getattr(settings, "GEMINI_ANALYSIS_MODEL", "gemini-2.5-flash")
+    # Templated query-string generation, not subject-matter/date judgment — the
+    # cheaper Lite model is appropriate here (see GEMINI_LITE_MODEL in settings.py).
+    model_name = getattr(settings, "GEMINI_LITE_MODEL", "gemini-2.5-flash-lite")
     region = resolve_region(region)
     industry_line = f"Industry / sector focus: {industry}" if industry else ""
     region_line = ai_geo_rules_block(region, seed_topic=seed_topic)

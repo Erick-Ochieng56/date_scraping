@@ -183,11 +183,22 @@ ENVIRONMENT = _get_env("DJANGO_ENV", "development" if DEBUG else "production")
 
 # Google Gemini (optional — crawler AI enrichment / AI search jobs)
 GEMINI_API_KEY = (_get_env("GEMINI_API_KEY", "") or "").strip()
+# Used for judgment-critical calls: page extraction/qualification (ai_page_extract.py),
+# event/date extraction (event_analyzer.py), domain scoring (gemini_analyzer.py) — a
+# wrong answer here directly becomes a bad prospect or a stale lead slipping through.
 GEMINI_ANALYSIS_MODEL = (
     _get_env("GEMINI_ANALYSIS_MODEL", "gemini-2.5-flash") or "gemini-2.5-flash"
 ).strip()
 GEMINI_GROUNDED_MODEL = (
     _get_env("GEMINI_GROUNDED_MODEL", "gemini-2.5-flash") or "gemini-2.5-flash"
+).strip()
+# Cheaper/faster model for mechanical, low-stakes calls: search query generation
+# (ai_search.py::generate_search_queries) and competitor-keyword derivation
+# (competitor_deriver.py) — templated text production, not the nuanced subject-matter/
+# date judgment GEMINI_ANALYSIS_MODEL is reserved for. Cost lever; not used for
+# anything that scores or dates a candidate.
+GEMINI_LITE_MODEL = (
+    _get_env("GEMINI_LITE_MODEL", "gemini-2.5-flash-lite") or "gemini-2.5-flash-lite"
 ).strip()
 GEMINI_GROUNDED_MAX_REMOTE_CALLS = int(_get_env("GEMINI_GROUNDED_MAX_REMOTE_CALLS", "5") or "5")
 # Minimum seconds between successive Gemini calls, enforced process-wide in

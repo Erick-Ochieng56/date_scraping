@@ -103,6 +103,53 @@ class GeminiThrottleTests(TestCase):
         mock_sleep.assert_not_called()
 
 
+class GeminiModelSplitTests(TestCase):
+    """
+    Regression tests locking in the cost-driven model split: mechanical/templated
+    calls (search query generation, competitor-signal derivation) use the cheaper
+    GEMINI_LITE_MODEL; judgment-critical calls (page extraction/date parsing, where a
+    wrong answer becomes a bad prospect or a stale lead) stay on GEMINI_ANALYSIS_MODEL.
+    """
+
+    @patch("crawler.services.ai_search.generate_text")
+    @override_settings(GEMINI_LITE_MODEL="test-lite-model", GEMINI_ANALYSIS_MODEL="test-flash-model")
+    def test_generate_search_queries_uses_lite_model(self, mock_generate):
+        from crawler.services.ai_search import generate_search_queries
+
+        mock_generate.return_value = "[]"
+        generate_search_queries(seed_topic="translation conference", region="Kenya")
+
+        mock_generate.assert_called()
+        self.assertEqual(mock_generate.call_args.kwargs.get("model"), "test-lite-model")
+
+    @patch("crawler.services.competitor_deriver.generate_text")
+    @override_settings(GEMINI_LITE_MODEL="test-lite-model", GEMINI_ANALYSIS_MODEL="test-flash-model")
+    def test_derive_competitor_signals_uses_lite_model(self, mock_generate):
+        from crawler.services.competitor_deriver import derive_competitor_signals
+
+        mock_generate.return_value = (
+            '{"competitor_keywords": [], "competitor_org_types": [], '
+            '"prospect_org_types": [], "prospect_signals": [], "reasoning": ""}'
+        )
+        derive_competitor_signals("interpretation tender Kenya")
+
+        mock_generate.assert_called()
+        self.assertEqual(mock_generate.call_args.kwargs.get("model"), "test-lite-model")
+
+    @patch("crawler.services.ai_page_extract.generate_text")
+    @override_settings(GEMINI_LITE_MODEL="test-lite-model", GEMINI_ANALYSIS_MODEL="test-flash-model")
+    def test_page_extraction_stays_on_analysis_model(self, mock_generate):
+        from crawler.services.ai_page_extract import extract_prospect_from_page
+
+        mock_generate.return_value = "{}"
+        extract_prospect_from_page(
+            "example.org", "https://example.org/tender", "some page text", seed_topic="x"
+        )
+
+        mock_generate.assert_called()
+        self.assertEqual(mock_generate.call_args.kwargs.get("model"), "test-flash-model")
+
+
 class CompetitorFilterTests(TestCase):
     def test_flags_lsp_seller_page(self):
         text = (
