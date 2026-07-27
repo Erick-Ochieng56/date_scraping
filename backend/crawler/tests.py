@@ -150,6 +150,84 @@ class GeminiModelSplitTests(TestCase):
         self.assertEqual(mock_generate.call_args.kwargs.get("model"), "test-flash-model")
 
 
+class GroundedSearchSupplementTests(TestCase):
+    """
+    Regression tests for promoting Search Grounding from "only when Serper found
+    nothing" to a threshold-based supplement: below AI_SEARCH_GROUNDED_SUPPLEMENT_THRESHOLD
+    candidates, grounded search backfills (merged, deduped by domain) instead of only
+    replacing an empty list.
+    """
+
+    def test_merge_prospects_by_domain_dedupes_and_preserves_order(self):
+        from crawler.tasks import _merge_prospects_by_domain
+
+        existing = [{"domain": "example.org"}, {"domain": "www.other.org"}]
+        new = [
+            {"domain": "example.org", "org_name": "duplicate, should be skipped"},
+            {"domain": "fresh.org", "org_name": "New Org"},
+        ]
+        merged = _merge_prospects_by_domain(existing, new)
+
+        self.assertEqual(
+            [p["domain"] for p in merged], ["example.org", "www.other.org", "fresh.org"]
+        )
+        # The duplicate's fields from `new` must not overwrite the existing entry.
+        self.assertNotIn("org_name", merged[0])
+
+    @patch("crawler.services.ai_search.grounded_prospect_search")
+    @patch("crawler.services.ai_search.serp_company_prospects")
+    @patch("crawler.services.ai_search.generate_search_queries")
+    @patch("crawler.services.prospect_verify.fetch_page_for_qualification")
+    @patch("crawler.services.ai_page_extract.gemini_extract_enabled", return_value=True)
+    @patch("crawler.discovery._get_serper_api_key", return_value="test-serper-key")
+    @override_settings(AI_SEARCH_GROUNDED_SUPPLEMENT_THRESHOLD=8, GEMINI_API_KEY="test-key")
+    def test_grounded_search_backfills_weak_serper_results(
+        self, mock_serper_key, mock_gemini_on, mock_fetch, mock_gen_queries, mock_serp, mock_grounded
+    ):
+        from crawler.tasks import run_ai_search_job
+
+        mock_gen_queries.return_value = [{"query": "q", "intent": "i", "expected_prospect_type": "ngo"}]
+        mock_serp.return_value = [{"domain": "weak1.org", "source_url": "https://weak1.org"}]
+        mock_grounded.return_value = [{"domain": "grounded1.org", "source_url": "https://grounded1.org"}]
+        mock_fetch.return_value = (False, "", "test: page fetch skipped")
+
+        user = User.objects.create_user(username="groundeduser", password="x")
+        job = AISearchJob.objects.create(owner=user, seed_topic="translation conference", status="pending")
+
+        run_ai_search_job.apply(kwargs={"job_id": job.id}).get()
+
+        mock_grounded.assert_called_once()
+        job.refresh_from_db()
+        self.assertEqual(job.status, "done")
+
+    @patch("crawler.services.ai_search.grounded_prospect_search")
+    @patch("crawler.services.ai_search.serp_company_prospects")
+    @patch("crawler.services.ai_search.generate_search_queries")
+    @patch("crawler.services.prospect_verify.fetch_page_for_qualification")
+    @patch("crawler.services.ai_page_extract.gemini_extract_enabled", return_value=True)
+    @patch("crawler.discovery._get_serper_api_key", return_value="test-serper-key")
+    @override_settings(AI_SEARCH_GROUNDED_SUPPLEMENT_THRESHOLD=2, GEMINI_API_KEY="test-key")
+    def test_grounded_search_skipped_when_serper_coverage_is_sufficient(
+        self, mock_serper_key, mock_gemini_on, mock_fetch, mock_gen_queries, mock_serp, mock_grounded
+    ):
+        from crawler.tasks import run_ai_search_job
+
+        mock_gen_queries.return_value = [{"query": "q", "intent": "i", "expected_prospect_type": "ngo"}]
+        mock_serp.return_value = [
+            {"domain": "strong1.org", "source_url": "https://strong1.org"},
+            {"domain": "strong2.org", "source_url": "https://strong2.org"},
+            {"domain": "strong3.org", "source_url": "https://strong3.org"},
+        ]
+        mock_fetch.return_value = (False, "", "test: page fetch skipped")
+
+        user = User.objects.create_user(username="groundeduser2", password="x")
+        job = AISearchJob.objects.create(owner=user, seed_topic="translation conference", status="pending")
+
+        run_ai_search_job.apply(kwargs={"job_id": job.id}).get()
+
+        mock_grounded.assert_not_called()
+
+
 class CompetitorFilterTests(TestCase):
     def test_flags_lsp_seller_page(self):
         text = (

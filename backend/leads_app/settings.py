@@ -201,6 +201,14 @@ GEMINI_LITE_MODEL = (
     _get_env("GEMINI_LITE_MODEL", "gemini-2.5-flash-lite") or "gemini-2.5-flash-lite"
 ).strip()
 GEMINI_GROUNDED_MAX_REMOTE_CALLS = int(_get_env("GEMINI_GROUNDED_MAX_REMOTE_CALLS", "5") or "5")
+# Search-grounded discovery (grounded_prospect_search) supplements — rather than
+# replaces — Serper/Bing results whenever they fall below this count, instead of only
+# running when Serper found literally nothing. Grounding calls are metered on their
+# own quota (see the "Search grounding" row on the Gemini quota page) separate from
+# plain RPM, so this stays a bounded backfill for weak jobs, not an always-on call.
+AI_SEARCH_GROUNDED_SUPPLEMENT_THRESHOLD = int(
+    _get_env("AI_SEARCH_GROUNDED_SUPPLEMENT_THRESHOLD", "8") or "8"
+)
 # Minimum seconds between successive Gemini calls, enforced process-wide in
 # gemini_client.py. Without this, a job fires one call per candidate back-to-back
 # with no pacing, which exhausts Gemini's per-minute request quota within the first

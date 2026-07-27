@@ -44,6 +44,20 @@ from crawler.services.domain_pipeline import run_post_analyzer_ai_pipeline
 logger = logging.getLogger(__name__)
 
 
+def _merge_prospects_by_domain(
+    existing: list[dict[str, Any]], new: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Append `new` prospect dicts onto `existing`, skipping any domain already present."""
+    seen = {(p.get("domain") or "").strip().lower().removeprefix("www.") for p in existing}
+    merged = list(existing)
+    for candidate in new:
+        dom = (candidate.get("domain") or "").strip().lower().removeprefix("www.")
+        if dom and dom not in seen:
+            seen.add(dom)
+            merged.append(candidate)
+    return merged
+
+
 def _run_is_cancelled(run_id: int) -> bool:
     run = CrawlRun.objects.filter(id=run_id).only("status").first()
     return bool(run and run.status != CrawlRunStatus.RUNNING)
@@ -695,12 +709,22 @@ def run_ai_search_job(job_id: int) -> dict[str, Any]:
         else:
             prospects = []
 
-        if not prospects and gemini_on:
-            prospects = grounded_prospect_search(
+        # Search-grounded discovery supplements (not replaces) weak Serper/Bing
+        # coverage — triggers below AI_SEARCH_GROUNDED_SUPPLEMENT_THRESHOLD candidates,
+        # not only when Serper found literally nothing, so jobs with a handful of weak
+        # hits still get backfilled. Grounding calls are metered on their own quota
+        # separate from plain RPM, so this stays a bounded backfill, not an always-on
+        # call every job (see AI_SEARCH_GROUNDED_SUPPLEMENT_THRESHOLD in settings.py).
+        grounded_threshold = int(
+            getattr(settings, "AI_SEARCH_GROUNDED_SUPPLEMENT_THRESHOLD", 8) or 8
+        )
+        if len(prospects) < grounded_threshold and gemini_on:
+            grounded = grounded_prospect_search(
                 topic=job.seed_topic,
                 region=job.region,
                 require_active_buyer=require_active_buyer,
             )
+            prospects = _merge_prospects_by_domain(prospects, grounded)
 
         if not prospects and not use_serp_first:
             prospects = serp_company_prospects(queries, region=job.region, max_total=45)
