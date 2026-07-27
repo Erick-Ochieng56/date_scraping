@@ -9,6 +9,8 @@ urlpatterns = [
     path('api/auth/login/', auth_api.api_auth_login, name='api_auth_login'),
     path('api/auth/logout/', auth_api.api_auth_logout, name='api_auth_logout'),
     path('api/auth/me/', auth_api.api_auth_me, name='api_auth_me'),
+    path('api/auth/profile/', auth_api.api_auth_profile, name='api_auth_profile'),
+    path('api/auth/profile/password/', auth_api.api_auth_change_password, name='api_auth_change_password'),
 
     # Export endpoints
     path('export/prospects/csv/', export_views.export_prospects_csv, name='export_prospects_csv'),

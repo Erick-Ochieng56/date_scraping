@@ -670,3 +670,107 @@ class RegisterUserCommandTests(TestCase):
         user.refresh_from_db()
         self.assertTrue(user.is_staff)
         self.assertTrue(user.is_superuser)
+
+
+class AuthProfileApiTests(TestCase):
+    """Self-service profile view/edit and password change (new: previously no
+    user-profile endpoints existed at all — username/role stayed admin-only via
+    Admin -> Users, and there was no way for a user to change their own password
+    outside of a CLI management command)."""
+
+    def setUp(self):
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            username="staffprofile",
+            password="orig-pass-123",
+            email="staff@example.com",
+            first_name="Staff",
+            last_name="Member",
+        )
+        group, _ = Group.objects.get_or_create(name=scraper_group_name())
+        self.user.groups.add(group)
+        self.client = APIClient()
+        self.client.force_login(self.user)
+
+    def test_get_profile_requires_authentication(self):
+        anon = APIClient()
+        resp = anon.get("/dashboard/api/auth/profile/")
+        self.assertEqual(resp.status_code, 401)
+
+    def test_get_profile_returns_own_account_fields(self):
+        resp = self.client.get("/dashboard/api/auth/profile/")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()["data"]
+        self.assertEqual(data["username"], "staffprofile")
+        self.assertEqual(data["email"], "staff@example.com")
+        self.assertEqual(data["first_name"], "Staff")
+        self.assertEqual(data["last_name"], "Member")
+        self.assertEqual(data["role"], "staff")
+
+    def test_patch_profile_updates_name_and_email(self):
+        resp = self.client.patch(
+            "/dashboard/api/auth/profile/",
+            data={"first_name": "New", "last_name": "Name", "email": "new@example.com"},
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, "New")
+        self.assertEqual(self.user.last_name, "Name")
+        self.assertEqual(self.user.email, "new@example.com")
+
+    def test_patch_profile_rejects_invalid_email(self):
+        resp = self.client.patch(
+            "/dashboard/api/auth/profile/",
+            data={"email": "not-an-email"},
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, "staff@example.com")
+
+    def test_patch_profile_cannot_change_username_or_role(self):
+        """Username/role stay admin-managed via Admin -> Users — the profile PATCH
+        body simply has no path to touch them, unlike AdminUsersPage's endpoints."""
+        resp = self.client.patch(
+            "/dashboard/api/auth/profile/",
+            data={"username": "hijacked", "is_staff": True},
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.username, "staffprofile")
+        self.assertFalse(self.user.is_staff)
+
+    def test_change_password_requires_correct_current_password(self):
+        resp = self.client.post(
+            "/dashboard/api/auth/profile/password/",
+            data={"current_password": "wrong-password", "new_password": "new-strong-pass-1"},
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("incorrect", resp.json()["error"].lower())
+
+    def test_change_password_enforces_validators(self):
+        """AUTH_PASSWORD_VALIDATORS (min length, common-password check) apply here too."""
+        resp = self.client.post(
+            "/dashboard/api/auth/profile/password/",
+            data={"current_password": "orig-pass-123", "new_password": "password"},
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_change_password_succeeds_and_keeps_session_alive(self):
+        resp = self.client.post(
+            "/dashboard/api/auth/profile/password/",
+            data={"current_password": "orig-pass-123", "new_password": "new-strong-pass-1"},
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("new-strong-pass-1"))
+
+        # update_session_auth_hash should keep this same client session authenticated —
+        # a subsequent request must not be bounced to 401.
+        follow_up = self.client.get("/dashboard/api/auth/profile/")
+        self.assertEqual(follow_up.status_code, 200)

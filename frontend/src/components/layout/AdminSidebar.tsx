@@ -61,9 +61,14 @@ export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
 
       <div className="space-y-0.5 border-t border-sidebar-border pt-3">
         {me && me.authenticated ? (
-          <p className="mb-2 truncate px-2 text-xs text-sidebar-foreground/80" title={me.username}>
+          <NavLink
+            to="/admin/profile"
+            onClick={onNavigate}
+            className="mb-2 block truncate rounded-md px-2 py-1 text-xs text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            title={me.username}
+          >
             Signed in as <span className="font-medium">{me.username}</span>
-          </p>
+          </NavLink>
         ) : null}
         <ThemeToggle />
         <Button
