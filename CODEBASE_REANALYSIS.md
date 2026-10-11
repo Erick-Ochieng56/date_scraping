@@ -35,7 +35,7 @@ The backend has **7 Django apps**, not the 4 visible at first glance:
 
 ## 3. What's broken
 
-1. **Live secrets sitting in `backend/.env` on disk.** A full Google service-account private key (project `ateric`), a Serper API key, a Gemini API key, a Django secret key, and a real Sheets spreadsheet ID are all present in plaintext. `.env` is correctly gitignored, so it isn't currently tracked — but `git-filter-repo` (a tool almost exclusively used to scrub secrets from git history after an accidental commit) is pinned in `requirements.txt`, which is a strong signal these secrets — or earlier versions of them — may already be sitting in git history. **Recommend a git-history secret scan (`trufflehog`/`gitleaks` or `git log -p -- '*.env'`) before this repo is ever pushed anywhere semi-public, and rotating all four credentials regardless.**
+1. **Local credentials belong only in gitignored `backend/.env`.** That file is not tracked. Do not commit it, and do not paste live keys or spreadsheet IDs into docs or examples.
 2. **Dead JWT auth config.** `REST_FRAMEWORK` is configured for `JWTAuthentication` and `SIMPLE_JWT`/`djangorestframework_simplejwt` are installed, but every real DRF view overrides this with `SessionAuthentication`, and there's no `/api/token/` endpoint anywhere. This configuration is inert and misleading to anyone reading settings.py expecting JWT to be live.
 3. **Activity Log & Notifications are dead on arrival.** `dashboard`'s Phase 5 doc marks these "✅ Complete," but the project's own `DASHBOARD_ANALYSIS_SUMMARY.md` admits the models and helper functions (`log_activity()`, `create_notification()`) exist but are **never called** anywhere in the codebase — 0% integrated. The audit trail and notification bell are non-functional despite being marked done.
 4. **`django_filters` and `django_tables2`** are installed apps with zero actual usage anywhere in the codebase — dead weight, possibly leftover from an earlier version of the dashboard before it was rebuilt around the DRF API.
@@ -55,7 +55,7 @@ The backend has **7 Django apps**, not the 4 visible at first glance:
 
 ## 5. Recommended next steps, in priority order
 
-1. Rotate the Gemini, Serper, and Google service-account credentials currently sitting in `backend/.env`, and scan git history for prior leaks before doing anything else with this repo (push to a new remote, share it, add collaborators).
+1. Keep API keys and service-account credentials only in gitignored `backend/.env` or the host's secret store.
 2. Decide and document which frontend is canonical (React SPA vs. Bootstrap dashboard) and archive or delete the other's code/docs accordingly.
 3. Either wire up Activity Log/Notifications for real or strike the "complete" claim and remove the dead code paths.
 4. Remove dead config (`django_filters`, `django_tables2`, unused JWT settings) and dead frontend files (`App.css`, unused assets, orphaned `admin/*-sections.tsx` components, legacy `triggerScrape`/`getRunStatus`/`retryRun` API functions) to cut noise for future contributors.

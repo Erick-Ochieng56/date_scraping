@@ -26,3 +26,6 @@ env/
 docs/
 cert.crt
 cert.key
+celerybeat-schedule*
+card_dump.txt
+out.txt

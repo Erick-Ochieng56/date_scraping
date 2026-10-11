@@ -1,8 +1,27 @@
-/scripts
+# Local secrets. backend/.gitignore also ignores backend/.env.
+.env
+.env.*
+!.env.example
 
-backend/cert.crt
-backend/cert.key
+# Machine-specific IDE / agent config
+.claude/
+
+# Dev TLS material
+cert.crt
+cert.key
+**/*.pem
+
+# Celery beat runtime database (repo root and backend/)
+celerybeat-schedule*
 backend/celerybeat-schedule*
+
+# Local databases and scrape debug output
+*.sqlite3
 backend/db.sqlite3
+card_dump.txt
+out.txt
+backend/card_dump.txt
+backend/out.txt
+
 **/__pycache__/
 **/*.pyc

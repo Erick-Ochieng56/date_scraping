@@ -85,7 +85,7 @@ Session-based (not JWT). Two roles distinguished by group membership / `is_staff
 
 ## Known repo-wide caveats (from prior full-codebase audits)
 
-- `backend/.env` historically has held live secrets (Google service-account key, Serper/Gemini keys, Django secret, Sheets ID). It's gitignored but `git-filter-repo` is pinned in `requirements.txt`, suggesting past leakage — rotate credentials and scan git history before any semi-public push.
+- `backend/.env` is gitignored. Keep local credentials there (or in the host secret store) and do not commit that file or paste live values into docs.
 - Activity Log / Notifications models and helpers (`log_activity()`, `create_notification()`) exist in `dashboard` but are called from nowhere — non-functional despite being described as complete in older docs.
 - `django_filters`/`django_tables2` are installed apps with no actual usage in the codebase.
 - Only Eventbrite scraping is validated end-to-end; other platform selector configs are aspirational/untested per `backend/TWO_STAGE_SCRAPING.md`.
